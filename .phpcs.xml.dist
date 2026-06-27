@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<ruleset name="BuddyNext Importer">
+	<description>WordPress Coding Standards for buddynext-importer (PSR-4, PascalCase filenames, same convention as BuddyNext core).</description>
+
+	<file>.</file>
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>*/build/*</exclude-pattern>
+
+	<arg name="extensions" value="php"/>
+	<arg value="ps"/>
+	<arg name="parallel" value="8"/>
+
+	<rule ref="WordPress">
+		<!-- PSR-4 PascalCase filenames + a hand-written autoloader, like BuddyNext core. -->
+		<exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
+		<exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
+	</rule>
+
+	<config name="minimum_supported_wp_version" value="6.6"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="buddynext-importer"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="buddynext_importer"/>
+				<element value="BuddyNextImporter"/>
+				<element value="BUDDYNEXT_IMPORTER"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>

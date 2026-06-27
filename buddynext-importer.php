@@ -20,13 +20,22 @@ declare( strict_types=1 );
 defined( 'ABSPATH' ) || exit;
 
 /**
- * One-time transition tool. It hard-requires BuddyNext active and is built
- * entirely against the BuddyNext service layer plus an "import mode" that
- * suppresses side effects (notifications, emails, webhooks, realtime) for the
- * duration of a run. See README.md for the source-adapter architecture and the
- * resumable, batched migration pipeline.
- *
- * Bootstrap is intentionally not wired yet - this is the repository scaffold.
+ * One-time transition tool. It is built against the BuddyNext service layer
+ * plus an "import mode" that suppresses side effects (notifications, emails,
+ * webhooks, realtime) for the duration of a run, and exposes two run surfaces:
+ * WP-CLI for developers/large sites and an admin page with a REST-driven
+ * progress monitor for site owners. See README.md + docs/build-plan.md.
  */
 
 const BUDDYNEXT_IMPORTER_VERSION = '0.1.0-dev';
+
+define( 'BUDDYNEXT_IMPORTER_FILE', __FILE__ );
+define( 'BUDDYNEXT_IMPORTER_DIR', plugin_dir_path( __FILE__ ) );
+define( 'BUDDYNEXT_IMPORTER_URL', plugin_dir_url( __FILE__ ) );
+
+require_once BUDDYNEXT_IMPORTER_DIR . 'includes/Autoloader.php';
+\BuddyNextImporter\Autoloader::register();
+
+register_activation_hook( __FILE__, array( \BuddyNextImporter\Core\Activator::class, 'activate' ) );
+
+add_action( 'plugins_loaded', array( \BuddyNextImporter\Plugin::class, 'boot' ), 20 );

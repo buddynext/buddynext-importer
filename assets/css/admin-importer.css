@@ -1,0 +1,63 @@
+/* Importer admin page. */
+
+.bni-intro {
+	max-width: 70ch;
+	color: #50575e;
+}
+
+.bni-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 16px 20px;
+	margin-top: 16px;
+	max-width: 760px;
+}
+
+.bni-card__title {
+	margin-top: 0;
+	font-size: 14px;
+}
+
+.bni-source {
+	font-weight: 600;
+	margin: 0 0 12px;
+}
+
+.bni-stats__count {
+	text-align: end;
+	width: 8em;
+}
+
+.bni-progress {
+	background: #f0f0f1;
+	border-radius: 999px;
+	height: 10px;
+	overflow: hidden;
+}
+
+.bni-progress__bar {
+	background: #2271b1;
+	height: 100%;
+	width: 0;
+	transition: width 0.2s ease;
+}
+
+.bni-progress__label {
+	color: #50575e;
+	margin: 8px 0 0;
+}
+
+.bni-actions {
+	margin-top: 16px;
+}
+
+@media ( max-width: 640px ) {
+	.bni-card {
+		padding: 12px 14px;
+	}
+
+	.bni-stats__count {
+		width: 5em;
+	}
+}
