@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\CLI;
 
 use BuddyNextImporter\Pipeline\ActivityImporter;
+use BuddyNextImporter\Pipeline\FriendImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
@@ -272,5 +273,60 @@ final class MigrateCommand {
 		} while ( $result['fetched'] === $batch );
 
 		\WP_CLI::success( sprintf( 'Activity imported: %d posts, %d comments.', $posts, $comments ) );
+	}
+
+	/**
+	 * Import friendships into BuddyNext as connections.
+	 *
+	 * Confirmed friendships become accepted connections; pending ones become
+	 * connection requests. Writes only through the BuddyNext service API.
+	 * Idempotent and resumable.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Friendships per batch. Default 200.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-friends
+	 *
+	 * @subcommand migrate-friends
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_friends( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = FriendImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
+
+		$after = 0;
+		$total = 0;
+		do {
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['connections'];
+			$after  = $result['last'];
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success( sprintf( 'Friendships imported: %d connections.', $total ) );
 	}
 }

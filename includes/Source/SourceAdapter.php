@@ -109,4 +109,13 @@ interface SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function activity_comments( int $after, int $limit ): array;
+
+	/**
+	 * Friendships, keyset-paginated by friendship id.
+	 *
+	 * @param int $after Exclusive lower-bound friendship id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function friendships( int $after, int $limit ): array;
 }

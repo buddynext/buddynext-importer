@@ -15,6 +15,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\Rest;
 
 use BuddyNextImporter\Pipeline\ActivityImporter;
+use BuddyNextImporter\Pipeline\FriendImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
@@ -224,6 +225,10 @@ final class ProgressController {
 			return $this->step_activity( $source, (string) $request->get_param( 'stage' ), $after, $batch );
 		}
 
+		if ( 'friends' === $phase ) {
+			return $this->step_friends( $source, $after, $batch );
+		}
+
 		return new WP_Error(
 			'buddynext_importer_unknown_phase',
 			/* translators: %s: phase name. */
@@ -329,6 +334,32 @@ final class ProgressController {
 				'posts'  => $result['posts'],
 				// Posts stage is done when the page is short; the client then runs the comments stage.
 				'done'   => $result['fetched'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Advance the friends phase by one batch.
+	 *
+	 * @param string $source Source key.
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_friends( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
+		$importer = FriendImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		$result = $importer->import_batch( $after, $batch );
+
+		return new WP_REST_Response(
+			array(
+				'phase'       => 'friends',
+				'source'      => $source,
+				'last'        => $result['last'],
+				'connections' => $result['connections'],
+				'done'        => $result['fetched'] < $batch,
 			)
 		);
 	}
