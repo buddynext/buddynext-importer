@@ -34,6 +34,8 @@ common record DTOs  ->  Writer\* (BuddyNext services)  ->  bn_* tables
 6. **BuddyBoss deltas** - the 3 extra field types; then **forums -> Jetonomy** (only when Jetonomy is active).
 7. **Finishing** - one bulk recount pass; summary report.
 
+**Orchestration (done).** `wp buddynext-import migrate-all` runs profiles -> spaces -> activity -> friends in dependency order (each phase idempotent, so re-running resumes). The admin page (`Tools -> Import to BuddyNext`) drives the same REST `/step` endpoint from `assets/js/admin-importer.js`: one "Start import" click chains all phases, advancing the progress bar against the stats totals to 100%. Browser-verified end-to-end on buddynext.local: clicked Start -> bar reached 100% -> "Import complete" -> id-map showed 3 groups, 10 fields, 45 spaces, 129 posts, 91 connections, with 0 notifications fired. Both run surfaces now work end to end.
+
 ## Verification harness
 
 reign-release.local is the BuddyPress fixture (real demo data: 26 users, 250 xprofile values, 45 groups, 129 real activities, 91 friendships). Each phase is run there, then the result is checked in BuddyNext (counts + spot-checks). A BuddyBoss fixture (buddyboss.local) covers the deltas.

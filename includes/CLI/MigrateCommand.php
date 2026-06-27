@@ -329,4 +329,50 @@ final class MigrateCommand {
 
 		\WP_CLI::success( sprintf( 'Friendships imported: %d connections.', $total ) );
 	}
+
+	/**
+	 * Run the full migration in dependency order: profiles, spaces, activity,
+	 * friends. Each phase is idempotent, so re-running resumes safely.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Rows per batch. Default 100.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-all
+	 *
+	 * @subcommand migrate-all
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_all( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
+
+		\WP_CLI::log( sprintf( 'Migrating %s -> BuddyNext (batch %d).', $source, $batch ) );
+
+		$this->migrate_profiles( $args, $assoc_args );
+		$this->migrate_spaces( $args, $assoc_args );
+		$this->migrate_activity( $args, $assoc_args );
+		$this->migrate_friends( $args, $assoc_args );
+
+		\WP_CLI::success( 'Migration complete. You can now deactivate and remove this importer.' );
+	}
 }
