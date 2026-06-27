@@ -86,7 +86,7 @@ final class ProgressController {
 	}
 
 	/**
-	 * GET /stats — source detection + per-domain counts.
+	 * GET /stats - source detection + per-domain counts.
 	 *
 	 * @param WP_REST_Request $request Request.
 	 */
@@ -118,7 +118,7 @@ final class ProgressController {
 	}
 
 	/**
-	 * GET /status — current import progress for the monitor.
+	 * GET /status - current import progress for the monitor.
 	 *
 	 * Phase 1 returns the idle envelope. Later phases populate phase/done/total
 	 * from the id-map as batches run.
