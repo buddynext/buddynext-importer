@@ -98,6 +98,8 @@ final class ForumWriter {
 			return $existing;
 		}
 
+		$visibility = $this->visibility( (string) ( $forum['status'] ?? 'publish' ) );
+
 		$result = ImportMode::run(
 			fn() => ( new \Jetonomy\CLI\Journeys\Space_Journey() )->create(
 				array(
@@ -105,7 +107,8 @@ final class ForumWriter {
 					'slug'        => $this->slug( (string) $forum['slug'], (string) $forum['title'], 'forum-' . $source_id ),
 					'category_id' => $category_id,
 					'type'        => 'forum',
-					'visibility'  => $this->visibility( (string) ( $forum['status'] ?? 'publish' ) ),
+					'visibility'  => $visibility,
+					'join_policy' => $this->join_policy( $visibility ),
 					'description' => wp_strip_all_tags( (string) $forum['content'] ),
 				)
 			)
@@ -261,6 +264,23 @@ final class ForumWriter {
 			default:
 				// publish, public.
 				return 'public';
+		}
+	}
+
+	/**
+	 * Pick a Jetonomy join policy compatible with the visibility. Jetonomy
+	 * requires hidden spaces to be invite-only.
+	 *
+	 * @param string $visibility Jetonomy space visibility.
+	 */
+	private function join_policy( string $visibility ): string {
+		switch ( $visibility ) {
+			case 'hidden':
+				return 'invite';
+			case 'private':
+				return 'approval';
+			default:
+				return 'open';
 		}
 	}
 }
