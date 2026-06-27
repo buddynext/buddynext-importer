@@ -26,8 +26,8 @@ common record DTOs  ->  Writer\* (BuddyNext services)  ->  bn_* tables
 
 ## Build order (each phase verified end-to-end on reign-release before the next)
 
-1. **Foundation** - `ImportMode` + `IdMap` (table + read/write) + the CLI skeleton + `stats()`. No data moved yet; prove the toggle + map.
-2. **Profiles** - xprofile field defs + values. The easiest domain, de-risks the pipeline (straight type map; only multi-value `maybe_unserialize`). Verify a member's fields land in BuddyNext.
+1. **Foundation** - DONE. `ImportMode` + `IdMap` (table + read/write) + the CLI skeleton + `stats()`. No data moved; toggle + map proven.
+2. **Profiles** - DONE. xprofile groups + field defs (+ options) + member values, written only through `buddynext_service( 'profiles' )` (`create_group`/`create_field`/`save_profile`). `FieldTypeMap` (BP core + BuddyBoss + BPXCFT), multi-value `maybe_unserialize` -> option-slug match, datebox reformat. Both surfaces: `wp buddynext-import migrate-profiles` + REST `POST /step`. Verified end-to-end on buddynext.local against reign-release data (3 groups, 10 fields, 25 members, 250 values; correct types + option slugs), then cleaned up.
 3. **Groups -> spaces** - groups + members (privacy + role + pending). Verify a space + its roster.
 4. **Activity -> posts + comments + media** - import `activity_update` only; skip system rows; rebuild comment threads; attach `bp_media`/`bp_video` via MediaVerse (the shared media step). Verify a post with photos.
 5. **Friends -> connections** - mutual; pending preserved.

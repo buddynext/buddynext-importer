@@ -63,6 +63,140 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Source profile field groups (xprofile groups), ordered.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function profile_groups(): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_xprofile_groups' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_xprofile_groups';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( "SELECT id, name, description, group_order FROM `{$table}` ORDER BY group_order ASC, id ASC", ARRAY_A );
+
+		$groups = array();
+		foreach ( (array) $rows as $row ) {
+			$groups[] = array(
+				'source_id'   => (int) $row['id'],
+				'name'        => (string) $row['name'],
+				'description' => (string) $row['description'],
+				'sort_order'  => (int) $row['group_order'],
+			);
+		}
+
+		return $groups;
+	}
+
+	/**
+	 * Source profile fields (parent fields only), each with its options list.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function profile_fields(): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_xprofile_fields' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_xprofile_fields';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( "SELECT id, group_id, name, type, is_required, field_order FROM `{$table}` WHERE parent_id = 0 ORDER BY group_id ASC, field_order ASC", ARRAY_A );
+
+		$fields = array();
+		foreach ( (array) $rows as $row ) {
+			$fields[] = array(
+				'source_id'   => (int) $row['id'],
+				'group_id'    => (int) $row['group_id'],
+				'name'        => (string) $row['name'],
+				'type'        => (string) $row['type'],
+				'is_required' => (int) $row['is_required'],
+				'sort_order'  => (int) $row['field_order'],
+				'options'     => $this->field_options( (int) $row['id'] ),
+			);
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * Option labels for a choice field (its child rows), ordered.
+	 *
+	 * @param int $field_id Parent field id.
+	 * @return array<int,string>
+	 */
+	public function field_options( int $field_id ): array {
+		global $wpdb;
+
+		$table = $wpdb->prefix . 'bp_xprofile_fields';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_col( $wpdb->prepare( "SELECT name FROM `{$table}` WHERE parent_id = %d ORDER BY option_order ASC, id ASC", $field_id ) );
+
+		return array_map( 'strval', (array) $rows );
+	}
+
+	/**
+	 * User ids that have profile values, keyset-paginated by user id.
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Batch size.
+	 * @return array<int,int>
+	 */
+	public function profile_value_user_ids( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_xprofile_data' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_xprofile_data';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT user_id FROM `{$table}` WHERE user_id > %d ORDER BY user_id ASC LIMIT %d", $after, $limit ) );
+
+		return array_map( 'intval', (array) $rows );
+	}
+
+	/**
+	 * A user's stored profile values, joined to field type + name.
+	 *
+	 * @param int $user_id User id.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function profile_values( int $user_id ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_xprofile_data' ) ) {
+			return array();
+		}
+
+		$data   = $wpdb->prefix . 'bp_xprofile_data';
+		$fields = $wpdb->prefix . 'bp_xprofile_fields';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT d.field_id, f.name, f.type, d.value FROM `{$data}` d JOIN `{$fields}` f ON f.id = d.field_id WHERE d.user_id = %d", $user_id ), ARRAY_A );
+
+		$values = array();
+		foreach ( (array) $rows as $row ) {
+			$values[] = array(
+				'field_id' => (int) $row['field_id'],
+				'name'     => (string) $row['name'],
+				'type'     => (string) $row['type'],
+				'value'    => (string) $row['value'],
+			);
+		}
+
+		return $values;
+	}
+
+	/**
 	 * Count rows of a prefixed table, guarded against the table not existing.
 	 *
 	 * The table name is a hard-coded literal (never user input) and the optional

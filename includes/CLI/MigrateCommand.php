@@ -9,6 +9,8 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\CLI;
 
+use BuddyNextImporter\Pipeline\ProfileImporter;
+use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
 
 defined( 'ABSPATH' ) || exit;
@@ -69,5 +71,77 @@ final class MigrateCommand {
 		}
 
 		\WP_CLI\Utils\format_items( 'table', $rows, array( 'domain', 'count' ) );
+	}
+
+	/**
+	 * Import profile field groups, fields, and member values into BuddyNext.
+	 *
+	 * Writes only through the BuddyNext service API. Idempotent and resumable.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Users per batch. Default 100.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-profiles
+	 *     wp buddynext-import migrate-profiles --source=buddyboss --batch=200
+	 *
+	 * @subcommand migrate-profiles
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_profiles( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = ProfileImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
+
+		$schema = $importer->import_schema();
+		\WP_CLI::log( sprintf( 'Schema imported: %d groups, %d fields.', $schema['groups'], $schema['fields'] ) );
+
+		$after        = 0;
+		$total_users  = 0;
+		$total_values = 0;
+
+		do {
+			$result        = $importer->import_values_batch( $after, $batch );
+			$total_users  += $result['users'];
+			$total_values += $result['values'];
+			$after         = $result['last'];
+
+			if ( $result['users'] > 0 ) {
+				\WP_CLI::log( sprintf( '  ... %d members, %d values (last id %d)', $total_users, $total_values, $after ) );
+			}
+		} while ( $result['users'] === $batch );
+
+		\WP_CLI::success(
+			sprintf(
+				'Profiles imported: %d groups, %d fields, %d members, %d values.',
+				$schema['groups'],
+				$schema['fields'],
+				$total_users,
+				$total_values
+			)
+		);
 	}
 }

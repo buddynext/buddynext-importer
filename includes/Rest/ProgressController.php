@@ -14,6 +14,8 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Rest;
 
+use BuddyNextImporter\Pipeline\ProfileImporter;
+use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
 use WP_Error;
 use WP_REST_Request;
@@ -66,6 +68,41 @@ final class ProgressController {
 				'methods'             => 'GET',
 				'callback'            => array( $this, 'get_status' ),
 				'permission_callback' => array( $this, 'require_admin' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/step',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'run_step' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'source' => array(
+						'type'              => 'string',
+						'required'          => false,
+						'sanitize_callback' => 'sanitize_key',
+					),
+					'phase'  => array(
+						'type'              => 'string',
+						'required'          => false,
+						'default'           => 'profiles',
+						'sanitize_callback' => 'sanitize_key',
+					),
+					'after'  => array(
+						'type'              => 'integer',
+						'required'          => false,
+						'default'           => 0,
+						'sanitize_callback' => 'absint',
+					),
+					'batch'  => array(
+						'type'              => 'integer',
+						'required'          => false,
+						'default'           => 50,
+						'sanitize_callback' => 'absint',
+					),
+				),
 			)
 		);
 	}
@@ -131,6 +168,77 @@ final class ProgressController {
 				'done'    => 0,
 				'total'   => 0,
 				'percent' => 0,
+			)
+		);
+	}
+
+	/**
+	 * POST /step - advance the import by one keyset batch.
+	 *
+	 * The admin run loop calls this repeatedly until `done` is true, so a large
+	 * site imports without a request timeout. Phase 2 implements the `profiles`
+	 * phase; later phases extend the switch.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function run_step( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		if ( ! Plugin::buddynext_active() ) {
+			return new WP_Error(
+				'buddynext_importer_no_target',
+				__( 'BuddyNext must be active before importing.', 'buddynext-importer' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$phase  = (string) $request->get_param( 'phase' );
+		$source = $request->get_param( 'source' );
+		$source = is_string( $source ) && '' !== $source ? $source : AdapterRegistry::detect_active_key();
+		$after  = (int) $request->get_param( 'after' );
+		$batch  = max( 1, min( 200, (int) $request->get_param( 'batch' ) ) );
+
+		if ( null === $source ) {
+			return new WP_Error(
+				'buddynext_importer_no_source',
+				__( 'No source community was found on this site.', 'buddynext-importer' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		if ( 'profiles' !== $phase ) {
+			return new WP_Error(
+				'buddynext_importer_unknown_phase',
+				/* translators: %s: phase name. */
+				sprintf( __( 'Unknown import phase: %s', 'buddynext-importer' ), $phase ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$importer = ProfileImporter::for_source( $source );
+		if ( null === $importer ) {
+			return new WP_Error(
+				'buddynext_importer_unavailable',
+				__( 'The selected source is not available on this site.', 'buddynext-importer' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$schema = array();
+		if ( 0 === $after ) {
+			// First step also imports the schema (groups + fields).
+			$schema = $importer->import_schema();
+		}
+
+		$result = $importer->import_values_batch( $after, $batch );
+
+		return new WP_REST_Response(
+			array(
+				'phase'  => 'profiles',
+				'source' => $source,
+				'schema' => $schema,
+				'last'   => $result['last'],
+				'users'  => $result['users'],
+				'values' => $result['values'],
+				'done'   => $result['users'] < $batch,
 			)
 		);
 	}
