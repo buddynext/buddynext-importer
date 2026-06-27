@@ -81,8 +81,9 @@ final class ActivityImporter {
 		$last  = $after;
 
 		foreach ( $rows as $row ) {
-			$last = (int) $row['source_id'];
-			if ( $this->writer->import_post( $row ) > 0 ) {
+			$last  = (int) $row['source_id'];
+			$media = $this->adapter->activity_media( $last );
+			if ( $this->writer->import_post( $row, $media ) > 0 ) {
 				++$posts;
 			}
 		}

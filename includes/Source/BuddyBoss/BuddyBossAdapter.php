@@ -69,6 +69,76 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 	}
 
 	/**
+	 * Attachment ids of the photos + videos attached to a BuddyBoss activity.
+	 * Reads the bp_media_ids / bp_video_ids activity meta, then resolves each
+	 * media/video row to its WP attachment.
+	 *
+	 * @param int $activity_id Source activity id.
+	 * @return array<int,int>
+	 */
+	public function activity_media( int $activity_id ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_activity_meta' ) ) {
+			return array();
+		}
+
+		$attachments = array();
+		$sources     = array(
+			'bp_media_ids' => 'bp_media',
+			'bp_video_ids' => 'bp_video',
+		);
+
+		foreach ( $sources as $meta_key => $unprefixed ) {
+			if ( ! $this->table_exists( $unprefixed ) ) {
+				continue;
+			}
+
+			$meta_table = $wpdb->prefix . 'bp_activity_meta';
+
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$raw = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM `{$meta_table}` WHERE activity_id = %d AND meta_key = %s", $activity_id, $meta_key ) );
+
+			$row_ids = $this->parse_id_list( (string) $raw );
+			if ( empty( $row_ids ) ) {
+				continue;
+			}
+
+			$table        = $wpdb->prefix . $unprefixed;
+			$placeholders = implode( ', ', array_fill( 0, count( $row_ids ), '%d' ) );
+
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+			$found = $wpdb->get_col( $wpdb->prepare( "SELECT attachment_id FROM `{$table}` WHERE id IN ( {$placeholders} )", $row_ids ) );
+
+			foreach ( $found as $attachment_id ) {
+				$attachment_id = (int) $attachment_id;
+				if ( $attachment_id > 0 ) {
+					$attachments[] = $attachment_id;
+				}
+			}
+		}
+
+		return array_values( array_unique( $attachments ) );
+	}
+
+	/**
+	 * Parse a media-id list stored as either a serialized array or a CSV string.
+	 *
+	 * @param string $raw Stored meta value.
+	 * @return array<int,int>
+	 */
+	private function parse_id_list( string $raw ): array {
+		if ( '' === $raw ) {
+			return array();
+		}
+
+		$decoded = maybe_unserialize( $raw );
+		$list    = is_array( $decoded ) ? $decoded : explode( ',', $raw );
+
+		return array_values( array_filter( array_map( 'intval', $list ) ) );
+	}
+
+	/**
 	 * Count published posts of a bbPress post type.
 	 *
 	 * @param string $post_type Post type slug (topic|reply|forum).

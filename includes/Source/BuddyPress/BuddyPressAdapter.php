@@ -371,6 +371,16 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * BuddyPress core has no activity media.
+	 *
+	 * @param int $activity_id Source activity id.
+	 * @return array<int,int>
+	 */
+	public function activity_media( int $activity_id ): array {
+		return array();
+	}
+
+	/**
 	 * Count rows of a prefixed table, guarded against the table not existing.
 	 *
 	 * The table name is a hard-coded literal (never user input) and the optional

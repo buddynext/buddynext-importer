@@ -118,4 +118,13 @@ interface SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function friendships( int $after, int $limit ): array;
+
+	/**
+	 * WP attachment ids of the media (photos + videos) attached to an activity.
+	 * BuddyPress core has none; BuddyBoss reads bp_media_ids / bp_video_ids.
+	 *
+	 * @param int $activity_id Source activity id.
+	 * @return array<int,int>
+	 */
+	public function activity_media( int $activity_id ): array;
 }

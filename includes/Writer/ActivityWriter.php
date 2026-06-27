@@ -61,10 +61,11 @@ final class ActivityWriter {
 	 * mapped space; everything else is a sitewide post. The original timestamp is
 	 * preserved through PostService's backdate-aware created_at.
 	 *
-	 * @param array<string,mixed> $activity Source activity record.
+	 * @param array<string,mixed> $activity   Source activity record.
+	 * @param array<int,int>      $media_atts WP attachment ids attached to the activity.
 	 * @return int BuddyNext post id (0 on failure/skip).
 	 */
-	public function import_post( array $activity ): int {
+	public function import_post( array $activity, array $media_atts = array() ): int {
 		$source_id = (int) $activity['source_id'];
 
 		$existing = IdMap::get( $this->source, 'post', $source_id );
@@ -72,8 +73,12 @@ final class ActivityWriter {
 			return $existing;
 		}
 
-		$content = trim( (string) $activity['content'] );
-		if ( '' === $content ) {
+		$user_id   = (int) $activity['user_id'];
+		$content   = trim( (string) $activity['content'] );
+		$media_ids = $this->ingest_media( $media_atts, $user_id );
+
+		// A post needs either content or media.
+		if ( '' === $content && empty( $media_ids ) ) {
 			return 0;
 		}
 
@@ -84,14 +89,18 @@ final class ActivityWriter {
 		}
 
 		$data = array(
-			'type'       => 'text',
+			'type'       => empty( $media_ids ) ? 'text' : 'media',
 			'content'    => $content,
 			'space_id'   => $space_id,
 			'created_at' => $this->utc( (string) $activity['date_recorded'] ),
 		);
 
+		if ( ! empty( $media_ids ) ) {
+			$data['media_ids'] = $media_ids;
+		}
+
 		$result = ImportMode::run(
-			fn() => $this->posts()->create( (int) $activity['user_id'], $data )
+			fn() => $this->posts()->create( $user_id, $data )
 		);
 
 		if ( is_wp_error( $result ) ) {
@@ -160,5 +169,81 @@ final class ActivityWriter {
 	private function utc( string $value ): string {
 		$timestamp = strtotime( $value . ' UTC' );
 		return false === $timestamp ? '' : gmdate( 'Y-m-d H:i:s', $timestamp );
+	}
+
+	/**
+	 * Ingest source WP attachments into the BuddyNext media engine (WPMediaVerse)
+	 * via the MediaClient seam, returning the resulting media ids. A copy of each
+	 * attachment file is handed to the upload service so the original attachment is
+	 * left intact. No-op when the media engine is absent.
+	 *
+	 * @param array<int,int> $attachment_ids WP attachment ids.
+	 * @param int            $user_id        Owner of the imported media.
+	 * @return array<int,int> BuddyNext/WPMediaVerse media ids.
+	 */
+	private function ingest_media( array $attachment_ids, int $user_id ): array {
+		if ( empty( $attachment_ids ) || ! \BuddyNext\Media\MediaClient::available() ) {
+			return array();
+		}
+
+		$upload = \BuddyNext\Media\MediaClient::upload();
+		if ( ! is_object( $upload ) || ! method_exists( $upload, 'handle' ) ) {
+			return array();
+		}
+
+		$media_ids = array();
+
+		foreach ( $attachment_ids as $attachment_id ) {
+			$path = get_attached_file( (int) $attachment_id );
+			if ( ! is_string( $path ) || '' === $path || ! file_exists( $path ) ) {
+				continue;
+			}
+
+			// Hand the upload service a copy so the original attachment file survives.
+			$copy = wp_tempnam( wp_basename( $path ) );
+			if ( ! $copy || ! copy( $path, $copy ) ) {
+				continue;
+			}
+
+			$file = array(
+				'name'     => wp_basename( $path ),
+				'type'     => (string) get_post_mime_type( (int) $attachment_id ),
+				'tmp_name' => $copy,
+				'error'    => 0,
+				'size'     => (int) filesize( $copy ),
+			);
+
+			$result   = ImportMode::run( fn() => $upload->handle( $file, $user_id ) );
+			$media_id = $this->extract_media_id( $result );
+
+			if ( $media_id > 0 ) {
+				$media_ids[] = $media_id;
+			}
+
+			if ( file_exists( $copy ) ) {
+				wp_delete_file( $copy );
+			}
+		}
+
+		return $media_ids;
+	}
+
+	/**
+	 * Pull a media id out of the upload service result (int, or array/object with
+	 * an id|media_id key).
+	 *
+	 * @param mixed $result Upload service return value.
+	 */
+	private function extract_media_id( $result ): int {
+		if ( is_numeric( $result ) ) {
+			return (int) $result;
+		}
+		if ( is_array( $result ) ) {
+			return (int) ( $result['id'] ?? $result['media_id'] ?? 0 );
+		}
+		if ( is_object( $result ) ) {
+			return (int) ( $result->id ?? $result->media_id ?? 0 );
+		}
+		return 0;
 	}
 }

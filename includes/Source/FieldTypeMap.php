@@ -37,7 +37,9 @@ final class FieldTypeMap {
 		'telephone'                    => 'phone',
 		// BuddyBoss extras (gender/social-networks; member-types handled as assignment).
 		'gender'                       => 'select',
-		'social-networks'              => 'multiselect',
+		// social-networks stores an associative network => URL map, not option
+		// slugs, so it lands in a textarea as readable "Network: URL" lines.
+		'social-networks'              => 'textarea',
 		// BP xProfile Custom Field Types.
 		'email'                        => 'email',
 		'web'                          => 'url',

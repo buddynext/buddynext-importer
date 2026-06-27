@@ -191,6 +191,25 @@ final class ProfileWriter {
 	 * @return array<int,string>|string
 	 */
 	private function normalize_value( string $source_type, string $value ) {
+		// BuddyBoss social-networks: an associative network => URL map -> readable lines.
+		if ( 'social-networks' === $source_type ) {
+			$decoded = maybe_unserialize( $value );
+			if ( ! is_array( $decoded ) ) {
+				return (string) $decoded;
+			}
+			$lines = array();
+			foreach ( $decoded as $network => $url ) {
+				$url = trim( (string) $url );
+				if ( '' === $url ) {
+					continue;
+				}
+				$lines[] = is_string( $network ) && '' !== $network
+					? ucfirst( $network ) . ': ' . $url
+					: $url;
+			}
+			return implode( "\n", $lines );
+		}
+
 		if ( FieldTypeMap::is_multi( $source_type ) ) {
 			$decoded = maybe_unserialize( $value );
 			return is_array( $decoded ) ? array_map( 'strval', $decoded ) : array( (string) $decoded );
