@@ -1,0 +1,18 @@
+# Dependencies (dev tooling only; runtime ships committed deps if any)
+/vendor/
+/node_modules/
+
+# Build + dist
+/build/
+/dist/
+*.zip
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# WordPress test scaffolding
+/tmp/
+.phpunit.result.cache
