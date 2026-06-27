@@ -35,10 +35,13 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
-	 * Available when the core BuddyPress tables exist (xprofile or activity).
+	 * Available when any core BuddyPress table exists.
 	 */
 	public function is_available(): bool {
-		return $this->table_exists( 'bp_xprofile_fields' ) || $this->table_exists( 'bp_activity' );
+		return $this->table_exists( 'bp_xprofile_fields' )
+			|| $this->table_exists( 'bp_activity' )
+			|| $this->table_exists( 'bp_groups' )
+			|| $this->table_exists( 'bp_friends' );
 	}
 
 	/**
@@ -194,6 +197,77 @@ class BuddyPressAdapter implements SourceAdapter {
 		}
 
 		return $values;
+	}
+
+	/**
+	 * Source groups, keyset-paginated by group id.
+	 *
+	 * @param int $after Exclusive lower-bound group id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function groups( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_groups' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_groups';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, creator_id, name, slug, description, status, parent_id, date_created FROM `{$table}` WHERE id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$groups = array();
+		foreach ( (array) $rows as $row ) {
+			$groups[] = array(
+				'source_id'    => (int) $row['id'],
+				'creator_id'   => (int) $row['creator_id'],
+				'name'         => (string) $row['name'],
+				'slug'         => (string) $row['slug'],
+				'description'  => (string) $row['description'],
+				'status'       => (string) $row['status'],
+				'parent_id'    => (int) $row['parent_id'],
+				'date_created' => (string) $row['date_created'],
+			);
+		}
+
+		return $groups;
+	}
+
+	/**
+	 * A group's members, keyset-paginated by membership row id.
+	 *
+	 * @param int $group_id Source group id.
+	 * @param int $after    Exclusive lower-bound membership row id.
+	 * @param int $limit    Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function group_members( int $group_id, int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_groups_members' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_groups_members';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, is_admin, is_mod, is_confirmed, is_banned FROM `{$table}` WHERE group_id = %d AND id > %d ORDER BY id ASC LIMIT %d", $group_id, $after, $limit ), ARRAY_A );
+
+		$members = array();
+		foreach ( (array) $rows as $row ) {
+			$members[] = array(
+				'row_id'       => (int) $row['id'],
+				'user_id'      => (int) $row['user_id'],
+				'is_admin'     => (int) $row['is_admin'],
+				'is_mod'       => (int) $row['is_mod'],
+				'is_confirmed' => (int) $row['is_confirmed'],
+				'is_banned'    => (int) $row['is_banned'],
+			);
+		}
+
+		return $members;
 	}
 
 	/**

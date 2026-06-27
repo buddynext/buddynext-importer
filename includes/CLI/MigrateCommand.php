@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\CLI;
 
 use BuddyNextImporter\Pipeline\ProfileImporter;
+use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
 
@@ -143,5 +144,66 @@ final class MigrateCommand {
 				$total_values
 			)
 		);
+	}
+
+	/**
+	 * Import groups (as spaces) and their members into BuddyNext.
+	 *
+	 * Writes only through the BuddyNext service API. Idempotent and resumable.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Groups per batch. Default 50.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-spaces
+	 *     wp buddynext-import migrate-spaces --source=buddyboss --batch=100
+	 *
+	 * @subcommand migrate-spaces
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_spaces( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = SpaceImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
+
+		$after         = 0;
+		$total_groups  = 0;
+		$total_members = 0;
+
+		do {
+			$result         = $importer->import_batch( $after, $batch );
+			$total_groups  += $result['groups'];
+			$total_members += $result['members'];
+			$after          = $result['last'];
+
+			if ( $result['groups'] > 0 ) {
+				\WP_CLI::log( sprintf( '  ... %d spaces, %d members (last group id %d)', $total_groups, $total_members, $after ) );
+			}
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success( sprintf( 'Spaces imported: %d spaces, %d members.', $total_groups, $total_members ) );
 	}
 }

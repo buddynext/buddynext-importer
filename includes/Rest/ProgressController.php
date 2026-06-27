@@ -15,6 +15,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\Rest;
 
 use BuddyNextImporter\Pipeline\ProfileImporter;
+use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
 use WP_Error;
@@ -204,30 +205,36 @@ final class ProgressController {
 			);
 		}
 
-		if ( 'profiles' !== $phase ) {
-			return new WP_Error(
-				'buddynext_importer_unknown_phase',
-				/* translators: %s: phase name. */
-				sprintf( __( 'Unknown import phase: %s', 'buddynext-importer' ), $phase ),
-				array( 'status' => 400 )
-			);
+		if ( 'profiles' === $phase ) {
+			return $this->step_profiles( $source, $after, $batch );
 		}
 
+		if ( 'spaces' === $phase ) {
+			return $this->step_spaces( $source, $after, $batch );
+		}
+
+		return new WP_Error(
+			'buddynext_importer_unknown_phase',
+			/* translators: %s: phase name. */
+			sprintf( __( 'Unknown import phase: %s', 'buddynext-importer' ), $phase ),
+			array( 'status' => 400 )
+		);
+	}
+
+	/**
+	 * Advance the profiles phase by one batch.
+	 *
+	 * @param string $source Source key.
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_profiles( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
 		$importer = ProfileImporter::for_source( $source );
 		if ( null === $importer ) {
-			return new WP_Error(
-				'buddynext_importer_unavailable',
-				__( 'The selected source is not available on this site.', 'buddynext-importer' ),
-				array( 'status' => 409 )
-			);
+			return $this->unavailable();
 		}
 
-		$schema = array();
-		if ( 0 === $after ) {
-			// First step also imports the schema (groups + fields).
-			$schema = $importer->import_schema();
-		}
-
+		$schema = 0 === $after ? $importer->import_schema() : array();
 		$result = $importer->import_values_batch( $after, $batch );
 
 		return new WP_REST_Response(
@@ -240,6 +247,44 @@ final class ProgressController {
 				'values' => $result['values'],
 				'done'   => $result['users'] < $batch,
 			)
+		);
+	}
+
+	/**
+	 * Advance the spaces phase by one batch.
+	 *
+	 * @param string $source Source key.
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_spaces( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
+		$importer = SpaceImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		$result = $importer->import_batch( $after, $batch );
+
+		return new WP_REST_Response(
+			array(
+				'phase'   => 'spaces',
+				'source'  => $source,
+				'last'    => $result['last'],
+				'groups'  => $result['groups'],
+				'members' => $result['members'],
+				'done'    => $result['fetched'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Standard "source unavailable" error.
+	 */
+	private function unavailable(): WP_Error {
+		return new WP_Error(
+			'buddynext_importer_unavailable',
+			__( 'The selected source is not available on this site.', 'buddynext-importer' ),
+			array( 'status' => 409 )
 		);
 	}
 }

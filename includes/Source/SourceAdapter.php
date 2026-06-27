@@ -72,4 +72,23 @@ interface SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function profile_values( int $user_id ): array;
+
+	/**
+	 * Source groups, keyset-paginated by group id.
+	 *
+	 * @param int $after Exclusive lower-bound group id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function groups( int $after, int $limit ): array;
+
+	/**
+	 * A group's members, keyset-paginated by membership row id.
+	 *
+	 * @param int $group_id Source group id.
+	 * @param int $after    Exclusive lower-bound membership row id.
+	 * @param int $limit    Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function group_members( int $group_id, int $after, int $limit ): array;
 }
