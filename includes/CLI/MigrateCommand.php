@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\CLI;
 
 use BuddyNextImporter\Pipeline\ActivityImporter;
+use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
@@ -331,6 +332,83 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Import bbPress forums, topics, and replies into Jetonomy.
+	 *
+	 * Requires Jetonomy active on the destination. Writes only through Jetonomy's
+	 * Journey API. Idempotent and resumable.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Rows per batch. Default 100.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-forums
+	 *
+	 * @subcommand migrate-forums
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_forums( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import.' );
+		}
+
+		if ( ! ForumImporter::target_available() ) {
+			\WP_CLI::error( 'Jetonomy must be active to import forums (it is the discussion target engine).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = ForumImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
+
+		$forums = $this->run_loop( fn( $after ) => $importer->import_forums_batch( $after, $batch ), 'forums', $batch );
+		\WP_CLI::log( sprintf( '%d forums imported.', $forums ) );
+
+		$topics = $this->run_loop( fn( $after ) => $importer->import_topics_batch( $after, $batch ), 'topics', $batch );
+		\WP_CLI::log( sprintf( '%d topics imported.', $topics ) );
+
+		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch );
+
+		\WP_CLI::success( sprintf( 'Forums imported: %d forums, %d topics, %d replies.', $forums, $topics, $replies ) );
+	}
+
+	/**
+	 * Drive a keyset batch loop to completion, summing the named result count.
+	 *
+	 * @param callable $batch_fn Receives the cursor, returns a batch result.
+	 * @param string   $key      The count key in the batch result to sum.
+	 * @param int      $batch    Batch size (loop continues while a page is full).
+	 */
+	private function run_loop( callable $batch_fn, string $key, int $batch ): int {
+		$after = 0;
+		$total = 0;
+		do {
+			$result = $batch_fn( $after );
+			$total += (int) ( $result[ $key ] ?? 0 );
+			$after  = (int) $result['last'];
+		} while ( (int) $result['fetched'] === $batch );
+
+		return $total;
+	}
+
+	/**
 	 * Run the full migration in dependency order: profiles, spaces, activity,
 	 * friends. Each phase is idempotent, so re-running resumes safely.
 	 *
@@ -372,6 +450,12 @@ final class MigrateCommand {
 		$this->migrate_spaces( $args, $assoc_args );
 		$this->migrate_activity( $args, $assoc_args );
 		$this->migrate_friends( $args, $assoc_args );
+
+		if ( ForumImporter::target_available() ) {
+			$this->migrate_forums( $args, $assoc_args );
+		} else {
+			\WP_CLI::log( 'Skipping forums (Jetonomy is not active).' );
+		}
 
 		\WP_CLI::success( 'Migration complete. You can now deactivate and remove this importer.' );
 	}

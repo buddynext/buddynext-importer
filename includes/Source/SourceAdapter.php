@@ -127,4 +127,31 @@ interface SourceAdapter {
 	 * @return array<int,int>
 	 */
 	public function activity_media( int $activity_id ): array;
+
+	/**
+	 * Source bbPressforums, keyset-paginated by post id.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function forums( int $after, int $limit ): array;
+
+	/**
+	 * Source bbPresstopics, keyset-paginated by post id.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function forum_topics( int $after, int $limit ): array;
+
+	/**
+	 * Source bbPressreplies, keyset-paginated by post id.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function forum_replies( int $after, int $limit ): array;
 }

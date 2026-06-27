@@ -74,7 +74,7 @@ final class ActivityWriter {
 		}
 
 		$user_id   = (int) $activity['user_id'];
-		$content   = trim( (string) $activity['content'] );
+		$content   = $this->clean_content( (string) $activity['content'] );
 		$media_ids = $this->ingest_media( $media_atts, $user_id );
 
 		// A post needs either content or media.
@@ -159,6 +159,27 @@ final class ActivityWriter {
 		IdMap::set( $this->source, 'comment', $source_id, $bn_id );
 
 		return $bn_id;
+	}
+
+	/**
+	 * Convert BuddyPress activity HTML into the plain text BuddyNext expects.
+	 * BuddyNext renders post content as escaped text (not raw HTML), so block
+	 * tags become line breaks and the rest is stripped + entity-decoded.
+	 *
+	 * @param string $html Source activity content (HTML).
+	 */
+	private function clean_content( string $html ): string {
+		if ( '' === $html ) {
+			return '';
+		}
+
+		$text = preg_replace( '#</(p|div|h[1-6]|li|tr|blockquote)>#i', "\n", $html );
+		$text = preg_replace( '#<br\s*/?>#i', "\n", (string) $text );
+		$text = wp_strip_all_tags( (string) $text );
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$text = preg_replace( "/\n{3,}/", "\n\n", (string) $text );
+
+		return trim( (string) $text );
 	}
 
 	/**

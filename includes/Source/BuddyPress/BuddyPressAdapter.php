@@ -86,8 +86,8 @@ class BuddyPressAdapter implements SourceAdapter {
 		foreach ( (array) $rows as $row ) {
 			$groups[] = array(
 				'source_id'   => (int) $row['id'],
-				'name'        => (string) $row['name'],
-				'description' => (string) $row['description'],
+				'name'        => (string) wp_unslash( $row['name'] ),
+				'description' => (string) wp_unslash( $row['description'] ),
 				'sort_order'  => (int) $row['group_order'],
 			);
 		}
@@ -117,7 +117,7 @@ class BuddyPressAdapter implements SourceAdapter {
 			$fields[] = array(
 				'source_id'   => (int) $row['id'],
 				'group_id'    => (int) $row['group_id'],
-				'name'        => (string) $row['name'],
+				'name'        => (string) wp_unslash( $row['name'] ),
 				'type'        => (string) $row['type'],
 				'is_required' => (int) $row['is_required'],
 				'sort_order'  => (int) $row['field_order'],
@@ -142,7 +142,10 @@ class BuddyPressAdapter implements SourceAdapter {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_col( $wpdb->prepare( "SELECT name FROM `{$table}` WHERE parent_id = %d ORDER BY option_order ASC, id ASC", $field_id ) );
 
-		return array_map( 'strval', (array) $rows );
+		return array_map(
+			static fn( $value ): string => (string) wp_unslash( $value ),
+			(array) $rows
+		);
 	}
 
 	/**
@@ -190,9 +193,9 @@ class BuddyPressAdapter implements SourceAdapter {
 		foreach ( (array) $rows as $row ) {
 			$values[] = array(
 				'field_id' => (int) $row['field_id'],
-				'name'     => (string) $row['name'],
+				'name'     => (string) wp_unslash( $row['name'] ),
 				'type'     => (string) $row['type'],
-				'value'    => (string) $row['value'],
+				'value'    => (string) wp_unslash( $row['value'] ),
 			);
 		}
 
@@ -223,9 +226,9 @@ class BuddyPressAdapter implements SourceAdapter {
 			$groups[] = array(
 				'source_id'    => (int) $row['id'],
 				'creator_id'   => (int) $row['creator_id'],
-				'name'         => (string) $row['name'],
+				'name'         => (string) wp_unslash( $row['name'] ),
 				'slug'         => (string) $row['slug'],
-				'description'  => (string) $row['description'],
+				'description'  => (string) wp_unslash( $row['description'] ),
 				'status'       => (string) $row['status'],
 				'parent_id'    => (int) $row['parent_id'],
 				'date_created' => (string) $row['date_created'],
@@ -296,7 +299,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				'user_id'       => (int) $row['user_id'],
 				'component'     => (string) $row['component'],
 				'item_id'       => (int) $row['item_id'],
-				'content'       => (string) $row['content'],
+				'content'       => (string) wp_unslash( $row['content'] ),
 				'date_recorded' => (string) $row['date_recorded'],
 			);
 		}
@@ -330,7 +333,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				'user_id'           => (int) $row['user_id'],
 				'root_id'           => (int) $row['item_id'],
 				'secondary_item_id' => (int) $row['secondary_item_id'],
-				'content'           => (string) $row['content'],
+				'content'           => (string) wp_unslash( $row['content'] ),
 				'date_recorded'     => (string) $row['date_recorded'],
 			);
 		}
@@ -378,6 +381,86 @@ class BuddyPressAdapter implements SourceAdapter {
 	 */
 	public function activity_media( int $activity_id ): array {
 		return array();
+	}
+
+	/**
+	 * Source bbPressforums, keyset-paginated by post id.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function forums( int $after, int $limit ): array {
+		// bbPress forums carry their visibility in post_status.
+		return $this->forum_posts( 'forum', array( 'publish', 'private', 'hidden', 'public' ), $after, $limit );
+	}
+
+	/**
+	 * Source bbPresstopics, keyset-paginated by post id.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function forum_topics( int $after, int $limit ): array {
+		return $this->forum_posts( 'topic', array( 'publish', 'closed' ), $after, $limit );
+	}
+
+	/**
+	 * Source bbPressreplies, keyset-paginated by post id (with the nested reply target).
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function forum_replies( int $after, int $limit ): array {
+		$rows = $this->forum_posts( 'reply', array( 'publish' ), $after, $limit );
+
+		global $wpdb;
+		foreach ( $rows as &$row ) {
+			// _bbp_reply_to holds the parent reply id for a threaded reply (0 = top-level).
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$reply_to        = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_bbp_reply_to'", (int) $row['source_id'] ) );
+			$row['reply_to'] = (int) $reply_to;
+		}
+		unset( $row );
+
+		return $rows;
+	}
+
+	/**
+	 * Shared bbPress post reader (forum|topic|reply), keyset-paginated by id.
+	 *
+	 * @param string            $post_type bbPress post type.
+	 * @param array<int,string> $statuses  Accepted post statuses (bbPress encodes
+	 *                                     forum visibility in post_status).
+	 * @param int               $after     Exclusive lower-bound post id.
+	 * @param int               $limit     Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function forum_posts( string $post_type, array $statuses, int $after, int $limit ): array {
+		global $wpdb;
+
+		$status_ph = implode( ', ', array_fill( 0, count( $statuses ), '%s' ) );
+		$params    = array_merge( array( $post_type ), $statuses, array( $after, $limit ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_author, post_parent, post_title, post_content, post_name, post_date_gmt FROM {$wpdb->posts} WHERE post_type = %s AND post_status IN ( {$status_ph} ) AND ID > %d ORDER BY ID ASC LIMIT %d", $params ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id'   => (int) $row['ID'],
+				'author_id'   => (int) $row['post_author'],
+				'parent_id'   => (int) $row['post_parent'],
+				'title'       => (string) wp_unslash( $row['post_title'] ),
+				'content'     => (string) wp_unslash( $row['post_content'] ),
+				'slug'        => (string) $row['post_name'],
+				'created_gmt' => (string) $row['post_date_gmt'],
+			);
+		}
+
+		return $out;
 	}
 
 	/**

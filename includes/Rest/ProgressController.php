@@ -15,6 +15,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\Rest;
 
 use BuddyNextImporter\Pipeline\ActivityImporter;
+use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
@@ -229,6 +230,10 @@ final class ProgressController {
 			return $this->step_friends( $source, $after, $batch );
 		}
 
+		if ( 'forums' === $phase ) {
+			return $this->step_forums( $source, (string) $request->get_param( 'stage' ), $after, $batch );
+		}
+
 		return new WP_Error(
 			'buddynext_importer_unknown_phase',
 			/* translators: %s: phase name. */
@@ -360,6 +365,55 @@ final class ProgressController {
 				'last'        => $result['last'],
 				'connections' => $result['connections'],
 				'done'        => $result['fetched'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Advance the forums phase by one batch. Stages run forums -> topics ->
+	 * replies (so each child resolves its parent). Requires Jetonomy.
+	 *
+	 * @param string $source Source key.
+	 * @param string $stage  'forums' | 'topics' | 'replies'.
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_forums( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
+		if ( ! ForumImporter::target_available() ) {
+			return new WP_Error(
+				'buddynext_importer_no_jetonomy',
+				__( 'Jetonomy must be active to import forums.', 'buddynext-importer' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$importer = ForumImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		if ( 'topics' === $stage ) {
+			$result = $importer->import_topics_batch( $after, $batch );
+			$count  = array( 'topics' => $result['topics'] );
+		} elseif ( 'replies' === $stage ) {
+			$result = $importer->import_replies_batch( $after, $batch );
+			$count  = array( 'replies' => $result['replies'] );
+		} else {
+			$stage  = 'forums';
+			$result = $importer->import_forums_batch( $after, $batch );
+			$count  = array( 'forums' => $result['forums'] );
+		}
+
+		return new WP_REST_Response(
+			array_merge(
+				array(
+					'phase'  => 'forums',
+					'stage'  => $stage,
+					'source' => $source,
+					'last'   => $result['last'],
+					'done'   => $result['fetched'] < $batch,
+				),
+				$count
 			)
 		);
 	}
