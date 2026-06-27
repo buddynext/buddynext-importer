@@ -9,6 +9,7 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\CLI;
 
+use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
@@ -205,5 +206,71 @@ final class MigrateCommand {
 		} while ( $result['fetched'] === $batch );
 
 		\WP_CLI::success( sprintf( 'Spaces imported: %d spaces, %d members.', $total_groups, $total_members ) );
+	}
+
+	/**
+	 * Import activity posts and comments into BuddyNext.
+	 *
+	 * Imports only real posts (activity_update); system rows and spam are skipped.
+	 * Run migrate-spaces first so group posts land in their space. Writes only
+	 * through the BuddyNext service API. Idempotent and resumable.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Rows per batch. Default 100.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-activity
+	 *     wp buddynext-import migrate-activity --batch=200
+	 *
+	 * @subcommand migrate-activity
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_activity( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = ActivityImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
+
+		// Posts first, so comments can resolve their root post.
+		$after = 0;
+		$posts = 0;
+		do {
+			$result = $importer->import_posts_batch( $after, $batch );
+			$posts += $result['posts'];
+			$after  = $result['last'];
+		} while ( $result['fetched'] === $batch );
+		\WP_CLI::log( sprintf( '%d posts imported.', $posts ) );
+
+		$after    = 0;
+		$comments = 0;
+		do {
+			$result    = $importer->import_comments_batch( $after, $batch );
+			$comments += $result['comments'];
+			$after     = $result['last'];
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success( sprintf( 'Activity imported: %d posts, %d comments.', $posts, $comments ) );
 	}
 }

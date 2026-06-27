@@ -14,6 +14,7 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Rest;
 
+use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
@@ -102,6 +103,12 @@ final class ProgressController {
 						'required'          => false,
 						'default'           => 50,
 						'sanitize_callback' => 'absint',
+					),
+					'stage'  => array(
+						'type'              => 'string',
+						'required'          => false,
+						'default'           => 'posts',
+						'sanitize_callback' => 'sanitize_key',
 					),
 				),
 			)
@@ -213,6 +220,10 @@ final class ProgressController {
 			return $this->step_spaces( $source, $after, $batch );
 		}
 
+		if ( 'activity' === $phase ) {
+			return $this->step_activity( $source, (string) $request->get_param( 'stage' ), $after, $batch );
+		}
+
 		return new WP_Error(
 			'buddynext_importer_unknown_phase',
 			/* translators: %s: phase name. */
@@ -273,6 +284,51 @@ final class ProgressController {
 				'groups'  => $result['groups'],
 				'members' => $result['members'],
 				'done'    => $result['fetched'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Advance the activity phase by one batch. Stage 'posts' runs first to
+	 * completion, then stage 'comments' (so a comment's root post is mapped).
+	 *
+	 * @param string $source Source key.
+	 * @param string $stage  'posts' or 'comments'.
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_activity( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
+		$importer = ActivityImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		if ( 'comments' === $stage ) {
+			$result = $importer->import_comments_batch( $after, $batch );
+
+			return new WP_REST_Response(
+				array(
+					'phase'    => 'activity',
+					'stage'    => 'comments',
+					'source'   => $source,
+					'last'     => $result['last'],
+					'comments' => $result['comments'],
+					'done'     => $result['fetched'] < $batch,
+				)
+			);
+		}
+
+		$result = $importer->import_posts_batch( $after, $batch );
+
+		return new WP_REST_Response(
+			array(
+				'phase'  => 'activity',
+				'stage'  => 'posts',
+				'source' => $source,
+				'last'   => $result['last'],
+				'posts'  => $result['posts'],
+				// Posts stage is done when the page is short; the client then runs the comments stage.
+				'done'   => $result['fetched'] < $batch,
 			)
 		);
 	}

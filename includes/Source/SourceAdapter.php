@@ -91,4 +91,22 @@ interface SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function group_members( int $group_id, int $after, int $limit ): array;
+
+	/**
+	 * Real activity posts (activity_update, non-spam), keyset-paginated by id.
+	 *
+	 * @param int $after Exclusive lower-bound activity id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function activities( int $after, int $limit ): array;
+
+	/**
+	 * Activity comments (activity_comment, non-spam), keyset-paginated by id.
+	 *
+	 * @param int $after Exclusive lower-bound activity id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function activity_comments( int $after, int $limit ): array;
 }

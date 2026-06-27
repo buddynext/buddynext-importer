@@ -271,6 +271,74 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Real activity posts (activity_update, non-spam), keyset-paginated by id.
+	 *
+	 * @param int $after Exclusive lower-bound activity id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function activities( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_activity' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_activity';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, item_id, content, date_recorded FROM `{$table}` WHERE type = 'activity_update' AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id'     => (int) $row['id'],
+				'user_id'       => (int) $row['user_id'],
+				'component'     => (string) $row['component'],
+				'item_id'       => (int) $row['item_id'],
+				'content'       => (string) $row['content'],
+				'date_recorded' => (string) $row['date_recorded'],
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Activity comments (activity_comment, non-spam), keyset-paginated by id.
+	 *
+	 * @param int $after Exclusive lower-bound activity id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function activity_comments( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_activity' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_activity';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, item_id, secondary_item_id, content, date_recorded FROM `{$table}` WHERE type = 'activity_comment' AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id'         => (int) $row['id'],
+				'user_id'           => (int) $row['user_id'],
+				'root_id'           => (int) $row['item_id'],
+				'secondary_item_id' => (int) $row['secondary_item_id'],
+				'content'           => (string) $row['content'],
+				'date_recorded'     => (string) $row['date_recorded'],
+			);
+		}
+
+		return $out;
+	}
+
+	/**
 	 * Count rows of a prefixed table, guarded against the table not existing.
 	 *
 	 * The table name is a hard-coded literal (never user input) and the optional
