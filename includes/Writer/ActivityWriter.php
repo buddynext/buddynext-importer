@@ -217,7 +217,17 @@ final class ActivityWriter {
 		$media_ids = array();
 
 		foreach ( $attachment_ids as $attachment_id ) {
-			$path = get_attached_file( (int) $attachment_id );
+			$attachment_id = (int) $attachment_id;
+
+			// Idempotency: reuse the media already ingested for this attachment so
+			// re-running an import never duplicates media.
+			$existing = IdMap::get( $this->source, 'media', $attachment_id );
+			if ( null !== $existing ) {
+				$media_ids[] = $existing;
+				continue;
+			}
+
+			$path = get_attached_file( $attachment_id );
 			if ( ! is_string( $path ) || '' === $path || ! file_exists( $path ) ) {
 				continue;
 			}
@@ -240,6 +250,7 @@ final class ActivityWriter {
 			$media_id = $this->extract_media_id( $result );
 
 			if ( $media_id > 0 ) {
+				IdMap::set( $this->source, 'media', $attachment_id, $media_id );
 				$media_ids[] = $media_id;
 			}
 
