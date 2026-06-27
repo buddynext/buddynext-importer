@@ -105,6 +105,7 @@ final class ForumWriter {
 					'slug'        => $this->slug( (string) $forum['slug'], (string) $forum['title'], 'forum-' . $source_id ),
 					'category_id' => $category_id,
 					'type'        => 'forum',
+					'visibility'  => $this->visibility( (string) ( $forum['status'] ?? 'publish' ) ),
 					'description' => wp_strip_all_tags( (string) $forum['content'] ),
 				)
 			)
@@ -243,5 +244,23 @@ final class ForumWriter {
 	 */
 	private function author( int $author_id ): int {
 		return $author_id > 0 ? $author_id : 1;
+	}
+
+	/**
+	 * Map a bbPress forum post_status to a Jetonomy space visibility
+	 * (public|private|hidden).
+	 *
+	 * @param string $status bbPress forum post_status.
+	 */
+	private function visibility( string $status ): string {
+		switch ( $status ) {
+			case 'private':
+				return 'private';
+			case 'hidden':
+				return 'hidden';
+			default:
+				// publish, public.
+				return 'public';
+		}
 	}
 }

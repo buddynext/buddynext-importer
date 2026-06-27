@@ -121,6 +121,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				'type'        => (string) $row['type'],
 				'is_required' => (int) $row['is_required'],
 				'sort_order'  => (int) $row['field_order'],
+				'visibility'  => $this->field_visibility( (int) $row['id'] ),
 				'options'     => $this->field_options( (int) $row['id'] ),
 			);
 		}
@@ -289,8 +290,11 @@ class BuddyPressAdapter implements SourceAdapter {
 
 		$table = $wpdb->prefix . 'bp_activity';
 
+		// BuddyBoss adds a per-activity privacy column; BuddyPress core has none.
+		$privacy_col = $this->column_exists( 'bp_activity', 'privacy' ) ? ', privacy' : '';
+
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, item_id, content, date_recorded FROM `{$table}` WHERE type = 'activity_update' AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, item_id, content, date_recorded{$privacy_col} FROM `{$table}` WHERE type = 'activity_update' AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -301,6 +305,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				'item_id'       => (int) $row['item_id'],
 				'content'       => (string) wp_unslash( $row['content'] ),
 				'date_recorded' => (string) $row['date_recorded'],
+				'privacy'       => isset( $row['privacy'] ) ? (string) $row['privacy'] : 'public',
 			);
 		}
 
@@ -445,7 +450,7 @@ class BuddyPressAdapter implements SourceAdapter {
 		$params    = array_merge( array( $post_type ), $statuses, array( $after, $limit ) );
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_author, post_parent, post_title, post_content, post_name, post_date_gmt FROM {$wpdb->posts} WHERE post_type = %s AND post_status IN ( {$status_ph} ) AND ID > %d ORDER BY ID ASC LIMIT %d", $params ), ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT ID, post_author, post_parent, post_status, post_title, post_content, post_name, post_date_gmt FROM {$wpdb->posts} WHERE post_type = %s AND post_status IN ( {$status_ph} ) AND ID > %d ORDER BY ID ASC LIMIT %d", $params ), ARRAY_A );
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -453,6 +458,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				'source_id'   => (int) $row['ID'],
 				'author_id'   => (int) $row['post_author'],
 				'parent_id'   => (int) $row['post_parent'],
+				'status'      => (string) $row['post_status'],
 				'title'       => (string) wp_unslash( $row['post_title'] ),
 				'content'     => (string) wp_unslash( $row['post_content'] ),
 				'slug'        => (string) $row['post_name'],
@@ -484,6 +490,41 @@ class BuddyPressAdapter implements SourceAdapter {
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$table}`{$condition}" );
+	}
+
+	/**
+	 * A profile field's default visibility, read from the xprofile field meta.
+	 *
+	 * @param int $field_id Source field id.
+	 */
+	protected function field_visibility( int $field_id ): string {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_xprofile_meta' ) ) {
+			return 'public';
+		}
+
+		$table = $wpdb->prefix . 'bp_xprofile_meta';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$value = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM `{$table}` WHERE object_type = 'field' AND object_id = %d AND meta_key = 'default_visibility'", $field_id ) );
+
+		return is_string( $value ) && '' !== $value ? $value : 'public';
+	}
+
+	/**
+	 * Whether a prefixed table has a given column.
+	 *
+	 * @param string $unprefixed Unprefixed table name.
+	 * @param string $column     Column name.
+	 */
+	protected function column_exists( string $unprefixed, string $column ): bool {
+		global $wpdb;
+
+		$table = $wpdb->prefix . $unprefixed;
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		return null !== $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM `{$table}` LIKE %s", $column ) );
 	}
 
 	/**

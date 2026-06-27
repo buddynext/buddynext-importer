@@ -13,6 +13,7 @@ namespace BuddyNextImporter\Writer;
 
 use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\ImportMode;
+use BuddyNextImporter\Source\PrivacyMap;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -92,6 +93,7 @@ final class ActivityWriter {
 			'type'       => empty( $media_ids ) ? 'text' : 'media',
 			'content'    => $content,
 			'space_id'   => $space_id,
+			'privacy'    => PrivacyMap::post_privacy( (string) ( $activity['privacy'] ?? 'public' ) ),
 			'created_at' => $this->utc( (string) $activity['date_recorded'] ),
 		);
 

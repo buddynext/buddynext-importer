@@ -15,6 +15,7 @@ namespace BuddyNextImporter\Writer;
 use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\ImportMode;
 use BuddyNextImporter\Source\FieldTypeMap;
+use BuddyNextImporter\Source\PrivacyMap;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -107,6 +108,7 @@ final class ProfileWriter {
 			'type'        => FieldTypeMap::to_bn_type( $type ),
 			'is_required' => (int) $field['is_required'],
 			'sort_order'  => (int) $field['sort_order'],
+			'visibility'  => PrivacyMap::field_visibility( (string) ( $field['visibility'] ?? 'public' ) ),
 		);
 
 		if ( FieldTypeMap::has_options( $type ) && ! empty( $field['options'] ) ) {
