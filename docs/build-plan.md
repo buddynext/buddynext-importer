@@ -41,6 +41,6 @@ reign-release.local is the BuddyPress fixture (real demo data: 26 users, 250 xpr
 ## Non-negotiables (carried from BuddyNext core)
 
 - Write through BuddyNext services, never raw SQL into `bn_*`.
-- Side-effects OFF during import (`ImportMode`); one bulk recount at the end.
+- Side-effects OFF during import. `ImportMode::register()` hooks BuddyNext's own `buddynext_notification_should_send` veto filter -> false while active, so `NotificationService::create()` returns 0 and the in-app notification, its email (EmailDispatchListener), and Pro realtime push (both hang off `buddynext_notification_created`) never fire. Search index, hashtags, and cache busts still run. Verified: 323 imported joins created 0 notifications; the same join outside import mode created 1. (Outbound webhooks no-op unless an endpoint is registered, and only schedule cron; disable them for a large import.)
 - Resumable + idempotent via the IdMap; keyset pagination, never OFFSET.
 - One-time tool: companion-installed, run, then removable.

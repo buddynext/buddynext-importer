@@ -11,6 +11,7 @@ namespace BuddyNextImporter;
 
 use BuddyNextImporter\Admin\ImporterPage;
 use BuddyNextImporter\CLI\MigrateCommand;
+use BuddyNextImporter\Pipeline\ImportMode;
 use BuddyNextImporter\Rest\ProgressController;
 
 defined( 'ABSPATH' ) || exit;
@@ -24,6 +25,8 @@ final class Plugin {
 	 * Entry point, hooked on plugins_loaded:20.
 	 */
 	public static function boot(): void {
+		ImportMode::register();
+
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'buddynext-import', new MigrateCommand() );
 		}

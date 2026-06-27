@@ -77,14 +77,34 @@ final class ImportMode {
 	}
 
 	/**
-	 * Register the public bridge filter so BuddyNext (or any listener) can read
-	 * the state via apply_filters( 'buddynext_is_importing', false ).
+	 * Register the suppression hooks. Called once at boot.
+	 *
+	 * - buddynext_is_importing: public bridge any listener can read.
+	 * - buddynext_notification_should_send: BuddyNext's own veto filter on
+	 *   NotificationService::create(). Returning false makes create() return 0,
+	 *   which suppresses the in-app notification AND, because EmailDispatchListener
+	 *   and the Pro push dispatcher hang off buddynext_notification_created (never
+	 *   fired), their email + realtime fan-out too. This kills the dominant
+	 *   per-recipient fan-out for every imported post, comment, join, and follow
+	 *   while leaving the search index, hashtags, and cache busts intact.
+	 *
+	 * Outbound webhooks are not gated here: dispatch() no-ops unless the site has
+	 * registered an endpoint, and even then it only schedules cron rather than
+	 * making synchronous HTTP. Sites with active outbound webhooks should disable
+	 * them for the duration of a large import.
 	 */
 	public static function register(): void {
 		add_filter(
 			'buddynext_is_importing',
 			static function ( $importing ) {
 				return self::$active ? true : $importing;
+			}
+		);
+
+		add_filter(
+			'buddynext_notification_should_send',
+			static function ( $should_send ) {
+				return self::$active ? false : $should_send;
 			}
 		);
 	}
