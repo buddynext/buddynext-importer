@@ -11,6 +11,7 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Pipeline;
 
+use BuddyNextImporter\Mapping\FieldMap;
 use BuddyNextImporter\Source\AdapterRegistry;
 use BuddyNextImporter\Source\SourceAdapter;
 use BuddyNextImporter\Writer\ProfileWriter;
@@ -74,6 +75,12 @@ final class ProfileImporter {
 	 * @return array{groups:int,fields:int}
 	 */
 	public function import_schema(): array {
+		// Pre-seed the id-map from the owner's field mapping: source groups/fields
+		// mapped to an existing BuddyNext record are recorded here, so the loops
+		// below reuse them (real bios land in the canonical `bio` field) instead
+		// of creating duplicates. Unmapped entries fall through to create-new.
+		FieldMap::apply( $this->source );
+
 		$groups = 0;
 		foreach ( $this->adapter->profile_groups() as $group ) {
 			$this->writer->import_group( $group );

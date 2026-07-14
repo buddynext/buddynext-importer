@@ -139,12 +139,19 @@ final class ProfileWriter {
 			}
 
 			$source_field_id = (int) $row['field_id'];
-			// Only write values for fields we actually imported.
-			if ( ! IdMap::has( $this->source, 'profile_field', $source_field_id ) ) {
+			$bn_field_id     = IdMap::get( $this->source, 'profile_field', $source_field_id );
+			// Only write values for fields we actually imported or mapped.
+			if ( null === $bn_field_id ) {
 				continue;
 			}
 
-			$field_key = $this->field_key( $source_field_id, (string) $row['name'] );
+			// The payload is keyed by the TARGET BuddyNext field's key: the
+			// canonical key (e.g. 'bio') when the owner mapped this source field
+			// onto an existing field, or the created bp_* key otherwise.
+			$field_key = $this->bn_field_key( (int) $bn_field_id );
+			if ( '' === $field_key ) {
+				continue;
+			}
 			$value     = $this->normalize_value( $type, (string) $row['value'] );
 
 			if ( is_array( $value ) ) {
@@ -181,6 +188,32 @@ final class ProfileWriter {
 	 */
 	private function field_key( int $source_id, string $name ): string {
 		return 'bp_' . $source_id . '_' . sanitize_key( $name );
+	}
+
+	/**
+	 * Resolve a BuddyNext field's key from its id. The value payload for
+	 * save_profile() is keyed by field_key, and a mapped source field points at
+	 * an existing BuddyNext field id whose key is NOT the reconstructed bp_* key.
+	 * Built once per run (schema is complete before any value import).
+	 */
+	private function bn_field_key( int $bn_field_id ): string {
+		static $by_id = null;
+		if ( null === $by_id ) {
+			$by_id   = array();
+			$service = $this->service();
+			if ( method_exists( $service, 'get_fields' ) ) {
+				foreach ( (array) $service->get_fields() as $group ) {
+					foreach ( (array) ( $group['fields'] ?? array() ) as $field ) {
+						$id  = (int) ( $field['id'] ?? $field['field_id'] ?? 0 );
+						$key = (string) ( $field['field_key'] ?? '' );
+						if ( $id > 0 && '' !== $key ) {
+							$by_id[ $id ] = $key;
+						}
+					}
+				}
+			}
+		}
+		return $by_id[ $bn_field_id ] ?? '';
 	}
 
 	/**
