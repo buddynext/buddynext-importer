@@ -96,6 +96,11 @@ final class ImporterPage {
 					'runFailed'  => __( 'The import stopped on an error. It is safe to run again - it resumes where it left off.', 'buddynext-importer' ),
 					'domain'     => __( 'Domain', 'buddynext-importer' ),
 					'count'      => __( 'Records', 'buddynext-importer' ),
+					'mapCreateNew'   => __( 'Create new field', 'buddynext-importer' ),
+					'mapExisting'    => __( 'Map to existing field', 'buddynext-importer' ),
+					'mapSaved'       => __( 'Mapping saved.', 'buddynext-importer' ),
+					'mapSaveFailed'  => __( 'Could not save the mapping. Try again.', 'buddynext-importer' ),
+					'mapLoadFailed'  => __( 'Could not load the field mapping.', 'buddynext-importer' ),
 				),
 			)
 		);

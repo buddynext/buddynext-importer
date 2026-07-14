@@ -52,6 +52,28 @@
 	margin-top: 16px;
 }
 
+/* Profile field mapping. */
+.bni-mapping__intro {
+	max-width: 70ch;
+	color: #50575e;
+	margin-top: 0;
+}
+
+.bni-mapping__select {
+	width: 100%;
+	max-width: 320px;
+}
+
+.bni-mapping td {
+	vertical-align: middle;
+}
+
+.bni-mapping__status {
+	margin-inline-start: 12px;
+	color: #007017;
+	font-weight: 600;
+}
+
 @media ( max-width: 640px ) {
 	.bni-card {
 		padding: 12px 14px;
@@ -59,5 +81,32 @@
 
 	.bni-stats__count {
 		width: 5em;
+	}
+
+	.bni-mapping__select {
+		max-width: none;
+	}
+
+	.bni-mapping,
+	.bni-mapping thead,
+	.bni-mapping tbody,
+	.bni-mapping tr,
+	.bni-mapping td,
+	.bni-mapping th {
+		display: block;
+	}
+
+	.bni-mapping thead {
+		display: none;
+	}
+
+	.bni-mapping td {
+		border: none;
+		padding: 4px 0;
+	}
+
+	.bni-mapping tr {
+		border-bottom: 1px solid #dcdcde;
+		padding: 8px 0;
 	}
 }

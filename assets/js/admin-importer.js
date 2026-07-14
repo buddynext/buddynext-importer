@@ -20,6 +20,8 @@
 	];
 
 	var total = 0;
+	var currentSource = '';
+	var mappingNew = '__new__';
 
 	function el( id ) {
 		return document.getElementById( id );
@@ -163,6 +165,127 @@
 		} );
 	}
 
+	// ---- Profile field mapping ------------------------------------------
+
+	function buildTargetSelect( field, targets ) {
+		var sel = document.createElement( 'select' );
+		sel.className = 'bni-mapping__select';
+		sel.setAttribute( 'data-source-id', String( field.source_id ) );
+
+		var optNew = document.createElement( 'option' );
+		optNew.value = mappingNew;
+		optNew.textContent = ( cfg.i18n && cfg.i18n.mapCreateNew ) || 'Create new field';
+		sel.appendChild( optNew );
+
+		// Group the BuddyNext targets by their group for a readable dropdown.
+		var groups = {};
+		var order = [];
+		targets.forEach( function ( t ) {
+			if ( ! groups[ t.group ] ) {
+				groups[ t.group ] = [];
+				order.push( t.group );
+			}
+			groups[ t.group ].push( t );
+		} );
+		order.forEach( function ( g ) {
+			var og = document.createElement( 'optgroup' );
+			og.label = g || '';
+			groups[ g ].forEach( function ( t ) {
+				var o = document.createElement( 'option' );
+				o.value = t.key;
+				o.textContent = t.label;
+				og.appendChild( o );
+			} );
+			sel.appendChild( og );
+		} );
+
+		sel.value = field.target || mappingNew;
+		return sel;
+	}
+
+	function renderMapping( data ) {
+		if ( ! data || ! data.fields ) {
+			return;
+		}
+		currentSource = data.source || '';
+		mappingNew = data.new || '__new__';
+
+		var body = el( 'bni-mapping-body' );
+		var card = el( 'bni-mapping-card' );
+		if ( ! body ) {
+			return;
+		}
+		while ( body.firstChild ) {
+			body.removeChild( body.firstChild );
+		}
+
+		data.fields.forEach( function ( field ) {
+			var row = document.createElement( 'tr' );
+			var tdName = document.createElement( 'td' );
+			tdName.textContent = field.label;
+			var tdType = document.createElement( 'td' );
+			tdType.textContent = ( field.type || '' ).replace( /_/g, ' ' );
+			var tdTarget = document.createElement( 'td' );
+			tdTarget.appendChild( buildTargetSelect( field, data.targets || [] ) );
+			row.appendChild( tdName );
+			row.appendChild( tdType );
+			row.appendChild( tdTarget );
+			body.appendChild( row );
+		} );
+
+		if ( card ) {
+			card.hidden = false;
+		}
+	}
+
+	function loadMapping() {
+		if ( ! apiFetch ) {
+			return;
+		}
+		apiFetch( {
+			path: '/buddynext-importer/v1/mapping',
+			headers: { 'X-WP-Nonce': cfg.nonce }
+		} )
+			.then( renderMapping )
+			.catch( function () {
+				/* No source / not applicable - the mapping card simply stays hidden. */
+			} );
+	}
+
+	function saveMapping() {
+		var body = el( 'bni-mapping-body' );
+		var status = el( 'bni-mapping-status' );
+		if ( ! body ) {
+			return;
+		}
+		var fields = {};
+		Array.prototype.forEach.call(
+			body.querySelectorAll( 'select.bni-mapping__select' ),
+			function ( sel ) {
+				fields[ sel.getAttribute( 'data-source-id' ) ] = sel.value;
+			}
+		);
+		if ( status ) {
+			status.textContent = '';
+		}
+		apiFetch( {
+			path: '/buddynext-importer/v1/mapping',
+			method: 'POST',
+			headers: { 'X-WP-Nonce': cfg.nonce },
+			data: { source: currentSource, fields: fields }
+		} )
+			.then( function () {
+				if ( status ) {
+					status.textContent = ( cfg.i18n && cfg.i18n.mapSaved ) || 'Saved.';
+				}
+			} )
+			.catch( function () {
+				if ( status ) {
+					status.textContent = ( cfg.i18n && cfg.i18n.mapSaveFailed ) || '';
+				}
+			} );
+	}
+
 	function loadStats() {
 		if ( ! apiFetch ) {
 			return;
@@ -179,9 +302,14 @@
 
 	document.addEventListener( 'DOMContentLoaded', function () {
 		loadStats();
+		loadMapping();
 		var start = el( 'bni-start' );
 		if ( start ) {
 			start.addEventListener( 'click', runImport );
+		}
+		var save = el( 'bni-mapping-save' );
+		if ( save ) {
+			save.addEventListener( 'click', saveMapping );
 		}
 	} );
 } )();

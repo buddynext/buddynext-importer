@@ -14,6 +14,7 @@ use BuddyNextImporter\CLI\MapCommand;
 use BuddyNextImporter\CLI\MigrateCommand;
 use BuddyNextImporter\CLI\SeedCommand;
 use BuddyNextImporter\Pipeline\ImportMode;
+use BuddyNextImporter\Rest\MappingController;
 use BuddyNextImporter\Rest\ProgressController;
 
 defined( 'ABSPATH' ) || exit;
@@ -41,6 +42,7 @@ final class Plugin {
 		}
 
 		( new ProgressController() )->register();
+		( new MappingController() )->register();
 
 		if ( is_admin() ) {
 			( new ImporterPage() )->register();

@@ -33,6 +33,31 @@ defined( 'ABSPATH' ) || exit;
 		</table>
 	</div>
 
+	<div class="bni-card" id="bni-mapping-card" hidden>
+		<h2 class="bni-card__title"><?php esc_html_e( 'Profile field mapping', 'buddynext-importer' ); ?></h2>
+		<p class="bni-mapping__intro">
+			<?php esc_html_e( 'Match each source profile field to a BuddyNext field, or create a new one. Mapping the common fields (bio, headline, location) onto BuddyNext\'s built-in fields keeps member profiles looking right after the import. Review the suggestions, adjust anything that is off, then save before you start.', 'buddynext-importer' ); ?>
+		</p>
+
+		<table class="widefat striped bni-mapping">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Source field', 'buddynext-importer' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Type', 'buddynext-importer' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'BuddyNext target', 'buddynext-importer' ); ?></th>
+				</tr>
+			</thead>
+			<tbody id="bni-mapping-body"></tbody>
+		</table>
+
+		<p class="bni-actions">
+			<button type="button" class="button" id="bni-mapping-save">
+				<?php esc_html_e( 'Save mapping', 'buddynext-importer' ); ?>
+			</button>
+			<span class="bni-mapping__status" id="bni-mapping-status" aria-live="polite"></span>
+		</p>
+	</div>
+
 	<div class="bni-card">
 		<h2 class="bni-card__title"><?php esc_html_e( 'Progress', 'buddynext-importer' ); ?></h2>
 		<div class="bni-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
