@@ -16,7 +16,8 @@
 		{ phase: 'spaces', stage: null, label: 'spaces and members' },
 		{ phase: 'activity', stage: 'posts', label: 'posts' },
 		{ phase: 'activity', stage: 'comments', label: 'comments' },
-		{ phase: 'friends', stage: null, label: 'connections' }
+		{ phase: 'friends', stage: null, label: 'connections' },
+		{ phase: 'messages', stage: null, label: 'private messages' }
 	];
 
 	var total = 0;
@@ -57,12 +58,14 @@
 
 	function stepCount( res ) {
 		return ( res.values || 0 ) + ( res.members || 0 ) + ( res.groups || 0 ) +
-			( res.posts || 0 ) + ( res.comments || 0 ) + ( res.connections || 0 );
+			( res.posts || 0 ) + ( res.comments || 0 ) + ( res.connections || 0 ) +
+			( res.messages || 0 );
 	}
 
 	function computeTotal( stats ) {
 		return ( stats.profile_values || 0 ) + ( stats.groups || 0 ) + ( stats.group_members || 0 ) +
-			( stats.activities || 0 ) + ( stats.activity_comments || 0 ) + ( stats.friendships || 0 );
+			( stats.activities || 0 ) + ( stats.activity_comments || 0 ) + ( stats.friendships || 0 ) +
+			( stats.messages || 0 );
 	}
 
 	function renderStats( data ) {

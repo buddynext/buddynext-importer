@@ -12,10 +12,12 @@ namespace BuddyNextImporter\CLI;
 use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\MessageImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
+use BuddyNextImporter\Writer\MessageWriter;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -332,6 +334,61 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Import private messages into the WPMediaVerse DM engine.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<n>]
+	 * : Messages per batch. Default 200.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-messages
+	 *
+	 * @subcommand migrate-messages
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_messages( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		if ( ! MessageWriter::available() ) {
+			\WP_CLI::error( 'WPMediaVerse (the DM engine) must be active to import private messages.' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = MessageImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
+
+		$after = 0;
+		$total = 0;
+		do {
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['messages'];
+			$after  = $result['last'];
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success( sprintf( 'Private messages imported: %d messages.', $total ) );
+	}
+
+	/**
 	 * Import bbPress forums, topics, and replies into Jetonomy.
 	 *
 	 * Requires Jetonomy active on the destination. Writes only through Jetonomy's
@@ -450,6 +507,12 @@ final class MigrateCommand {
 		$this->migrate_spaces( $args, $assoc_args );
 		$this->migrate_activity( $args, $assoc_args );
 		$this->migrate_friends( $args, $assoc_args );
+
+		if ( MessageWriter::available() ) {
+			$this->migrate_messages( $args, $assoc_args );
+		} else {
+			\WP_CLI::log( 'Skipping private messages (WPMediaVerse is not active).' );
+		}
 
 		if ( ForumImporter::target_available() ) {
 			$this->migrate_forums( $args, $assoc_args );

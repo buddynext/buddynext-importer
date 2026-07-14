@@ -107,5 +107,36 @@ final class ImportMode {
 				return self::$active ? false : $should_send;
 			}
 		);
+
+		// DM import: WPMediaVerse's send guards are for live submission, not for
+		// re-inserting trusted history. While importing, allow the send (block
+		// checks re-run naturally after the migration), lift the per-minute /
+		// per-hour rate limits, and skip content moderation of already-accepted
+		// messages. The is_duplicate transient guard has no filter and is cleared
+		// per-send by MessageWriter instead.
+		add_filter(
+			'mvs_can_send_message',
+			static function ( $allowed ) {
+				return self::$active ? true : $allowed;
+			}
+		);
+		add_filter(
+			'mvs_dm_message_rate_limit',
+			static function ( $limit ) {
+				return self::$active ? PHP_INT_MAX : $limit;
+			}
+		);
+		add_filter(
+			'mvs_dm_convo_rate_limit',
+			static function ( $limit ) {
+				return self::$active ? PHP_INT_MAX : $limit;
+			}
+		);
+		add_filter(
+			'mvs_message_content_check',
+			static function ( $ok ) {
+				return self::$active ? true : $ok;
+			}
+		);
 	}
 }

@@ -49,10 +49,11 @@ final class SeedCommand {
 
 		\WP_CLI::success(
 			sprintf(
-				'Seeded BuddyPress: %d groups, %d fields, %d members.',
+				'Seeded BuddyPress: %d groups, %d fields, %d members, %d messages.',
 				(int) $counts['groups'],
 				(int) $counts['fields'],
-				(int) $counts['members']
+				(int) $counts['members'],
+				(int) ( $counts['messages'] ?? 0 )
 			)
 		);
 	}

@@ -17,6 +17,7 @@ namespace BuddyNextImporter\Rest;
 use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\MessageImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
@@ -230,6 +231,10 @@ final class ProgressController {
 			return $this->step_friends( $source, $after, $batch );
 		}
 
+		if ( 'messages' === $phase ) {
+			return $this->step_messages( $source, $after, $batch );
+		}
+
 		if ( 'forums' === $phase ) {
 			return $this->step_forums( $source, (string) $request->get_param( 'stage' ), $after, $batch );
 		}
@@ -365,6 +370,33 @@ final class ProgressController {
 				'last'        => $result['last'],
 				'connections' => $result['connections'],
 				'done'        => $result['fetched'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Advance the private-messages phase by one batch. A no-op (immediately done)
+	 * when the WPMediaVerse DM engine is not active.
+	 *
+	 * @param string $source Source key.
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_messages( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
+		$importer = MessageImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		$result = $importer->import_batch( $after, $batch );
+
+		return new WP_REST_Response(
+			array(
+				'phase'    => 'messages',
+				'source'   => $source,
+				'last'     => $result['last'],
+				'messages' => $result['messages'],
+				'done'     => ! empty( $result['skipped'] ) || $result['fetched'] < $batch,
 			)
 		);
 	}

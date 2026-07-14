@@ -116,7 +116,112 @@ final class SourceSeeder {
 			++$m_count;
 		}
 
-		return array( 'groups' => $g_count, 'fields' => $f_count, 'members' => $m_count );
+		$msg_count = self::seed_messages();
+
+		return array(
+			'groups'   => $g_count,
+			'fields'   => $f_count,
+			'members'  => $m_count,
+			'messages' => $msg_count,
+		);
+	}
+
+	/**
+	 * Seed a couple of private-message threads between the fixture members, so
+	 * the DM migration has something to move. Includes a repeated message to
+	 * exercise the duplicate guard. Idempotent: only seeds when there are no
+	 * messages yet.
+	 *
+	 * @return int Number of messages created.
+	 */
+	private static function seed_messages(): int {
+		global $wpdb;
+
+		if ( ! function_exists( 'messages_new_message' ) ) {
+			return 0;
+		}
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		if ( (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}bp_messages_messages" ) > 0 ) {
+			return 0;
+		}
+
+		$id = static fn( string $login ): int => (int) ( username_exists( $login ) ?: 0 );
+		$emma   = $id( 'emma' );
+		$jack   = $id( 'jack' );
+		$sophia = $id( 'sophia' );
+		$liam   = $id( 'liam' );
+		if ( $emma <= 0 || $jack <= 0 ) {
+			return 0;
+		}
+
+		$count = 0;
+
+		// Thread 1: emma -> jack, with two replies (incl. a repeated "ok").
+		$t1 = messages_new_message(
+			array(
+				'sender_id'  => $emma,
+				'recipients' => array( $jack ),
+				'subject'    => 'Hey',
+				'content'    => 'Hi Jack, loved your playlist!',
+				'date_sent'  => '2026-06-01 10:00:00',
+				'error_type' => 'wp_error',
+			)
+		);
+		if ( ! is_wp_error( $t1 ) && (int) $t1 > 0 ) {
+			$count += 1;
+			$thread = (int) $t1;
+			$replies = array(
+				array( $jack, 'Thanks! Glad you liked it.', '2026-06-01 10:05:00' ),
+				array( $emma, 'ok', '2026-06-01 10:06:00' ),
+				array( $emma, 'ok', '2026-06-01 10:06:20' ),
+				array( $jack, 'Coffee this weekend?', '2026-06-02 09:00:00' ),
+			);
+			foreach ( $replies as $reply ) {
+				$sent = messages_new_message(
+					array(
+						'sender_id'  => (int) $reply[0],
+						'thread_id'  => $thread,
+						'content'    => (string) $reply[1],
+						'date_sent'  => (string) $reply[2],
+						'error_type' => 'wp_error',
+					)
+				);
+				if ( ! is_wp_error( $sent ) ) {
+					++$count;
+				}
+			}
+		}
+
+		// Thread 2: sophia -> liam, one reply.
+		if ( $sophia > 0 && $liam > 0 ) {
+			$t2 = messages_new_message(
+				array(
+					'sender_id'  => $sophia,
+					'recipients' => array( $liam ),
+					'subject'    => 'Book rec',
+					'content'    => 'You have to read this one.',
+					'date_sent'  => '2026-06-03 14:00:00',
+					'error_type' => 'wp_error',
+				)
+			);
+			if ( ! is_wp_error( $t2 ) && (int) $t2 > 0 ) {
+				++$count;
+				$sent = messages_new_message(
+					array(
+						'sender_id'  => $liam,
+						'thread_id'  => (int) $t2,
+						'content'    => 'On it, thanks!',
+						'date_sent'  => '2026-06-03 15:30:00',
+						'error_type' => 'wp_error',
+					)
+				);
+				if ( ! is_wp_error( $sent ) ) {
+					++$count;
+				}
+			}
+		}
+
+		return $count;
 	}
 
 	/**

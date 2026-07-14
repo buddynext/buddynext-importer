@@ -62,7 +62,62 @@ class BuddyPressAdapter implements SourceAdapter {
 			'activities'        => $this->table_count( 'bp_activity', "type = 'activity_update'" ),
 			'activity_comments' => $this->table_count( 'bp_activity', "type = 'activity_comment'" ),
 			'friendships'       => $this->table_count( 'bp_friends', 'is_confirmed = 1' ),
+			'messages'          => $this->table_count( 'bp_messages_messages' ),
 		);
+	}
+
+	/**
+	 * Source private messages, keyset-paginated by message id across all threads.
+	 *
+	 * @param int $after Exclusive lower-bound message id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function messages( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_messages_messages' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_messages_messages';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, thread_id, sender_id, message, date_sent FROM `{$table}` WHERE id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id' => (int) $row['id'],
+				'thread_id' => (int) $row['thread_id'],
+				'sender_id' => (int) $row['sender_id'],
+				'content'   => (string) $row['message'],
+				'sent_at'   => (string) $row['date_sent'],
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Distinct participant user ids for a message thread.
+	 *
+	 * @param int $thread_id Source thread id.
+	 * @return array<int,int>
+	 */
+	public function thread_participants( int $thread_id ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_messages_recipients' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_messages_recipients';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT user_id FROM `{$table}` WHERE thread_id = %d", $thread_id ) );
+
+		return array_values( array_filter( array_map( 'intval', (array) $ids ) ) );
 	}
 
 	/**

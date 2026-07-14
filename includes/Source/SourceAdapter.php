@@ -154,4 +154,24 @@ interface SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function forum_replies( int $after, int $limit ): array;
+
+	/**
+	 * Source private messages, keyset-paginated by message id across all threads.
+	 * Each row carries its thread id so the writer can lazily create the matching
+	 * conversation on the thread's first message.
+	 *
+	 * @param int $after Exclusive lower-bound message id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>> Rows: source_id, thread_id, sender_id, content, sent_at.
+	 */
+	public function messages( int $after, int $limit ): array;
+
+	/**
+	 * Distinct participant user ids for a message thread. User ids are shared
+	 * with BuddyNext (same WordPress users), so no remapping is needed.
+	 *
+	 * @param int $thread_id Source thread id.
+	 * @return array<int,int> Participant user ids.
+	 */
+	public function thread_participants( int $thread_id ): array;
 }
