@@ -62,7 +62,37 @@ class BuddyPressAdapter implements SourceAdapter {
 			'activities'        => $this->table_count( 'bp_activity', "type = 'activity_update'" ),
 			'activity_comments' => $this->table_count( 'bp_activity', "type = 'activity_comment'" ),
 			'friendships'       => $this->table_count( 'bp_friends', 'is_confirmed = 1' ),
+			'follows'           => $this->table_count( 'bp_follow' ),
+			'reactions'         => $this->table_exists( 'bb_user_reactions' )
+				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
+				: $this->favorites_count(),
+			'message_threads'   => $this->message_thread_count(),
 		);
+	}
+
+	/**
+	 * Count usermeta-favorites rows (the reactions fallback source).
+	 */
+	private function favorites_count(): int {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key = 'bp_favorite_activities' AND meta_value NOT IN ( '', 'a:0:{}' )" );
+	}
+
+	/**
+	 * Count distinct private-message threads.
+	 */
+	private function message_thread_count(): int {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_messages_messages' ) ) {
+			return 0;
+		}
+
+		$msg = $wpdb->prefix . 'bp_messages_messages';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		return (int) $wpdb->get_var( "SELECT COUNT(DISTINCT thread_id) FROM `{$msg}`" );
 	}
 
 	/**
@@ -526,6 +556,169 @@ class BuddyPressAdapter implements SourceAdapter {
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		return null !== $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM `{$table}` LIKE %s", $column ) );
+	}
+
+	/**
+	 * User follows from bp_follow (BuddyBoss / the classic BuddyPress Follow
+	 * plugin - same table name in both).
+	 *
+	 * Column drift is handled dynamically: classic bp_follow has no date and no
+	 * follow_type; BuddyBoss adds follow_type (blank for member follows). When
+	 * follow_type exists, non-member follows (e.g. forum subscriptions stored in
+	 * the same table) are excluded.
+	 *
+	 * @param int $after Exclusive lower-bound follow id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function follows( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_follow' ) ) {
+			return array();
+		}
+
+		$table    = $wpdb->prefix . 'bp_follow';
+		$date_col = $this->column_exists( 'bp_follow', 'date_recorded' ) ? ', date_recorded' : '';
+		$type_sql = $this->column_exists( 'bp_follow', 'follow_type' ) ? " AND ( follow_type = '' OR follow_type = 'user' )" : '';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, leader_id, follower_id{$date_col} FROM `{$table}` WHERE id > %d{$type_sql} ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id'     => (int) $row['id'],
+				'follower_id'   => (int) $row['follower_id'],
+				'leader_id'     => (int) $row['leader_id'],
+				'date_recorded' => (string) ( $row['date_recorded'] ?? '' ),
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Activity reactions/likes.
+	 *
+	 * Prefers BuddyBoss's bb_user_reactions table (per-row dates); falls back to
+	 * BuddyPress core favorites in usermeta bp_favorite_activities (a serialized
+	 * array of activity ids per user - no dates). The fallback keysets by USER id
+	 * and emits every favorite a batch's users hold, so a user's favorites are
+	 * never split across batches.
+	 *
+	 * @param int $after Exclusive lower-bound keyset id (reaction row id, or user id in the fallback).
+	 * @param int $limit Batch size (rows, or users in the fallback).
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function reactions( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( $this->table_exists( 'bb_user_reactions' ) ) {
+			$table = $wpdb->prefix . 'bb_user_reactions';
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, item_id, date_created FROM `{$table}` WHERE item_type = 'activity' AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+			$out = array();
+			foreach ( (array) $rows as $row ) {
+				$out[] = array(
+					'source_id'    => (int) $row['id'],
+					'user_id'      => (int) $row['user_id'],
+					'activity_id'  => (int) $row['item_id'],
+					'date_created' => (string) $row['date_created'],
+				);
+			}
+			return $out;
+		}
+
+		// Fallback: BuddyPress core favorites (usermeta, no dates).
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$users = $wpdb->get_results( $wpdb->prepare( "SELECT user_id, meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'bp_favorite_activities' AND user_id > %d ORDER BY user_id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $users as $row ) {
+			$favorites = maybe_unserialize( $row['meta_value'] );
+			if ( ! is_array( $favorites ) ) {
+				continue;
+			}
+			foreach ( $favorites as $activity_id ) {
+				$out[] = array(
+					'source_id'    => (int) $row['user_id'],
+					'user_id'      => (int) $row['user_id'],
+					'activity_id'  => (int) $activity_id,
+					'date_created' => '',
+				);
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Private-message threads from bp_messages_messages / bp_messages_recipients.
+	 *
+	 * @param int $after Exclusive lower-bound thread id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function message_threads( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_messages_messages' ) || ! $this->table_exists( 'bp_messages_recipients' ) ) {
+			return array();
+		}
+
+		$msg = $wpdb->prefix . 'bp_messages_messages';
+		$rcp = $wpdb->prefix . 'bp_messages_recipients';
+
+		// One row per thread: the FIRST message carries the subject + start date.
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$threads = $wpdb->get_results( $wpdb->prepare( "SELECT thread_id, MIN(id) AS first_id FROM `{$msg}` WHERE thread_id > %d GROUP BY thread_id ORDER BY thread_id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $threads as $thread ) {
+			$thread_id = (int) $thread['thread_id'];
+
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$first = $wpdb->get_row( $wpdb->prepare( "SELECT subject, date_sent FROM `{$msg}` WHERE id = %d", (int) $thread['first_id'] ), ARRAY_A );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$participants = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT user_id FROM `{$rcp}` WHERE thread_id = %d", $thread_id ) ) );
+
+			$out[] = array(
+				'thread_id'    => $thread_id,
+				'participants' => $participants,
+				'subject'      => (string) ( $first['subject'] ?? '' ),
+				'date_sent'    => (string) ( $first['date_sent'] ?? '' ),
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Every message in one thread, oldest first.
+	 *
+	 * @param int $thread_id Source thread id.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function thread_messages( int $thread_id ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_messages_messages' ) ) {
+			return array();
+		}
+
+		$msg = $wpdb->prefix . 'bp_messages_messages';
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, sender_id, message, date_sent FROM `{$msg}` WHERE thread_id = %d ORDER BY id ASC", $thread_id ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id' => (int) $row['id'],
+				'sender_id' => (int) $row['sender_id'],
+				'content'   => (string) $row['message'],
+				'date_sent' => (string) $row['date_sent'],
+			);
+		}
+		return $out;
 	}
 
 	/**

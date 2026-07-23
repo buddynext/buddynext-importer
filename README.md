@@ -37,7 +37,9 @@ BuddyPress / BuddyBoss / FluentCommunity / PeepSo / Ultimate Member
 | Groups | `bn_spaces` + `bn_space_members` (privacy + role mapping) |
 | Activity + comments | `bn_posts` + `bn_comments` |
 | Friendships / connections | `bn_connections` |
-| Private messages | WPMediaVerse DM engine |
+| Follows | `bn_follows` |
+| Reactions / likes | `bn_reactions` |
+| Private messages | WPMediaVerse DM engine (`mvs_conversations` + `mvs_messages`) |
 | Avatars + cover images | BuddyNext member media |
 
 Notifications are intentionally not imported (they are transient). Old permalinks can be mapped to BuddyNext routes for SEO continuity.

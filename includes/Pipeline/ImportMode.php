@@ -119,5 +119,35 @@ final class ImportMode {
 
 		add_filter( 'buddynext_notification_should_send', $veto );
 		add_filter( 'jetonomy_notification_should_send', $veto );
+
+		// WPMediaVerse DM gate lifts, via MVS's OWN public filters (no MVS code
+		// change). A source thread already existed - today's rate limits, DM
+		// access levels, and cross-plugin can-send vetoes (BuddyNext hooks
+		// mvs_can_send_message to enforce bn_blocks) must not silently drop its
+		// history during a replay. MVS's internal hard-block check sits above
+		// the filter and still refuses; those threads are counted as skips.
+		// PHP_INT_MAX priority so the lift wins over every enforcing listener.
+		add_filter(
+			'mvs_can_send_message',
+			static function ( $allowed ) {
+				return self::$active ? true : $allowed;
+			},
+			PHP_INT_MAX
+		);
+
+		add_filter(
+			'mvs_dm_access_level',
+			static function ( $access ) {
+				return self::$active ? 'everyone' : $access;
+			},
+			PHP_INT_MAX
+		);
+
+		$unlimited = static function ( $limit ) {
+			return self::$active ? PHP_INT_MAX : $limit;
+		};
+
+		add_filter( 'mvs_dm_message_rate_limit', $unlimited, PHP_INT_MAX );
+		add_filter( 'mvs_dm_convo_rate_limit', $unlimited, PHP_INT_MAX );
 	}
 }

@@ -154,4 +154,52 @@ interface SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function forum_replies( int $after, int $limit ): array;
+
+	/**
+	 * User follows, keyset-paginated by follow row id.
+	 *
+	 * Row shape: source_id, follower_id, leader_id, date_recorded ('' when the
+	 * source table has no date column - classic bp_follow does not).
+	 *
+	 * @param int $after Exclusive lower-bound follow id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function follows( int $after, int $limit ): array;
+
+	/**
+	 * Activity reactions/likes, keyset-paginated.
+	 *
+	 * Row shape: source_id, user_id, activity_id, date_created ('' when the
+	 * source stores no per-like date - BuddyPress usermeta favorites do not).
+	 * The keyset id is the reaction row id (BuddyBoss bb_user_reactions) or the
+	 * user id (usermeta-favorites fallback, one batch emits whole users).
+	 *
+	 * @param int $after Exclusive lower-bound keyset id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function reactions( int $after, int $limit ): array;
+
+	/**
+	 * Private-message threads, keyset-paginated by thread id.
+	 *
+	 * Row shape: thread_id, participants (int[]), subject, date_sent (of the
+	 * thread's first message).
+	 *
+	 * @param int $after Exclusive lower-bound thread id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function message_threads( int $after, int $limit ): array;
+
+	/**
+	 * Every message in one thread, oldest first.
+	 *
+	 * Row shape: source_id, sender_id, content, date_sent.
+	 *
+	 * @param int $thread_id Source thread id.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function thread_messages( int $thread_id ): array;
 }

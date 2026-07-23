@@ -10,9 +10,12 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\CLI;
 
 use BuddyNextImporter\Pipeline\ActivityImporter;
+use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\MessageImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
+use BuddyNextImporter\Pipeline\ReactionImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
@@ -332,6 +335,184 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Import user follows into BuddyNext.
+	 *
+	 * Reads bp_follow (BuddyBoss / the BuddyPress Follow plugin). Writes only
+	 * through the BuddyNext service API; bn_follows' unique key makes re-runs
+	 * idempotent. Follow dates are preserved when the source table has them.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Follows per batch. Default 200.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-follows
+	 *
+	 * @subcommand migrate-follows
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_follows( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = FollowImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
+
+		$after = 0;
+		$total = 0;
+		do {
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['follows'];
+			$after  = $result['last'];
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success( sprintf( 'Follows imported: %d follows.', $total ) );
+	}
+
+	/**
+	 * Import activity likes/favorites into BuddyNext as reactions.
+	 *
+	 * Reads BuddyBoss's bb_user_reactions when present (per-like dates), else
+	 * BuddyPress core favorites from usermeta (no dates). Requires the activity
+	 * import to have run first - a like maps through the activity id-map, and
+	 * likes on unimported activities are dropped with them. Writes only through
+	 * the BuddyNext service API; bn_reactions' unique key makes re-runs
+	 * idempotent.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Reactions (or users, for usermeta favorites) per batch. Default 200.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-reactions
+	 *
+	 * @subcommand migrate-reactions
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_reactions( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = ReactionImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
+
+		// Batches are non-uniform (the usermeta fallback keysets by user and
+		// emits whole users), so loop until a batch comes back empty.
+		$after = 0;
+		$total = 0;
+		do {
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['reactions'];
+			$after  = $result['last'];
+		} while ( $result['fetched'] > 0 );
+
+		\WP_CLI::success( sprintf( 'Reactions imported: %d likes.', $total ) );
+	}
+
+	/**
+	 * Import private-message threads into WPMediaVerse's DM engine.
+	 *
+	 * Requires WPMediaVerse active on the destination. Two-party threads become
+	 * direct conversations, larger ones group conversations titled with the
+	 * source subject; message and thread dates are preserved. Writes only
+	 * through the mvs messaging service. Idempotent via the id-map on both the
+	 * thread and message level.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Threads per batch. Default 50.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-messages
+	 *
+	 * @subcommand migrate-messages
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_messages( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		if ( ! MessageImporter::target_available() ) {
+			\WP_CLI::error( 'WPMediaVerse must be active to import private messages (they live in its DM engine).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = MessageImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
+
+		$after         = 0;
+		$conversations = 0;
+		$messages      = 0;
+		do {
+			$result         = $importer->import_batch( $after, $batch );
+			$conversations += $result['conversations'];
+			$messages      += $result['messages'];
+			$after          = $result['last'];
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success( sprintf( 'Messages imported: %d conversations, %d messages.', $conversations, $messages ) );
+	}
+
+	/**
 	 * Import bbPress forums, topics, and replies into Jetonomy.
 	 *
 	 * Requires Jetonomy active on the destination. Writes only through Jetonomy's
@@ -446,15 +627,42 @@ final class MigrateCommand {
 
 		\WP_CLI::log( sprintf( 'Migrating %s -> BuddyNext (batch %d).', $source, $batch ) );
 
+		// Coverage report up front: what the source HOLDS, so nothing can be
+		// skipped silently - an operator sees the counts this run is expected
+		// to account for before a single row moves.
+		$adapter = AdapterRegistry::get( $source );
+		if ( null !== $adapter ) {
+			$stats = $adapter->stats();
+			\WP_CLI::log( sprintf(
+				'Source contains: %d users, %d groups, %d activities, %d comments, %d friendships, %d follows, %d reactions, %d message threads.',
+				(int) ( $stats['users'] ?? 0 ),
+				(int) ( $stats['groups'] ?? 0 ),
+				(int) ( $stats['activities'] ?? 0 ),
+				(int) ( $stats['activity_comments'] ?? 0 ),
+				(int) ( $stats['friendships'] ?? 0 ),
+				(int) ( $stats['follows'] ?? 0 ),
+				(int) ( $stats['reactions'] ?? 0 ),
+				(int) ( $stats['message_threads'] ?? 0 )
+			) );
+		}
+
 		$this->migrate_profiles( $args, $assoc_args );
 		$this->migrate_spaces( $args, $assoc_args );
 		$this->migrate_activity( $args, $assoc_args );
 		$this->migrate_friends( $args, $assoc_args );
+		$this->migrate_follows( $args, $assoc_args );
+		$this->migrate_reactions( $args, $assoc_args );
 
 		if ( ForumImporter::target_available() ) {
 			$this->migrate_forums( $args, $assoc_args );
 		} else {
-			\WP_CLI::log( 'Skipping forums (Jetonomy is not active).' );
+			\WP_CLI::log( 'Skipping forums (Jetonomy is not active) - source forum content will NOT be migrated.' );
+		}
+
+		if ( MessageImporter::target_available() ) {
+			$this->migrate_messages( $args, $assoc_args );
+		} else {
+			\WP_CLI::log( 'Skipping private messages (WPMediaVerse is not active) - source message threads will NOT be migrated.' );
 		}
 
 		\WP_CLI::success( 'Migration complete. You can now deactivate and remove this importer.' );
