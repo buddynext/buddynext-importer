@@ -150,7 +150,9 @@ final class ActivityWriter {
 		}
 
 		$result = ImportMode::run(
-			fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id )
+			// Sixth argument is CommentService's backdate seam - the comment
+			// keeps its source date_recorded instead of the migration run time.
+			fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $this->utc( (string) $comment['date_recorded'] ) )
 		);
 
 		if ( is_wp_error( $result ) ) {

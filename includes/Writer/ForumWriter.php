@@ -110,6 +110,9 @@ final class ForumWriter {
 					'visibility'  => $visibility,
 					'join_policy' => $this->join_policy( $visibility ),
 					'description' => wp_strip_all_tags( (string) $forum['content'] ),
+					// Jetonomy's Journey_Backdate seam - the forum keeps its
+					// source creation date instead of the migration run time.
+					'created_at'  => (string) ( $forum['created_gmt'] ?? '' ),
 				)
 			)
 		);
@@ -144,10 +147,12 @@ final class ForumWriter {
 		$result = ImportMode::run(
 			fn() => ( new \Jetonomy\CLI\Journeys\Content_Journey() )->create_post(
 				array(
-					'space_id'  => $space_id,
-					'author_id' => $this->author( (int) $topic['author_id'] ),
-					'title'     => (string) $topic['title'],
-					'content'   => (string) $topic['content'],
+					'space_id'   => $space_id,
+					'author_id'  => $this->author( (int) $topic['author_id'] ),
+					'title'      => (string) $topic['title'],
+					'content'    => (string) $topic['content'],
+					// Journey_Backdate seam - also backdates last_reply_at.
+					'created_at' => (string) ( $topic['created_gmt'] ?? '' ),
 				)
 			)
 		);
@@ -181,9 +186,12 @@ final class ForumWriter {
 		}
 
 		$input = array(
-			'post_id'   => $post_id,
-			'author_id' => $this->author( (int) $reply['author_id'] ),
-			'content'   => (string) $reply['content'],
+			'post_id'    => $post_id,
+			'author_id'  => $this->author( (int) $reply['author_id'] ),
+			'content'    => (string) $reply['content'],
+			// Journey_Backdate seam - the reply's date also carries into the
+			// parent topic's last_reply_at via Post::increment_reply_count().
+			'created_at' => (string) ( $reply['created_gmt'] ?? '' ),
 		);
 
 		$reply_to = (int) ( $reply['reply_to'] ?? 0 );

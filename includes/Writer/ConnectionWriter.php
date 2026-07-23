@@ -69,15 +69,20 @@ final class ConnectionWriter {
 
 		$confirmed = 1 === (int) $friendship['is_confirmed'];
 
+		// Source friendship date, forwarded through the service's backdate seam
+		// (BuddyNext Core\Backdate validates and clamps it) so a migrated
+		// connection keeps its history instead of the migration run time.
+		$created_at = (string) ( $friendship['date_created'] ?? '' );
+
 		ImportMode::run(
-			function () use ( $requester, $recipient, $confirmed ): void {
+			function () use ( $requester, $recipient, $confirmed, $created_at ): void {
 				$service = $this->service();
 
 				if ( $service->are_connected( $requester, $recipient ) ) {
 					return;
 				}
 
-				$service->send_request( $requester, $recipient );
+				$service->send_request( $requester, $recipient, '', '' !== $created_at ? $created_at : null );
 
 				if ( $confirmed ) {
 					$service->accept_request( $recipient, $requester );

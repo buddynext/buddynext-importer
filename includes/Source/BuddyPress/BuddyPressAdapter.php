@@ -363,7 +363,7 @@ class BuddyPressAdapter implements SourceAdapter {
 		$table = $wpdb->prefix . 'bp_friends';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, initiator_user_id, friend_user_id, is_confirmed FROM `{$table}` WHERE id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, initiator_user_id, friend_user_id, is_confirmed, date_created FROM `{$table}` WHERE id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -372,6 +372,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				'initiator_id' => (int) $row['initiator_user_id'],
 				'friend_id'    => (int) $row['friend_user_id'],
 				'is_confirmed' => (int) $row['is_confirmed'],
+				'date_created' => (string) $row['date_created'],
 			);
 		}
 

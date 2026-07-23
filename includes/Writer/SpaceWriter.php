@@ -89,6 +89,10 @@ final class SpaceWriter {
 			'slug'        => $this->unique_slug( (string) $group['slug'], (string) $group['name'] ),
 			'description' => (string) $group['description'],
 			'type'        => $type,
+			// SpaceService's backdate seam (BuddyNext Core\Backdate validates
+			// and clamps) - the space keeps the source group's date_created
+			// instead of the migration run time.
+			'created_at'  => (string) ( $group['date_created'] ?? '' ),
 		);
 
 		// Resolve a sub-space parent that was already imported.
