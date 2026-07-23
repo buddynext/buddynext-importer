@@ -87,6 +87,18 @@ final class ImportMode {
 	 *   fired), their email + realtime fan-out too. This kills the dominant
 	 *   per-recipient fan-out for every imported post, comment, join, and follow
 	 *   while leaving the search index, hashtags, and cache busts intact.
+	 * - jetonomy_notification_should_send: Jetonomy's mirror of the same veto
+	 *   (jetonomy >= 1.8.1). One filter silences BOTH its notification rows
+	 *   (Notification::create()) and its emails (Notifier::should_email()), and
+	 *   makes Mentions::notify() bail before scanning imported forum content —
+	 *   without it every imported topic/reply fanned out subscriber + mention
+	 *   notifications and per-recipient EMAILS.
+	 *
+	 * WPMediaVerse (DMs) needs no filter of its own here: when BuddyNext is
+	 * active (this plugin requires it), MVS's NotificationListener defers all
+	 * DM notification routing to BuddyNext (mvs_buddynext_active), and that
+	 * BuddyNext path is already killed by the veto above — emails and push
+	 * included, since both hang off buddynext_notification_created.
 	 *
 	 * Outbound webhooks are not gated here: dispatch() no-ops unless the site has
 	 * registered an endpoint, and even then it only schedules cron rather than
@@ -101,11 +113,11 @@ final class ImportMode {
 			}
 		);
 
-		add_filter(
-			'buddynext_notification_should_send',
-			static function ( $should_send ) {
-				return self::$active ? false : $should_send;
-			}
-		);
+		$veto = static function ( $should_send ) {
+			return self::$active ? false : $should_send;
+		};
+
+		add_filter( 'buddynext_notification_should_send', $veto );
+		add_filter( 'jetonomy_notification_should_send', $veto );
 	}
 }
