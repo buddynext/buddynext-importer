@@ -62,16 +62,22 @@ final class ActivityWriter {
 	 * mapped space; everything else is a sitewide post. The original timestamp is
 	 * preserved through PostService's backdate-aware created_at.
 	 *
+	 * Reports whether the post was CREATED, not merely resolved, so a resumed run
+	 * does not report rows as imported when the id-map simply already had them.
+	 *
 	 * @param array<string,mixed> $activity   Source activity record.
 	 * @param array<int,int>      $media_atts WP attachment ids attached to the activity.
-	 * @return int BuddyNext post id (0 on failure/skip).
+	 * @return array{id:int,created:bool} BuddyNext post id (0 on failure/skip).
 	 */
-	public function import_post( array $activity, array $media_atts = array() ): int {
+	public function import_post( array $activity, array $media_atts = array() ): array {
 		$source_id = (int) $activity['source_id'];
 
 		$existing = IdMap::get( $this->source, 'post', $source_id );
 		if ( null !== $existing ) {
-			return $existing;
+			return array(
+				'id'      => $existing,
+				'created' => false,
+			);
 		}
 
 		$user_id   = (int) $activity['user_id'];
@@ -80,7 +86,10 @@ final class ActivityWriter {
 
 		// A post needs either content or media.
 		if ( '' === $content && empty( $media_ids ) ) {
-			return 0;
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		$space_id = 0;
@@ -106,13 +115,19 @@ final class ActivityWriter {
 		);
 
 		if ( is_wp_error( $result ) ) {
-			return 0;
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		$bn_id = (int) $result;
 		IdMap::set( $this->source, 'post', $source_id, $bn_id );
 
-		return $bn_id;
+		return array(
+			'id'      => $bn_id,
+			'created' => true,
+		);
 	}
 
 	/**
@@ -121,24 +136,34 @@ final class ActivityWriter {
 	 * root activity) is nested under that comment. Idempotent via the id-map.
 	 *
 	 * @param array<string,mixed> $comment Source comment record.
-	 * @return int BuddyNext comment id (0 on failure/skip).
+	 * @return array{id:int,created:bool} BuddyNext comment id (0 on failure/skip).
 	 */
-	public function import_comment( array $comment ): int {
+	public function import_comment( array $comment ): array {
 		$source_id = (int) $comment['source_id'];
 
 		$existing = IdMap::get( $this->source, 'comment', $source_id );
 		if ( null !== $existing ) {
-			return $existing;
+			return array(
+				'id'      => $existing,
+				'created' => false,
+			);
 		}
 
 		$post_id = IdMap::get( $this->source, 'post', (int) $comment['root_id'] );
 		if ( null === $post_id ) {
-			return 0; // Root post was not imported (skipped/system) - drop the comment.
+			// Root post was not imported (skipped/system) - drop the comment.
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		$content = trim( (string) $comment['content'] );
 		if ( '' === $content ) {
-			return 0;
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		// A reply targets another comment; a top-level comment targets the root.
@@ -156,13 +181,19 @@ final class ActivityWriter {
 		);
 
 		if ( is_wp_error( $result ) ) {
-			return 0;
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		$bn_id = (int) $result;
 		IdMap::set( $this->source, 'comment', $source_id, $bn_id );
 
-		return $bn_id;
+		return array(
+			'id'      => $bn_id,
+			'created' => true,
+		);
 	}
 
 	/**

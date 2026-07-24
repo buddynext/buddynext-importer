@@ -198,15 +198,17 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
 
-		$after         = 0;
-		$total_groups  = 0;
-		$total_members = 0;
+		$after          = 0;
+		$total_groups   = 0;
+		$total_members  = 0;
+		$total_existing = 0;
 
 		do {
-			$result         = $importer->import_batch( $after, $batch );
-			$total_groups  += $result['groups'];
-			$total_members += $result['members'];
-			$after          = $result['last'];
+			$result          = $importer->import_batch( $after, $batch );
+			$total_groups   += $result['groups'];
+			$total_members  += $result['members'];
+			$total_existing += $result['existing'];
+			$after           = $result['last'];
 
 			if ( $result['groups'] > 0 ) {
 				\WP_CLI::log( sprintf( '  ... %d spaces, %d members (last group id %d)', $total_groups, $total_members, $after ) );
@@ -214,6 +216,8 @@ final class MigrateCommand {
 		} while ( $result['fetched'] === $batch );
 
 		\WP_CLI::success( sprintf( 'Spaces imported: %d spaces, %d members.', $total_groups, $total_members ) );
+
+		$this->report_existing( $total_existing, 'spaces' );
 	}
 
 	/**
@@ -262,24 +266,31 @@ final class MigrateCommand {
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
 
 		// Posts first, so comments can resolve their root post.
-		$after = 0;
-		$posts = 0;
+		$after          = 0;
+		$posts          = 0;
+		$posts_existing = 0;
 		do {
-			$result = $importer->import_posts_batch( $after, $batch );
-			$posts += $result['posts'];
-			$after  = $result['last'];
+			$result          = $importer->import_posts_batch( $after, $batch );
+			$posts          += $result['posts'];
+			$posts_existing += $result['existing'];
+			$after           = $result['last'];
 		} while ( $result['fetched'] === $batch );
 		\WP_CLI::log( sprintf( '%d posts imported.', $posts ) );
 
-		$after    = 0;
-		$comments = 0;
+		$after             = 0;
+		$comments          = 0;
+		$comments_existing = 0;
 		do {
-			$result    = $importer->import_comments_batch( $after, $batch );
-			$comments += $result['comments'];
-			$after     = $result['last'];
+			$result             = $importer->import_comments_batch( $after, $batch );
+			$comments          += $result['comments'];
+			$comments_existing += $result['existing'];
+			$after              = $result['last'];
 		} while ( $result['fetched'] === $batch );
 
 		\WP_CLI::success( sprintf( 'Activity imported: %d posts, %d comments.', $posts, $comments ) );
+
+		$this->report_existing( $posts_existing, 'posts' );
+		$this->report_existing( $comments_existing, 'comments' );
 	}
 
 	/**
@@ -655,14 +666,25 @@ final class MigrateCommand {
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
 
 		$forums = $this->run_loop( fn( $after ) => $importer->import_forums_batch( $after, $batch ), 'forums', $batch );
-		\WP_CLI::log( sprintf( '%d forums imported.', $forums ) );
+		\WP_CLI::log( sprintf( '%d forums imported.', $forums['done'] ) );
 
 		$topics = $this->run_loop( fn( $after ) => $importer->import_topics_batch( $after, $batch ), 'topics', $batch );
-		\WP_CLI::log( sprintf( '%d topics imported.', $topics ) );
+		\WP_CLI::log( sprintf( '%d topics imported.', $topics['done'] ) );
 
 		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch );
 
-		\WP_CLI::success( sprintf( 'Forums imported: %d forums, %d topics, %d replies.', $forums, $topics, $replies ) );
+		\WP_CLI::success(
+			sprintf(
+				'Forums imported: %d forums, %d topics, %d replies.',
+				$forums['done'],
+				$topics['done'],
+				$replies['done']
+			)
+		);
+
+		$this->report_existing( $forums['existing'], 'forums' );
+		$this->report_existing( $topics['existing'], 'topics' );
+		$this->report_existing( $replies['existing'], 'replies' );
 	}
 
 	/**
@@ -956,16 +978,37 @@ final class MigrateCommand {
 	 * @param string   $key      The count key in the batch result to sum.
 	 * @param int      $batch    Batch size (loop continues while a page is full).
 	 */
-	private function run_loop( callable $batch_fn, string $key, int $batch ): int {
-		$after = 0;
-		$total = 0;
+	private function run_loop( callable $batch_fn, string $key, int $batch ): array {
+		$after    = 0;
+		$total    = 0;
+		$existing = 0;
+
 		do {
-			$result = $batch_fn( $after );
-			$total += (int) ( $result[ $key ] ?? 0 );
-			$after  = (int) $result['last'];
+			$result    = $batch_fn( $after );
+			$total    += (int) ( $result[ $key ] ?? 0 );
+			$existing += (int) ( $result['existing'] ?? 0 );
+			$after     = (int) $result['last'];
 		} while ( (int) $result['fetched'] === $batch );
 
-		return $total;
+		return array(
+			'done'     => $total,
+			'existing' => $existing,
+		);
+	}
+
+	/**
+	 * Print the "already there" note for a domain, when there is one.
+	 *
+	 * Rows an earlier run already wrote are not imports. Reporting them as such
+	 * is how a re-run used to claim it had moved the whole community again.
+	 *
+	 * @param int    $existing Rows found already present.
+	 * @param string $label    Domain label.
+	 */
+	private function report_existing( int $existing, string $label ): void {
+		if ( $existing > 0 ) {
+			\WP_CLI::log( sprintf( '  %d %s were already imported by an earlier run.', $existing, $label ) );
+		}
 	}
 
 	/**

@@ -68,17 +68,23 @@ final class SpaceWriter {
 
 	/**
 	 * Import one source group as a BuddyNext space. Idempotent via the id-map.
-	 * Returns the BuddyNext space id, or 0 when creation failed.
+	 *
+	 * Reports whether the space was CREATED, not merely resolved: a resumed run
+	 * finds every space in the id-map, and counting those as imported would tell
+	 * the operator rows moved when nothing did.
 	 *
 	 * @param array<string,mixed> $group Source group record.
-	 * @return int BuddyNext space id (0 on failure).
+	 * @return array{id:int,created:bool} BuddyNext space id (0 on failure).
 	 */
-	public function import_space( array $group ): int {
+	public function import_space( array $group ): array {
 		$source_id = (int) $group['source_id'];
 
 		$existing = IdMap::get( $this->source, 'space', $source_id );
 		if ( null !== $existing ) {
-			return $existing;
+			return array(
+				'id'      => $existing,
+				'created' => false,
+			);
 		}
 
 		$owner_id = (int) $group['creator_id'];
@@ -109,13 +115,19 @@ final class SpaceWriter {
 		);
 
 		if ( is_wp_error( $result ) ) {
-			return 0;
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		$bn_id = (int) $result;
 		IdMap::set( $this->source, 'space', $source_id, $bn_id );
 
-		return $bn_id;
+		return array(
+			'id'      => $bn_id,
+			'created' => true,
+		);
 	}
 
 	/**
@@ -125,12 +137,20 @@ final class SpaceWriter {
 	 * @param int                 $bn_space_id Mapped BuddyNext space id.
 	 * @param int                 $owner_id    Space owner (acts for role changes).
 	 * @param array<string,mixed> $member      Source membership row.
-	 * @return bool Whether a write occurred.
+	 * @return bool Whether a membership row was CREATED by this call.
 	 */
 	public function import_member( int $bn_space_id, int $owner_id, array $member ): bool {
 		$user_id = (int) $member['user_id'];
 
 		if ( $user_id <= 0 || $user_id === $owner_id ) {
+			return false;
+		}
+
+		// Membership rows carry no id-map entry - the space itself is the mapped
+		// object - so the target's own membership status is what tells a re-run
+		// this member already landed. Without this every re-run re-counted the
+		// whole roster as newly imported.
+		if ( null !== $this->members()->get_status( $bn_space_id, $user_id ) ) {
 			return false;
 		}
 
