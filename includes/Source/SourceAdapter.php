@@ -158,6 +158,33 @@ interface SourceAdapter {
 	public function activity_media( int $activity_id ): array;
 
 	/**
+	 * Source media albums, keyset-paginated by album id.
+	 *
+	 * Row shape: source_id, user_id, group_id, title, privacy, date_created.
+	 * Empty for platforms with no album feature (BuddyPress core).
+	 *
+	 * @param int $after Exclusive lower-bound album id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function media_albums( int $after, int $limit ): array;
+
+	/**
+	 * Standalone media - library/album items that were never posted to an
+	 * activity, keyset-paginated by media row id. Activity-attached media is
+	 * imported with its post instead (see activity_media()), so it is excluded
+	 * here to keep the two paths from racing for the same rows.
+	 *
+	 * Row shape: source_id, attachment_id, user_id, title, description,
+	 * album_id, group_id, privacy, type, date_created.
+	 *
+	 * @param int $after Exclusive lower-bound media id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function standalone_media( int $after, int $limit ): array;
+
+	/**
 	 * Source bbPressforums, keyset-paginated by post id.
 	 *
 	 * Row shape includes `group_id`: the source group this forum belongs to

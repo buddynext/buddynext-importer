@@ -58,8 +58,14 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 	public function stats(): array {
 		$stats = parent::stats();
 
-		// Activity media in scope: photos (bp_media) + videos (bp_video).
-		$stats['activity_media'] = $this->table_count( 'bp_media' ) + $this->table_count( 'bp_video' );
+		// Activity media in scope: photos (bp_media) + videos (bp_video on older
+		// installs; folded into bp_media on 2.x, so it is not double-counted).
+		$stats['activity_media'] = $this->table_count( 'bp_media', 'COALESCE( activity_id, 0 ) <> 0' )
+			+ ( $this->table_exists( 'bp_video' ) ? $this->table_count( 'bp_video' ) : 0 );
+
+		// Standalone library/album media - never posted to an activity.
+		$stats['media_albums']     = $this->table_count( 'bp_media_albums' );
+		$stats['standalone_media'] = $this->table_count( 'bp_media', "COALESCE( activity_id, 0 ) = 0 AND COALESCE( message_id, 0 ) = 0 AND status = 'published'" );
 
 		// Forums (bbPress) -> Jetonomy, only meaningful when forums exist.
 		$stats['forum_topics']  = $this->post_type_count( 'topic' );
@@ -84,9 +90,15 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		}
 
 		$attachments = array();
-		$sources     = array(
+
+		// Older BuddyBoss keeps videos in their own bp_video table; from 2.x the
+		// video component points at bp_media too (class-bp-video-component.php
+		// sets table_name to bp_media) and bp_video no longer exists. Resolving
+		// bp_video_ids against a missing table silently skipped every video on a
+		// modern source, so fall back to bp_media when bp_video is absent.
+		$sources = array(
 			'bp_media_ids' => 'bp_media',
-			'bp_video_ids' => 'bp_video',
+			'bp_video_ids' => $this->table_exists( 'bp_video' ) ? 'bp_video' : 'bp_media',
 		);
 
 		foreach ( $sources as $meta_key => $unprefixed ) {
@@ -119,6 +131,96 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		}
 
 		return array_values( array_unique( $attachments ) );
+	}
+
+	/**
+	 * Media albums from bp_media_albums.
+	 *
+	 * @param int $after Exclusive lower-bound album id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function media_albums( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_media_albums' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_media_albums';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, group_id, title, privacy, date_created FROM `{$table}` WHERE id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$albums = array();
+		foreach ( (array) $rows as $row ) {
+			$albums[] = array(
+				'source_id'    => (int) $row['id'],
+				'user_id'      => (int) $row['user_id'],
+				'group_id'     => (int) $row['group_id'],
+				'title'        => (string) wp_unslash( (string) $row['title'] ),
+				'privacy'      => (string) $row['privacy'],
+				'date_created' => (string) $row['date_created'],
+			);
+		}
+
+		return $albums;
+	}
+
+	/**
+	 * Standalone media: bp_media rows that are not attached to an activity and
+	 * are not a DM attachment. Activity-attached media rides its post instead
+	 * (activity_media()), and DM attachments belong to the messages domain, so
+	 * both are excluded here rather than imported twice.
+	 *
+	 * @param int $after Exclusive lower-bound media id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function standalone_media( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_media' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_media';
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, attachment_id, user_id, title, description, album_id, group_id, privacy, type, date_created
+				FROM `{$table}`
+				WHERE id > %d
+					AND COALESCE( activity_id, 0 ) = 0
+					AND COALESCE( message_id, 0 ) = 0
+					AND status = 'published'
+				ORDER BY id ASC
+				LIMIT %d",
+				$after,
+				$limit
+			),
+			ARRAY_A
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+		$media = array();
+		foreach ( (array) $rows as $row ) {
+			$media[] = array(
+				'source_id'     => (int) $row['id'],
+				'attachment_id' => (int) $row['attachment_id'],
+				'user_id'       => (int) $row['user_id'],
+				'title'         => (string) wp_unslash( (string) $row['title'] ),
+				'description'   => (string) wp_unslash( (string) $row['description'] ),
+				'album_id'      => (int) $row['album_id'],
+				'group_id'      => (int) $row['group_id'],
+				'privacy'       => (string) $row['privacy'],
+				'type'          => (string) $row['type'],
+				'date_created'  => (string) $row['date_created'],
+			);
+		}
+
+		return $media;
 	}
 
 	/**

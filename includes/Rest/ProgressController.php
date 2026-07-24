@@ -17,6 +17,7 @@ namespace BuddyNextImporter\Rest;
 use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\MediaImporter;
 use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
@@ -239,6 +240,10 @@ final class ProgressController {
 			return $this->step_forums( $source, (string) $request->get_param( 'stage' ), $after, $batch );
 		}
 
+		if ( 'media' === $phase ) {
+			return $this->step_media( $source, (string) $request->get_param( 'stage' ), $after, $batch );
+		}
+
 		return new WP_Error(
 			'buddynext_importer_unknown_phase',
 			/* translators: %s: phase name. */
@@ -272,6 +277,57 @@ final class ProgressController {
 				'users'  => $result['users'],
 				'values' => $result['values'],
 				'done'   => $result['users'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Advance the standalone-media phase by one batch.
+	 *
+	 * Two stages: `albums` first, then `media`, so each photo finds its album
+	 * already mapped.
+	 *
+	 * @param string $source Source key.
+	 * @param string $stage  Stage (albums|media).
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_media( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
+		if ( ! MediaImporter::target_available() ) {
+			return new WP_Error(
+				'buddynext_importer_no_media_engine',
+				__( 'WPMediaVerse must be active to import media.', 'buddynext-importer' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$importer = MediaImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		if ( 'media' === $stage ) {
+			$result = $importer->import_media_batch( $after, $batch );
+			$count  = array(
+				'media'   => $result['media'],
+				'skipped' => $result['skipped'],
+			);
+		} else {
+			$stage  = 'albums';
+			$result = $importer->import_albums_batch( $after, $batch );
+			$count  = array( 'albums' => $result['albums'] );
+		}
+
+		return new WP_REST_Response(
+			array_merge(
+				array(
+					'phase'  => 'media',
+					'stage'  => $stage,
+					'source' => $source,
+					'last'   => $result['last'],
+					'done'   => $result['fetched'] < $batch,
+				),
+				$count
 			)
 		);
 	}
