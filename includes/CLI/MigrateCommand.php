@@ -13,6 +13,7 @@ use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\MessageImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\ReactionImporter;
@@ -499,17 +500,99 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
 
-		$after         = 0;
-		$conversations = 0;
-		$messages      = 0;
+		$after           = 0;
+		$conversations   = 0;
+		$merged          = 0;
+		$messages        = 0;
+		$source_messages = 0;
+		$skipped         = array();
+
 		do {
-			$result         = $importer->import_batch( $after, $batch );
-			$conversations += $result['conversations'];
-			$messages      += $result['messages'];
-			$after          = $result['last'];
+			$result           = $importer->import_batch( $after, $batch );
+			$conversations   += $result['conversations'];
+			$merged          += $result['merged'];
+			$messages        += $result['messages'];
+			$source_messages += $result['source_messages'];
+			$after            = $result['last'];
+
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 		} while ( $result['fetched'] === $batch );
 
-		\WP_CLI::success( sprintf( 'Messages imported: %d conversations, %d messages.', $conversations, $messages ) );
+		\WP_CLI::success(
+			sprintf(
+				'Messages imported: %d conversations, %d of %d source messages.',
+				$conversations,
+				$messages,
+				$source_messages
+			)
+		);
+
+		if ( $merged > 0 ) {
+			\WP_CLI::log(
+				sprintf(
+					'  %d source threads were folded into an existing conversation: the source keeps one thread per subject, BuddyNext keeps one conversation per pair of members. Every message is preserved, in date order.',
+					$merged
+				)
+			);
+		}
+
+		$this->report_skips( $skipped, $source_messages, $messages, 'messages' );
+	}
+
+	/**
+	 * Report every source row that did not reach the target, by reason.
+	 *
+	 * A migration that quietly writes fewer rows than the source holds is the
+	 * worst failure mode this tool has: the operator deletes the old community
+	 * believing everything moved. So the shortfall is always printed, always
+	 * broken down, and raises a warning rather than hiding inside a success line.
+	 *
+	 * Reasons that are NOT data loss are reported as plain notes, never folded
+	 * into the shortfall: `already_imported` is a resumed run finding its own
+	 * rows, and `multiple_source_types` is a source row the target's single-type
+	 * model intentionally collapses. Counting those as "did not reach the
+	 * target" would cry wolf on a clean migration.
+	 *
+	 * @param array<string,int> $skipped Skip reason -> count.
+	 * @param int               $source  Source row count.
+	 * @param int               $written Rows written this run.
+	 * @param string            $label   Domain label for the message.
+	 */
+	private function report_skips( array $skipped, int $source, int $written, string $label ): void {
+		$notes = array(
+			'already_imported'      => '%1$d %2$s were already imported by an earlier run.',
+			'multiple_source_types' => '%1$d extra source member types were dropped: a BuddyNext member holds one type.',
+		);
+
+		foreach ( $notes as $reason => $wording ) {
+			$count = (int) ( $skipped[ $reason ] ?? 0 );
+			unset( $skipped[ $reason ] );
+
+			if ( $count > 0 ) {
+				\WP_CLI::log( '  ' . sprintf( $wording, $count, $label ) );
+			}
+		}
+
+		if ( empty( $skipped ) ) {
+			return;
+		}
+
+		\WP_CLI::warning(
+			sprintf(
+				'%d source %s did not reach the target (%d of %d written). Breakdown:',
+				array_sum( $skipped ),
+				$label,
+				$written,
+				$source
+			)
+		);
+
+		arsort( $skipped );
+		foreach ( $skipped as $reason => $count ) {
+			\WP_CLI::log( sprintf( '  - %s: %d', $reason, $count ) );
+		}
 	}
 
 	/**
@@ -568,6 +651,91 @@ final class MigrateCommand {
 		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch );
 
 		\WP_CLI::success( sprintf( 'Forums imported: %d forums, %d topics, %d replies.', $forums, $topics, $replies ) );
+	}
+
+	/**
+	 * Import member types and their member assignments into BuddyNext.
+	 *
+	 * Source member types live in the `bp_member_type` taxonomy on the user
+	 * object (both BuddyPress and BuddyBoss), NOT in xprofile data, so they are
+	 * a domain of their own rather than part of the profile import.
+	 *
+	 * Writes only through the BuddyNext service API. Idempotent and resumable.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Members per batch. Default 100.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-member-types
+	 *
+	 * @subcommand migrate-member-types
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_member_types( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		if ( ! MemberTypeImporter::target_available() ) {
+			\WP_CLI::error( "BuddyNext's member-type service is unavailable." );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = MemberTypeImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
+
+		$vocabulary = $importer->import_types();
+		\WP_CLI::log( sprintf( '%d member types available in BuddyNext.', $vocabulary['types'] ) );
+
+		if ( $vocabulary['skipped'] > 0 ) {
+			\WP_CLI::warning( sprintf( '%d source member types could not be created.', $vocabulary['skipped'] ) );
+		}
+
+		$after       = 0;
+		$assignments = 0;
+		$members     = 0;
+		$skipped     = array();
+
+		do {
+			$result       = $importer->import_batch( $after, $batch );
+			$assignments += $result['assignments'];
+			$members     += $result['fetched'];
+			$after        = $result['last'];
+
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success(
+			sprintf(
+				'Member types imported: %d types, %d of %d members typed.',
+				$vocabulary['types'],
+				$assignments,
+				$members
+			)
+		);
+
+		$this->report_skips( $skipped, $members, $assignments, 'member-type assignments' );
 	}
 
 	/**
@@ -633,20 +801,24 @@ final class MigrateCommand {
 		$adapter = AdapterRegistry::get( $source );
 		if ( null !== $adapter ) {
 			$stats = $adapter->stats();
-			\WP_CLI::log( sprintf(
-				'Source contains: %d users, %d groups, %d activities, %d comments, %d friendships, %d follows, %d reactions, %d message threads.',
-				(int) ( $stats['users'] ?? 0 ),
-				(int) ( $stats['groups'] ?? 0 ),
-				(int) ( $stats['activities'] ?? 0 ),
-				(int) ( $stats['activity_comments'] ?? 0 ),
-				(int) ( $stats['friendships'] ?? 0 ),
-				(int) ( $stats['follows'] ?? 0 ),
-				(int) ( $stats['reactions'] ?? 0 ),
-				(int) ( $stats['message_threads'] ?? 0 )
-			) );
+			\WP_CLI::log(
+				sprintf(
+					'Source contains: %d users, %d groups, %d activities, %d comments, %d friendships, %d follows, %d reactions, %d message threads, %d typed members.',
+					(int) ( $stats['users'] ?? 0 ),
+					(int) ( $stats['groups'] ?? 0 ),
+					(int) ( $stats['activities'] ?? 0 ),
+					(int) ( $stats['activity_comments'] ?? 0 ),
+					(int) ( $stats['friendships'] ?? 0 ),
+					(int) ( $stats['follows'] ?? 0 ),
+					(int) ( $stats['reactions'] ?? 0 ),
+					(int) ( $stats['message_threads'] ?? 0 ),
+					(int) ( $stats['member_type_users'] ?? 0 )
+				)
+			);
 		}
 
 		$this->migrate_profiles( $args, $assoc_args );
+		$this->migrate_member_types( $args, $assoc_args );
 		$this->migrate_spaces( $args, $assoc_args );
 		$this->migrate_activity( $args, $assoc_args );
 		$this->migrate_friends( $args, $assoc_args );

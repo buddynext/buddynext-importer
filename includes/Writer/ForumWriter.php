@@ -98,6 +98,15 @@ final class ForumWriter {
 			return $existing;
 		}
 
+		// A group's forum belongs INSIDE the space its group migrated into, not
+		// beside it. Without this the topics land in a standalone "Imported
+		// Forums" space and the migrated space's Discussions tab stays empty.
+		$attached = $this->attach_to_space( $forum, $category_id );
+		if ( $attached > 0 ) {
+			IdMap::set( $this->source, 'forum_space', $source_id, $attached );
+			return $attached;
+		}
+
 		$visibility = $this->visibility( (string) ( $forum['status'] ?? 'publish' ) );
 
 		$result = ImportMode::run(
@@ -212,6 +221,92 @@ final class ForumWriter {
 		}
 
 		return $id;
+	}
+
+	/**
+	 * Resolve (or create) the Jetonomy discussion that belongs to the BuddyNext
+	 * space this forum's group migrated into, and return its id.
+	 *
+	 * BuddyNext links a space to its discussion with the space meta
+	 * `jetonomy_forum_id`, and only renders the Discussions tab when that link
+	 * exists AND `discussion_enabled` is on (JetonomyBridge::space_discussion_enabled()).
+	 * An imported group forum therefore has to become THAT discussion — creating
+	 * a loose Jetonomy space writes the topics somewhere the group can never
+	 * reach them.
+	 *
+	 * Returns 0 when the forum is a standalone site forum, when its group was
+	 * not migrated, or when the bridge is unavailable; the caller then falls back
+	 * to the standalone "Imported Forums" path so content is never dropped.
+	 *
+	 * @param array<string,mixed> $forum       Source forum record.
+	 * @param int                 $category_id Jetonomy category id (required by the journey).
+	 * @return int Jetonomy space id (0 when not group-attached).
+	 */
+	private function attach_to_space( array $forum, int $category_id ): int {
+		$source_group_id = (int) ( $forum['group_id'] ?? 0 );
+		if ( $source_group_id <= 0 || ! class_exists( '\BuddyNext\Bridges\JetonomyBridge' ) ) {
+			return 0;
+		}
+
+		$bn_space_id = IdMap::get( $this->source, 'space', $source_group_id );
+		if ( null === $bn_space_id || $bn_space_id <= 0 ) {
+			return 0;
+		}
+
+		$bridge = new \BuddyNext\Bridges\JetonomyBridge();
+
+		// The space -> discussion link is permanent and 1:1, so an already-linked
+		// space (provisioned earlier, or a resumed run) keeps its discussion.
+		$status   = $bridge->space_discussion_status( $bn_space_id );
+		$forum_id = (int) ( $status['forum_id'] ?? 0 );
+
+		if ( $forum_id <= 0 ) {
+			$forum_id = $this->create_space_discussion( $forum, $bn_space_id, $category_id );
+		}
+
+		if ( $forum_id <= 0 ) {
+			return 0;
+		}
+
+		update_space_meta( $bn_space_id, 'jetonomy_forum_id', $forum_id );
+
+		// The link alone does not surface the tab — the owner-facing enabled flag
+		// has to be on too, or members see a space with migrated discussions they
+		// cannot open.
+		$bridge->set_discussion_enabled( $bn_space_id, true );
+
+		return $forum_id;
+	}
+
+	/**
+	 * Create the Jetonomy discussion space that backs a migrated group, keeping
+	 * the source forum's title, description, and creation date.
+	 *
+	 * @param array<string,mixed> $forum       Source forum record.
+	 * @param int                 $bn_space_id BuddyNext space id the group migrated into.
+	 * @param int                 $category_id Jetonomy category id.
+	 * @return int Jetonomy space id (0 on failure).
+	 */
+	private function create_space_discussion( array $forum, int $bn_space_id, int $category_id ): int {
+		$source_id  = (int) $forum['source_id'];
+		$visibility = $this->visibility( (string) ( $forum['status'] ?? 'publish' ) );
+
+		$result = ImportMode::run(
+			fn() => ( new \Jetonomy\CLI\Journeys\Space_Journey() )->create(
+				array(
+					'title'       => (string) $forum['title'],
+					'slug'        => $this->slug( (string) $forum['slug'], (string) $forum['title'], 'space-' . $bn_space_id . '-forum-' . $source_id ),
+					'category_id' => $category_id,
+					'type'        => 'forum',
+					'visibility'  => $visibility,
+					'join_policy' => $this->join_policy( $visibility ),
+					'description' => wp_strip_all_tags( (string) $forum['content'] ),
+					'created_at'  => (string) ( $forum['created_gmt'] ?? '' ),
+				)
+			)
+		);
+
+		return $result->is_success() ? $this->result_id( $result ) : 0;
 	}
 
 	/**

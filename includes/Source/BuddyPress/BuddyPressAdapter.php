@@ -21,6 +21,12 @@ defined( 'ABSPATH' ) || exit;
 class BuddyPressAdapter implements SourceAdapter {
 
 	/**
+	 * Taxonomy that carries member-type assignments on the user object. Set by
+	 * bp_set_member_type() in both BuddyPress and BuddyBoss.
+	 */
+	protected const MEMBER_TYPE_TAXONOMY = 'bp_member_type';
+
+	/**
 	 * {@inheritDoc}
 	 */
 	public function key(): string {
@@ -67,6 +73,26 @@ class BuddyPressAdapter implements SourceAdapter {
 				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
 				: $this->favorites_count(),
 			'message_threads'   => $this->message_thread_count(),
+			'member_types'      => count( $this->member_types() ),
+			'member_type_users' => $this->member_type_assignment_count(),
+		);
+	}
+
+	/**
+	 * Count member-type assignments (users carrying a bp_member_type term).
+	 */
+	protected function member_type_assignment_count(): int {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*)
+				FROM {$wpdb->term_relationships} tr
+				INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				WHERE tt.taxonomy = %s",
+				self::MEMBER_TYPE_TAXONOMY
+			)
 		);
 	}
 
@@ -231,6 +257,187 @@ class BuddyPressAdapter implements SourceAdapter {
 		}
 
 		return $values;
+	}
+
+	/**
+	 * A user's per-field visibility choices, from the serialized usermeta map
+	 * BuddyPress and BuddyBoss both write (`bp_xprofile_visibility_levels`:
+	 * field id => level). This is the MEMBER's own privacy choice per field and
+	 * is stored separately from the field's admin default in bp_xprofile_fields,
+	 * which is why importing the schema alone silently resets every member's
+	 * "Only Me" / "My Connections" field back to the field default.
+	 *
+	 * @param int $user_id User id.
+	 * @return array<int,string> Map of source field id to source visibility level.
+	 */
+	public function profile_visibility_levels( int $user_id ): array {
+		$raw = get_user_meta( $user_id, 'bp_xprofile_visibility_levels', true );
+
+		if ( ! is_array( $raw ) ) {
+			$raw = maybe_unserialize( (string) $raw );
+		}
+
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+
+		$levels = array();
+		foreach ( $raw as $field_id => $level ) {
+			$field_id = (int) $field_id;
+			$level    = sanitize_key( (string) $level );
+
+			if ( $field_id > 0 && '' !== $level ) {
+				$levels[ $field_id ] = $level;
+			}
+		}
+
+		return $levels;
+	}
+
+	/**
+	 * Member types defined on the source.
+	 *
+	 * Both BuddyPress and BuddyBoss store the ASSIGNMENT as a term in the
+	 * `bp_member_type` taxonomy on the user object (bp_set_member_type() ->
+	 * bp_set_object_terms()), so the taxonomy terms are the authoritative
+	 * vocabulary — a type registered in code but never assigned has no member to
+	 * migrate anyway. BuddyBoss additionally keeps a `bp-member-type` post per
+	 * type carrying the human labels; when that post exists its title is
+	 * preferred over the raw term name.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function member_types(): array {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT t.slug, t.name, tt.description
+				FROM {$wpdb->terms} t
+				INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+				WHERE tt.taxonomy = %s
+				ORDER BY t.term_id ASC",
+				self::MEMBER_TYPE_TAXONOMY
+			),
+			ARRAY_A
+		);
+
+		$types = array();
+		foreach ( (array) $rows as $row ) {
+			$slug = (string) $row['slug'];
+			if ( '' === $slug ) {
+				continue;
+			}
+
+			$types[] = array(
+				'slug'        => $slug,
+				'name'        => $this->member_type_label( $slug, (string) wp_unslash( $row['name'] ) ),
+				'description' => (string) wp_unslash( (string) $row['description'] ),
+			);
+		}
+
+		return $types;
+	}
+
+	/**
+	 * Member-type assignments, keyset-paginated by user id.
+	 *
+	 * The page is a page of USERS, not of assignment rows: a user with more than
+	 * one source type would otherwise have their rows split across a page
+	 * boundary, and the `object_id > last` cursor would skip the remainder
+	 * forever. Selecting the user ids first and then all their rows keeps every
+	 * user whole inside one batch.
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Batch size (users).
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function member_type_assignments( int $after, int $limit ): array {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$user_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT tr.object_id
+				FROM {$wpdb->term_relationships} tr
+				INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				WHERE tt.taxonomy = %s AND tr.object_id > %d
+				ORDER BY tr.object_id ASC
+				LIMIT %d",
+				self::MEMBER_TYPE_TAXONOMY,
+				$after,
+				$limit
+			)
+		);
+
+		$user_ids = array_values( array_filter( array_map( 'intval', (array) $user_ids ) ) );
+		if ( empty( $user_ids ) ) {
+			return array();
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $user_ids ), '%d' ) );
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT tr.object_id AS user_id, t.slug
+				FROM {$wpdb->term_relationships} tr
+				INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+				WHERE tt.taxonomy = %s AND tr.object_id IN ( {$placeholders} )
+				ORDER BY tr.object_id ASC, t.term_id ASC",
+				array_merge( array( self::MEMBER_TYPE_TAXONOMY ), $user_ids )
+			),
+			ARRAY_A
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+
+		$assignments = array();
+		foreach ( (array) $rows as $row ) {
+			$user_id = (int) $row['user_id'];
+			$slug    = (string) $row['slug'];
+
+			if ( $user_id > 0 && '' !== $slug ) {
+				$assignments[] = array(
+					'user_id' => $user_id,
+					'slug'    => $slug,
+				);
+			}
+		}
+
+		return $assignments;
+	}
+
+	/**
+	 * Human label for a member type, preferring BuddyBoss's `bp-member-type`
+	 * post title over the taxonomy term name (BuddyBoss stores the display label
+	 * on the post and leaves the term name as the raw key on some installs).
+	 *
+	 * @param string $slug     Member-type slug.
+	 * @param string $fallback Taxonomy term name.
+	 */
+	private function member_type_label( string $slug, string $fallback ): string {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$title = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT p.post_title
+				FROM {$wpdb->posts} p
+				INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+				WHERE p.post_type = 'bp-member-type'
+					AND p.post_status = 'publish'
+					AND pm.meta_key = '_bp_member_type_key'
+					AND pm.meta_value = %s
+				LIMIT 1",
+				$slug
+			)
+		);
+
+		$title = trim( (string) wp_unslash( (string) $title ) );
+
+		return '' !== $title ? $title : $fallback;
 	}
 
 	/**
@@ -428,7 +635,46 @@ class BuddyPressAdapter implements SourceAdapter {
 	 */
 	public function forums( int $after, int $limit ): array {
 		// bbPress forums carry their visibility in post_status.
-		return $this->forum_posts( 'forum', array( 'publish', 'private', 'hidden', 'public' ), $after, $limit );
+		$rows = $this->forum_posts( 'forum', array( 'publish', 'private', 'hidden', 'public' ), $after, $limit );
+
+		global $wpdb;
+		foreach ( $rows as &$row ) {
+			// A group's forum records the owning group in `_bbp_group_ids` (a
+			// serialized array — bbPress allows several, groups in practice have
+			// one). 0 means a standalone site forum with no group behind it.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$raw = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_bbp_group_ids'", (int) $row['source_id'] ) );
+
+			$group_ids       = $this->first_id_of( (string) $raw );
+			$row['group_id'] = $group_ids;
+		}
+		unset( $row );
+
+		return $rows;
+	}
+
+	/**
+	 * First positive integer in a meta value stored as either a serialized array
+	 * or a CSV string. 0 when there is none.
+	 *
+	 * @param string $raw Stored meta value.
+	 */
+	protected function first_id_of( string $raw ): int {
+		if ( '' === $raw ) {
+			return 0;
+		}
+
+		$decoded = maybe_unserialize( $raw );
+		$list    = is_array( $decoded ) ? $decoded : explode( ',', $raw );
+
+		foreach ( $list as $value ) {
+			$value = (int) $value;
+			if ( $value > 0 ) {
+				return $value;
+			}
+		}
+
+		return 0;
 	}
 
 	/**
@@ -679,8 +925,25 @@ class BuddyPressAdapter implements SourceAdapter {
 
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			$first = $wpdb->get_row( $wpdb->prepare( "SELECT subject, date_sent FROM `{$msg}` WHERE id = %d", (int) $thread['first_id'] ), ARRAY_A );
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$participants = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT user_id FROM `{$rcp}` WHERE thread_id = %d", $thread_id ) ) );
+			// Participants = recipients UNION senders. A recipient row can be gone
+			// (the member deleted the thread on their side, or was removed) while
+			// their messages remain, and MVS refuses any message whose sender is
+			// not a participant of the conversation — reading recipients alone
+			// silently drops that member's whole side of the history.
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$participants = array_map(
+				'intval',
+				(array) $wpdb->get_col(
+					$wpdb->prepare(
+						"SELECT DISTINCT user_id FROM `{$rcp}` WHERE thread_id = %d
+						UNION
+						SELECT DISTINCT sender_id FROM `{$msg}` WHERE thread_id = %d",
+						$thread_id,
+						$thread_id
+					)
+				)
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 			$out[] = array(
 				'thread_id'    => $thread_id,

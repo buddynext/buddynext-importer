@@ -126,11 +126,19 @@ final class ProfileWriter {
 	 * Import one user's profile values via save_profile(). Side effects are
 	 * suppressed for the call. Returns the number of fields written.
 	 *
+	 * The member's own per-field privacy choices ride along through
+	 * save_profile()'s existing `{field_key}__visibility` seam, so an imported
+	 * "Only Me" field stays private instead of resetting to the field default.
+	 * BuddyNext clamps each choice to be equal-or-more restrictive than the
+	 * field's admin default, so a source value can never widen a field.
+	 *
 	 * @param int                            $user_id User id.
 	 * @param array<int,array<string,mixed>> $values  Source value rows.
+	 * @param array<int,string>              $levels  Source field id -> source visibility level.
 	 */
-	public function import_user_values( int $user_id, array $values ): int {
+	public function import_user_values( int $user_id, array $values, array $levels = array() ): int {
 		$payload = array();
+		$written = 0;
 
 		foreach ( $values as $row ) {
 			$type = (string) $row['type'];
@@ -156,6 +164,11 @@ final class ProfileWriter {
 			}
 
 			$payload[ $field_key ] = $value;
+			++$written;
+
+			if ( isset( $levels[ $source_field_id ] ) ) {
+				$payload[ $field_key . '__visibility' ] = PrivacyMap::field_visibility( $levels[ $source_field_id ] );
+			}
 		}
 
 		if ( empty( $payload ) ) {
@@ -168,7 +181,10 @@ final class ProfileWriter {
 			}
 		);
 
-		return count( $payload );
+		// Count VALUES, not payload keys — the payload also carries one
+		// `__visibility` companion key per field with a member choice, which is
+		// not a value and must not inflate the migration report.
+		return $written;
 	}
 
 	/**

@@ -77,29 +77,47 @@ final class MessageImporter {
 	/**
 	 * Import one keyset batch of threads (each with all its messages).
 	 *
+	 * `source_messages` is the number of messages the SOURCE held for this page
+	 * and `skipped` breaks down every one that did not land, so the caller can
+	 * assert source == written + skipped instead of trusting a bare success line.
+	 *
 	 * @param int $after Exclusive lower-bound thread id.
 	 * @param int $limit Batch size (threads).
-	 * @return array{last:int,fetched:int,conversations:int,messages:int}
+	 * @return array{last:int,fetched:int,conversations:int,merged:int,messages:int,source_messages:int,skipped:array<string,int>}
 	 */
 	public function import_batch( int $after, int $limit ): array {
-		$threads       = $this->adapter->message_threads( $after, $limit );
-		$conversations = 0;
-		$messages      = 0;
-		$last          = $after;
+		$threads         = $this->adapter->message_threads( $after, $limit );
+		$conversations   = 0;
+		$merged          = 0;
+		$messages        = 0;
+		$source_messages = 0;
+		$skipped         = array();
+		$last            = $after;
 
 		foreach ( $threads as $thread ) {
 			$last = max( $last, (int) $thread['thread_id'] );
 
-			$result         = $this->writer->import_thread( $thread, $this->adapter->thread_messages( (int) $thread['thread_id'] ) );
+			$thread_messages  = $this->adapter->thread_messages( (int) $thread['thread_id'] );
+			$source_messages += count( $thread_messages );
+
+			$result         = $this->writer->import_thread( $thread, $thread_messages );
 			$conversations += $result['conversations'];
+			$merged        += (int) ( $result['merged'] ?? 0 );
 			$messages      += $result['messages'];
+
+			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 		}
 
 		return array(
-			'last'          => $last,
-			'fetched'       => count( $threads ),
-			'conversations' => $conversations,
-			'messages'      => $messages,
+			'last'            => $last,
+			'fetched'         => count( $threads ),
+			'conversations'   => $conversations,
+			'merged'          => $merged,
+			'messages'        => $messages,
+			'source_messages' => $source_messages,
+			'skipped'         => $skipped,
 		);
 	}
 }

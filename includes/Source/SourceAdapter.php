@@ -74,6 +74,35 @@ interface SourceAdapter {
 	public function profile_values( int $user_id ): array;
 
 	/**
+	 * A user's per-field visibility choices — the member's OWN privacy setting on
+	 * each field, which is separate from the field's admin default.
+	 *
+	 * @param int $user_id User id.
+	 * @return array<int,string> Map of source field id to source visibility level.
+	 */
+	public function profile_visibility_levels( int $user_id ): array;
+
+	/**
+	 * Member types defined on the source (the type vocabulary, not assignments).
+	 *
+	 * Row shape: slug, name, description.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function member_types(): array;
+
+	/**
+	 * Member-type assignments, keyset-paginated by user id.
+	 *
+	 * Row shape: user_id, slug.
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function member_type_assignments( int $after, int $limit ): array;
+
+	/**
 	 * Source groups, keyset-paginated by group id.
 	 *
 	 * @param int $after Exclusive lower-bound group id.
@@ -130,6 +159,10 @@ interface SourceAdapter {
 
 	/**
 	 * Source bbPressforums, keyset-paginated by post id.
+	 *
+	 * Row shape includes `group_id`: the source group this forum belongs to
+	 * (bbPress `_bbp_group_ids`), or 0 for a standalone site forum. Group forums
+	 * must land inside the space their group migrated into, not beside it.
 	 *
 	 * @param int $after Exclusive lower-bound post id.
 	 * @param int $limit Batch size.

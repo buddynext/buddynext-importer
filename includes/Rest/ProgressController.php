@@ -17,6 +17,7 @@ namespace BuddyNextImporter\Rest;
 use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
@@ -218,6 +219,10 @@ final class ProgressController {
 			return $this->step_profiles( $source, $after, $batch );
 		}
 
+		if ( 'member_types' === $phase ) {
+			return $this->step_member_types( $source, $after, $batch );
+		}
+
 		if ( 'spaces' === $phase ) {
 			return $this->step_spaces( $source, $after, $batch );
 		}
@@ -267,6 +272,39 @@ final class ProgressController {
 				'users'  => $result['users'],
 				'values' => $result['values'],
 				'done'   => $result['users'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Advance the member-types phase by one batch.
+	 *
+	 * The first call (cursor 0) also imports the type vocabulary, mirroring the
+	 * profiles phase where the schema lands before any member value.
+	 *
+	 * @param string $source Source key.
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_member_types( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
+		$importer = MemberTypeImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		$types  = 0 === $after ? $importer->import_types() : array();
+		$result = $importer->import_batch( $after, $batch );
+
+		return new WP_REST_Response(
+			array(
+				'phase'       => 'member_types',
+				'source'      => $source,
+				'types'       => $types,
+				'last'        => $result['last'],
+				'members'     => $result['fetched'],
+				'assignments' => $result['assignments'],
+				'skipped'     => $result['skipped'],
+				'done'        => $result['fetched'] < $batch,
 			)
 		);
 	}
