@@ -75,6 +75,8 @@ class BuddyPressAdapter implements SourceAdapter {
 			'message_threads'   => $this->message_thread_count(),
 			'member_types'      => count( $this->member_types() ),
 			'member_type_users' => $this->member_type_assignment_count(),
+			'member_images'     => $this->image_owner_count( 'avatars', 'members' ),
+			'group_images'      => $this->image_owner_count( 'group-avatars', 'groups' ),
 		);
 	}
 
@@ -438,6 +440,202 @@ class BuddyPressAdapter implements SourceAdapter {
 		$title = trim( (string) wp_unslash( (string) $title ) );
 
 		return '' !== $title ? $title : $fallback;
+	}
+
+	/**
+	 * Member avatars and cover images, keyset-paginated by user id.
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function member_images( int $after, int $limit ): array {
+		return $this->images_for( 'avatars', 'members', $after, $limit );
+	}
+
+	/**
+	 * Group avatars and cover images, keyset-paginated by group id.
+	 *
+	 * @param int $after Exclusive lower-bound group id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function group_images( int $after, int $limit ): array {
+		return $this->images_for( 'group-avatars', 'groups', $after, $limit );
+	}
+
+	/**
+	 * Count objects that have an avatar and/or a cover on disk.
+	 *
+	 * @param string $avatar_dir Avatar parent directory ('avatars'|'group-avatars').
+	 * @param string $cover_dir  Cover object directory ('members'|'groups').
+	 */
+	protected function image_owner_count( string $avatar_dir, string $cover_dir ): int {
+		return count( $this->image_owner_ids( $avatar_dir, $cover_dir ) );
+	}
+
+	/**
+	 * One keyset page of avatar/cover owners, resolved to real files.
+	 *
+	 * @param string $avatar_dir Avatar parent directory.
+	 * @param string $cover_dir  Cover object directory.
+	 * @param int    $after      Exclusive lower-bound owner id.
+	 * @param int    $limit      Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	protected function images_for( string $avatar_dir, string $cover_dir, int $after, int $limit ): array {
+		$ids  = $this->image_owner_ids( $avatar_dir, $cover_dir );
+		$page = array();
+
+		foreach ( $ids as $id ) {
+			if ( $id <= $after ) {
+				continue;
+			}
+			if ( count( $page ) >= $limit ) {
+				break;
+			}
+
+			$avatar = $this->pick_image( $this->uploads_path( $avatar_dir . '/' . $id ), 'bpfull' );
+			$cover  = $this->pick_image( $this->uploads_path( 'buddypress/' . $cover_dir . '/' . $id . '/cover-image' ), '' );
+
+			if ( '' === $avatar && '' === $cover ) {
+				continue;
+			}
+
+			$page[] = array(
+				'source_id' => $id,
+				'avatar'    => $avatar,
+				'cover'     => $cover,
+			);
+		}
+
+		return $page;
+	}
+
+	/**
+	 * Sorted ids of every object that has an avatar or cover directory.
+	 *
+	 * Cached per request: a keyset loop calls this once per batch, and the two
+	 * directory listings do not change during a run.
+	 *
+	 * @param string $avatar_dir Avatar parent directory.
+	 * @param string $cover_dir  Cover object directory.
+	 * @return array<int,int>
+	 */
+	protected function image_owner_ids( string $avatar_dir, string $cover_dir ): array {
+		static $cache = array();
+
+		$key = $avatar_dir . '|' . $cover_dir;
+		if ( isset( $cache[ $key ] ) ) {
+			return $cache[ $key ];
+		}
+
+		$ids = array_merge(
+			$this->numeric_subdirs( $this->uploads_path( $avatar_dir ) ),
+			$this->numeric_subdirs( $this->uploads_path( 'buddypress/' . $cover_dir ) )
+		);
+
+		$ids = array_values( array_unique( $ids ) );
+		sort( $ids, SORT_NUMERIC );
+
+		$cache[ $key ] = $ids;
+
+		return $ids;
+	}
+
+	/**
+	 * Numeric subdirectory names of a directory, as ints. Empty when absent.
+	 *
+	 * @param string $dir Absolute directory path.
+	 * @return array<int,int>
+	 */
+	protected function numeric_subdirs( string $dir ): array {
+		if ( ! is_dir( $dir ) ) {
+			return array();
+		}
+
+		$entries = scandir( $dir );
+		if ( false === $entries ) {
+			return array();
+		}
+
+		$ids = array();
+		foreach ( $entries as $entry ) {
+			if ( ctype_digit( $entry ) && is_dir( trailingslashit( $dir ) . $entry ) ) {
+				$ids[] = (int) $entry;
+			}
+		}
+
+		return $ids;
+	}
+
+	/**
+	 * Pick the image to import from a directory: the one whose name contains
+	 * $prefer (BuddyPress writes the full-size avatar as `*-bpfull.*`), else the
+	 * largest image present. Empty string when there is none.
+	 *
+	 * @param string $dir    Absolute directory path.
+	 * @param string $prefer Filename fragment to prefer.
+	 */
+	protected function pick_image( string $dir, string $prefer ): string {
+		if ( ! is_dir( $dir ) ) {
+			return '';
+		}
+
+		$entries = scandir( $dir );
+		if ( false === $entries ) {
+			return '';
+		}
+
+		$best      = '';
+		$best_size = -1;
+
+		foreach ( $entries as $entry ) {
+			$path = trailingslashit( $dir ) . $entry;
+
+			if ( ! is_file( $path ) ) {
+				continue;
+			}
+
+			$ext = strtolower( (string) pathinfo( $entry, PATHINFO_EXTENSION ) );
+			if ( ! in_array( $ext, array( 'jpg', 'jpeg', 'png', 'gif', 'webp' ), true ) ) {
+				continue;
+			}
+
+			if ( '' !== $prefer && false !== strpos( $entry, $prefer ) ) {
+				return $path;
+			}
+
+			$size = (int) filesize( $path );
+			if ( $size > $best_size ) {
+				$best      = $path;
+				$best_size = $size;
+			}
+		}
+
+		return $best;
+	}
+
+	/**
+	 * Absolute path inside the uploads directory. Honours BuddyPress's own
+	 * avatar-path override when the source plugin is still active, so a site
+	 * with a custom BP_AVATAR_UPLOAD_PATH still resolves.
+	 *
+	 * @param string $relative Path relative to the uploads basedir.
+	 */
+	protected function uploads_path( string $relative ): string {
+		$base = '';
+
+		if ( function_exists( 'bp_core_avatar_upload_path' ) ) {
+			$base = (string) bp_core_avatar_upload_path();
+		}
+
+		if ( '' === $base ) {
+			$uploads = wp_upload_dir();
+			$base    = (string) ( $uploads['basedir'] ?? '' );
+		}
+
+		return trailingslashit( $base ) . ltrim( $relative, '/' );
 	}
 
 	/**

@@ -17,6 +17,7 @@ namespace BuddyNextImporter\Rest;
 use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\ImageImporter;
 use BuddyNextImporter\Pipeline\MediaImporter;
 use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
@@ -244,6 +245,10 @@ final class ProgressController {
 			return $this->step_media( $source, (string) $request->get_param( 'stage' ), $after, $batch );
 		}
 
+		if ( 'images' === $phase ) {
+			return $this->step_images( $source, (string) $request->get_param( 'stage' ), $after, $batch );
+		}
+
 		return new WP_Error(
 			'buddynext_importer_unknown_phase',
 			/* translators: %s: phase name. */
@@ -277,6 +282,55 @@ final class ProgressController {
 				'users'  => $result['users'],
 				'values' => $result['values'],
 				'done'   => $result['users'] < $batch,
+			)
+		);
+	}
+
+	/**
+	 * Advance the avatars/covers phase by one batch.
+	 *
+	 * Two stages: `members` then `groups`. Group images need their space, so the
+	 * spaces phase must have run first.
+	 *
+	 * @param string $source Source key.
+	 * @param string $stage  Stage (members|groups).
+	 * @param int    $after  Cursor.
+	 * @param int    $batch  Batch size.
+	 */
+	private function step_images( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
+		if ( ! ImageImporter::target_available() ) {
+			return new WP_Error(
+				'buddynext_importer_no_image_pipeline',
+				__( "BuddyNext's image pipeline is unavailable.", 'buddynext-importer' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$importer = ImageImporter::for_source( $source );
+		if ( null === $importer ) {
+			return $this->unavailable();
+		}
+
+		if ( 'groups' === $stage ) {
+			$result = $importer->import_groups_batch( $after, $batch );
+			$count  = array( 'spaces' => $result['spaces'] );
+		} else {
+			$stage  = 'members';
+			$result = $importer->import_members_batch( $after, $batch );
+			$count  = array( 'members' => $result['members'] );
+		}
+
+		return new WP_REST_Response(
+			array_merge(
+				array(
+					'phase'   => 'images',
+					'stage'   => $stage,
+					'source'  => $source,
+					'last'    => $result['last'],
+					'skipped' => $result['skipped'],
+					'done'    => $result['fetched'] < $batch,
+				),
+				$count
 			)
 		);
 	}

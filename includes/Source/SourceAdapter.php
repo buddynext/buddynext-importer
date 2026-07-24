@@ -158,6 +158,37 @@ interface SourceAdapter {
 	public function activity_media( int $activity_id ): array;
 
 	/**
+	 * Member avatars and cover images, keyset-paginated by user id.
+	 *
+	 * These are files on disk, not rows: BuddyPress and BuddyBoss both store an
+	 * avatar under `avatars/{user_id}/` and a cover under
+	 * `buddypress/members/{user_id}/cover-image/`, with nothing in the database
+	 * pointing at them. The listing is therefore driven by the directories that
+	 * actually exist, so a site with 100k members and 200 avatars walks 200 ids.
+	 *
+	 * Row shape: source_id, avatar (absolute path or ''), cover (ditto).
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function member_images( int $after, int $limit ): array;
+
+	/**
+	 * Group avatars and cover images, keyset-paginated by group id.
+	 *
+	 * Same storage shape as member images, under `group-avatars/{group_id}/`
+	 * and `buddypress/groups/{group_id}/cover-image/`.
+	 *
+	 * Row shape: source_id, avatar (absolute path or ''), cover (ditto).
+	 *
+	 * @param int $after Exclusive lower-bound group id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function group_images( int $after, int $limit ): array;
+
+	/**
 	 * Source media albums, keyset-paginated by album id.
 	 *
 	 * Row shape: source_id, user_id, group_id, title, privacy, date_created.
