@@ -36,13 +36,22 @@ final class PrivacyMap {
 	/**
 	 * Source profile-field visibility -> BuddyNext field visibility.
 	 *
-	 * BuddyPress values: public, loggedin, friends, adminsonly. BuddyNext values:
-	 * public, connections, private.
+	 * Used for BOTH the field's admin default and a member's own per-field
+	 * choice (bp_xprofile_visibility_levels), which share one vocabulary.
+	 *
+	 * BuddyPress/BuddyBoss values: public, loggedin, friends, adminsonly, onlyme.
+	 * BuddyNext values: public, members, followers, connections, private.
+	 *
+	 * `loggedin` maps to `members`, not `public`: BuddyNext has a members-only
+	 * level, so collapsing it to public would publish a field the member had
+	 * deliberately restricted to logged-in users.
 	 *
 	 * @param string $source Source visibility value.
 	 */
 	public static function field_visibility( string $source ): string {
 		switch ( $source ) {
+			case 'loggedin':
+				return 'members';
 			case 'friends':
 				return 'connections';
 			case 'adminsonly':
@@ -50,7 +59,6 @@ final class PrivacyMap {
 			case 'private':
 				return 'private';
 			default:
-				// public, loggedin.
 				return 'public';
 		}
 	}

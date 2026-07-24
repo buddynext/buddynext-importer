@@ -149,5 +149,12 @@ final class ImportMode {
 
 		add_filter( 'mvs_dm_message_rate_limit', $unlimited, PHP_INT_MAX );
 		add_filter( 'mvs_dm_convo_rate_limit', $unlimited, PHP_INT_MAX );
+
+		// MVS caps a NEW message at 2,000 characters (MAX_MESSAGE_LENGTH) and
+		// refuses anything longer outright. Source history predates that rule and
+		// legitimately contains longer messages, so the cap is lifted for the
+		// replay — otherwise every long message in the archive is dropped with no
+		// way for the member to ever see it again.
+		add_filter( 'mvs_message_max_length', $unlimited, PHP_INT_MAX );
 	}
 }

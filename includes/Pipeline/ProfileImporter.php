@@ -112,7 +112,11 @@ final class ProfileImporter {
 		$last   = $after;
 
 		foreach ( $user_ids as $user_id ) {
-			$values += $this->writer->import_user_values( $user_id, $this->adapter->profile_values( $user_id ) );
+			$values += $this->writer->import_user_values(
+				$user_id,
+				$this->adapter->profile_values( $user_id ),
+				$this->adapter->profile_visibility_levels( $user_id )
+			);
 			++$users;
 			$last = $user_id;
 		}
