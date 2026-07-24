@@ -80,13 +80,14 @@ final class ForumImporter {
 	 *
 	 * @param int $after Exclusive lower-bound post id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,forums:int,existing:int}
+	 * @return array{last:int,fetched:int,forums:int,existing:int,skipped:array<string,int>}
 	 */
 	public function import_forums_batch( int $after, int $limit ): array {
 		$category = $this->writer->ensure_category();
 		$rows     = $this->adapter->forums( $after, $limit );
 		$done     = 0;
 		$existing = 0;
+		$skipped  = array();
 		$last     = $after;
 
 		foreach ( $rows as $row ) {
@@ -102,6 +103,8 @@ final class ForumImporter {
 				++$done;
 			} elseif ( $result['id'] > 0 ) {
 				++$existing;
+			} elseif ( '' !== $result['reason'] ) {
+				$skipped[ $result['reason'] ] = ( $skipped[ $result['reason'] ] ?? 0 ) + 1;
 			}
 		}
 
@@ -110,6 +113,7 @@ final class ForumImporter {
 			'fetched'  => count( $rows ),
 			'forums'   => $done,
 			'existing' => $existing,
+			'skipped'  => $skipped,
 		);
 	}
 
@@ -118,12 +122,13 @@ final class ForumImporter {
 	 *
 	 * @param int $after Exclusive lower-bound post id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,topics:int,existing:int}
+	 * @return array{last:int,fetched:int,topics:int,existing:int,skipped:array<string,int>}
 	 */
 	public function import_topics_batch( int $after, int $limit ): array {
 		$rows     = $this->adapter->forum_topics( $after, $limit );
 		$done     = 0;
 		$existing = 0;
+		$skipped  = array();
 		$last     = $after;
 
 		foreach ( $rows as $row ) {
@@ -134,6 +139,8 @@ final class ForumImporter {
 				++$done;
 			} elseif ( $result['id'] > 0 ) {
 				++$existing;
+			} elseif ( '' !== $result['reason'] ) {
+				$skipped[ $result['reason'] ] = ( $skipped[ $result['reason'] ] ?? 0 ) + 1;
 			}
 		}
 
@@ -142,6 +149,7 @@ final class ForumImporter {
 			'fetched'  => count( $rows ),
 			'topics'   => $done,
 			'existing' => $existing,
+			'skipped'  => $skipped,
 		);
 	}
 
@@ -150,12 +158,13 @@ final class ForumImporter {
 	 *
 	 * @param int $after Exclusive lower-bound post id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,replies:int,existing:int}
+	 * @return array{last:int,fetched:int,replies:int,existing:int,skipped:array<string,int>}
 	 */
 	public function import_replies_batch( int $after, int $limit ): array {
 		$rows     = $this->adapter->forum_replies( $after, $limit );
 		$done     = 0;
 		$existing = 0;
+		$skipped  = array();
 		$last     = $after;
 
 		foreach ( $rows as $row ) {
@@ -166,6 +175,8 @@ final class ForumImporter {
 				++$done;
 			} elseif ( $result['id'] > 0 ) {
 				++$existing;
+			} elseif ( '' !== $result['reason'] ) {
+				$skipped[ $result['reason'] ] = ( $skipped[ $result['reason'] ] ?? 0 ) + 1;
 			}
 		}
 
@@ -174,6 +185,7 @@ final class ForumImporter {
 			'fetched'  => count( $rows ),
 			'replies'  => $done,
 			'existing' => $existing,
+			'skipped'  => $skipped,
 		);
 	}
 }
