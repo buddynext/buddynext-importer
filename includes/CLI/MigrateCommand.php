@@ -13,6 +13,7 @@ use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\ImageImporter;
 use BuddyNextImporter\Pipeline\MediaImporter;
 use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\MessageImporter;
@@ -565,11 +566,21 @@ final class MigrateCommand {
 		$notes = array(
 			'already_imported'      => '%1$d %2$s were already imported by an earlier run.',
 			'multiple_source_types' => '%1$d extra source member types were dropped: a BuddyNext member holds one type.',
+			'target_already_set'    => '%1$d %2$s were left alone: that member or space already had one in BuddyNext, and an import never replaces a picture somebody chose.',
 		);
 
 		foreach ( $notes as $reason => $wording ) {
-			$count = (int) ( $skipped[ $reason ] ?? 0 );
-			unset( $skipped[ $reason ] );
+			$count = 0;
+
+			// Match the bare reason AND its per-kind variants ("avatar_already_imported",
+			// "cover_already_imported"), so a clean re-run of the images domain
+			// reports one note instead of two phantom losses.
+			foreach ( array_keys( $skipped ) as $key ) {
+				if ( $key === $reason || str_ends_with( (string) $key, '_' . $reason ) ) {
+					$count += (int) $skipped[ $key ];
+					unset( $skipped[ $key ] );
+				}
+			}
 
 			if ( $count > 0 ) {
 				\WP_CLI::log( '  ' . sprintf( $wording, $count, $label ) );
@@ -836,6 +847,109 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Import member and group avatars and cover images into BuddyNext.
+	 *
+	 * These live purely on disk in the source (BuddyPress stores no row pointing
+	 * at an avatar), so no table-driven import can reach them. Each file is
+	 * pushed through BuddyNext's own image pipeline, producing the same resized
+	 * WebP variation set a real upload would.
+	 *
+	 * Run migrate-spaces first so group images find their space.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Owners per batch. Default 50 (each one re-encodes up to two images).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-images
+	 *     wp buddynext-import migrate-images --source=buddyboss --batch=25
+	 *
+	 * @subcommand migrate-images
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_images( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		if ( ! ImageImporter::target_available() ) {
+			\WP_CLI::error( "BuddyNext's image pipeline is unavailable." );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = ImageImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		// Each owner re-encodes up to two images into several variations, so the
+		// default batch is smaller than the row-only domains.
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
+
+		$members = $this->image_loop( fn( $after ) => $importer->import_members_batch( $after, $batch ), 'members', $batch );
+		\WP_CLI::log( sprintf( '%d members got their avatar and/or cover.', $members['done'] ) );
+
+		$spaces = $this->image_loop( fn( $after ) => $importer->import_groups_batch( $after, $batch ), 'spaces', $batch );
+
+		\WP_CLI::success(
+			sprintf(
+				'Images imported: %d members, %d spaces.',
+				$members['done'],
+				$spaces['done']
+			)
+		);
+
+		$this->report_skips( $members['skipped'], $members['seen'], $members['done'], 'member images' );
+		$this->report_skips( $spaces['skipped'], $spaces['seen'], $spaces['done'], 'space images' );
+	}
+
+	/**
+	 * Drive an image batch loop to completion, collecting counts and skips.
+	 *
+	 * @param callable $batch_fn Receives the cursor, returns a batch result.
+	 * @param string   $key      The success-count key in the batch result.
+	 * @param int      $batch    Batch size.
+	 * @return array{done:int,seen:int,skipped:array<string,int>}
+	 */
+	private function image_loop( callable $batch_fn, string $key, int $batch ): array {
+		$after   = 0;
+		$done    = 0;
+		$seen    = 0;
+		$skipped = array();
+
+		do {
+			$result = $batch_fn( $after );
+			$done  += (int) ( $result[ $key ] ?? 0 );
+			$seen  += (int) $result['fetched'];
+			$after  = (int) $result['last'];
+
+			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
+		} while ( (int) $result['fetched'] === $batch );
+
+		return array(
+			'done'    => $done,
+			'seen'    => $seen,
+			'skipped' => $skipped,
+		);
+	}
+
+	/**
 	 * Drive a keyset batch loop to completion, summing the named result count.
 	 *
 	 * @param callable $batch_fn Receives the cursor, returns a batch result.
@@ -900,7 +1014,7 @@ final class MigrateCommand {
 			$stats = $adapter->stats();
 			\WP_CLI::log(
 				sprintf(
-					'Source contains: %d users, %d groups, %d activities, %d comments, %d friendships, %d follows, %d reactions, %d message threads, %d typed members, %d albums, %d standalone media.',
+					'Source contains: %d users, %d groups, %d activities, %d comments, %d friendships, %d follows, %d reactions, %d message threads, %d typed members, %d albums, %d standalone media, %d member images, %d group images.',
 					(int) ( $stats['users'] ?? 0 ),
 					(int) ( $stats['groups'] ?? 0 ),
 					(int) ( $stats['activities'] ?? 0 ),
@@ -911,7 +1025,9 @@ final class MigrateCommand {
 					(int) ( $stats['message_threads'] ?? 0 ),
 					(int) ( $stats['member_type_users'] ?? 0 ),
 					(int) ( $stats['media_albums'] ?? 0 ),
-					(int) ( $stats['standalone_media'] ?? 0 )
+					(int) ( $stats['standalone_media'] ?? 0 ),
+					(int) ( $stats['member_images'] ?? 0 ),
+					(int) ( $stats['group_images'] ?? 0 )
 				)
 			);
 		}
@@ -928,6 +1044,12 @@ final class MigrateCommand {
 			$this->migrate_forums( $args, $assoc_args );
 		} else {
 			\WP_CLI::log( 'Skipping forums (Jetonomy is not active) - source forum content will NOT be migrated.' );
+		}
+
+		// After spaces (group images need their space) and before the media
+		// domains, so a member's avatar is in place when their content lands.
+		if ( ImageImporter::target_available() ) {
+			$this->migrate_images( $args, $assoc_args );
 		}
 
 		if ( MediaImporter::target_available() ) {
