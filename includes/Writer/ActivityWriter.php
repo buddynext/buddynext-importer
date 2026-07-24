@@ -197,89 +197,20 @@ final class ActivityWriter {
 	}
 
 	/**
-	 * Ingest source WP attachments into the BuddyNext media engine (WPMediaVerse)
-	 * via the MediaClient seam, returning the resulting media ids. A copy of each
-	 * attachment file is handed to the upload service so the original attachment is
-	 * left intact. No-op when the media engine is absent.
+	 * Ingest source WP attachments into the BuddyNext media engine, returning the
+	 * resulting media ids. Delegates to the shared MediaIngest so activity photos
+	 * and standalone album photos share one implementation AND one id-map domain -
+	 * an attachment reachable from both never uploads twice.
 	 *
 	 * @param array<int,int> $attachment_ids WP attachment ids.
 	 * @param int            $user_id        Owner of the imported media.
 	 * @return array<int,int> BuddyNext/WPMediaVerse media ids.
 	 */
 	private function ingest_media( array $attachment_ids, int $user_id ): array {
-		if ( empty( $attachment_ids ) || ! \BuddyNext\Media\MediaClient::available() ) {
+		if ( empty( $attachment_ids ) ) {
 			return array();
 		}
 
-		$upload = \BuddyNext\Media\MediaClient::upload();
-		if ( ! is_object( $upload ) || ! method_exists( $upload, 'handle' ) ) {
-			return array();
-		}
-
-		$media_ids = array();
-
-		foreach ( $attachment_ids as $attachment_id ) {
-			$attachment_id = (int) $attachment_id;
-
-			// Idempotency: reuse the media already ingested for this attachment so
-			// re-running an import never duplicates media.
-			$existing = IdMap::get( $this->source, 'media', $attachment_id );
-			if ( null !== $existing ) {
-				$media_ids[] = $existing;
-				continue;
-			}
-
-			$path = get_attached_file( $attachment_id );
-			if ( ! is_string( $path ) || '' === $path || ! file_exists( $path ) ) {
-				continue;
-			}
-
-			// Hand the upload service a copy so the original attachment file survives.
-			$copy = wp_tempnam( wp_basename( $path ) );
-			if ( ! $copy || ! copy( $path, $copy ) ) {
-				continue;
-			}
-
-			$file = array(
-				'name'     => wp_basename( $path ),
-				'type'     => (string) get_post_mime_type( (int) $attachment_id ),
-				'tmp_name' => $copy,
-				'error'    => 0,
-				'size'     => (int) filesize( $copy ),
-			);
-
-			$result   = ImportMode::run( fn() => $upload->handle( $file, $user_id ) );
-			$media_id = $this->extract_media_id( $result );
-
-			if ( $media_id > 0 ) {
-				IdMap::set( $this->source, 'media', $attachment_id, $media_id );
-				$media_ids[] = $media_id;
-			}
-
-			if ( file_exists( $copy ) ) {
-				wp_delete_file( $copy );
-			}
-		}
-
-		return $media_ids;
-	}
-
-	/**
-	 * Pull a media id out of the upload service result (int, or array/object with
-	 * an id|media_id key).
-	 *
-	 * @param mixed $result Upload service return value.
-	 */
-	private function extract_media_id( $result ): int {
-		if ( is_numeric( $result ) ) {
-			return (int) $result;
-		}
-		if ( is_array( $result ) ) {
-			return (int) ( $result['id'] ?? $result['media_id'] ?? 0 );
-		}
-		if ( is_object( $result ) ) {
-			return (int) ( $result->id ?? $result->media_id ?? 0 );
-		}
-		return 0;
+		return ( new MediaIngest( $this->source ) )->ingest_many( $attachment_ids, $user_id );
 	}
 }

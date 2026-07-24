@@ -441,6 +441,30 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Media albums. BuddyPress core has no album feature; the BuddyBoss adapter
+	 * overrides this.
+	 *
+	 * @param int $after Exclusive lower-bound album id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function media_albums( int $after, int $limit ): array {
+		return array();
+	}
+
+	/**
+	 * Standalone media. BuddyPress core has no media feature; the BuddyBoss
+	 * adapter overrides this.
+	 *
+	 * @param int $after Exclusive lower-bound media id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function standalone_media( int $after, int $limit ): array {
+		return array();
+	}
+
+	/**
 	 * Source groups, keyset-paginated by group id.
 	 *
 	 * @param int $after Exclusive lower-bound group id.

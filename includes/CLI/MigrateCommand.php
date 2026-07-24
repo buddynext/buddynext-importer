@@ -13,6 +13,7 @@ use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\MediaImporter;
 use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\MessageImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
@@ -739,6 +740,102 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Import media albums and standalone (never-posted) media into BuddyNext.
+	 *
+	 * Photos attached to an activity are imported with their post by
+	 * migrate-activity. This covers what that cannot reach: albums and library
+	 * items the member uploaded but never posted. Requires WPMediaVerse.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Rows per batch. Default 50 (each row uploads a file).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-media
+	 *     wp buddynext-import migrate-media --source=buddyboss --batch=25
+	 *
+	 * @subcommand migrate-media
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_media( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		if ( ! MediaImporter::target_available() ) {
+			\WP_CLI::error( 'WPMediaVerse must be active to import media (it is the media engine).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = MediaImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		// Each row copies and re-uploads a real file, so the default batch is
+		// smaller than the row-only domains.
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
+
+		$after           = 0;
+		$albums          = 0;
+		$albums_existing = 0;
+
+		do {
+			$result           = $importer->import_albums_batch( $after, $batch );
+			$albums          += $result['albums'];
+			$albums_existing += $result['existing'];
+			$after            = $result['last'];
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::log( sprintf( '%d albums imported.', $albums ) );
+
+		if ( $albums_existing > 0 ) {
+			\WP_CLI::log( sprintf( '  %d albums were already imported by an earlier run.', $albums_existing ) );
+		}
+
+		$after        = 0;
+		$media        = 0;
+		$source_media = 0;
+		$skipped      = array();
+
+		do {
+			$result        = $importer->import_media_batch( $after, $batch );
+			$media        += $result['media'];
+			$source_media += $result['fetched'];
+			$after         = $result['last'];
+
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
+		} while ( $result['fetched'] === $batch );
+
+		\WP_CLI::success(
+			sprintf(
+				'Media imported: %d albums, %d of %d standalone media.',
+				$albums,
+				$media,
+				$source_media
+			)
+		);
+
+		$this->report_skips( $skipped, $source_media, $media, 'media' );
+	}
+
+	/**
 	 * Drive a keyset batch loop to completion, summing the named result count.
 	 *
 	 * @param callable $batch_fn Receives the cursor, returns a batch result.
@@ -803,7 +900,7 @@ final class MigrateCommand {
 			$stats = $adapter->stats();
 			\WP_CLI::log(
 				sprintf(
-					'Source contains: %d users, %d groups, %d activities, %d comments, %d friendships, %d follows, %d reactions, %d message threads, %d typed members.',
+					'Source contains: %d users, %d groups, %d activities, %d comments, %d friendships, %d follows, %d reactions, %d message threads, %d typed members, %d albums, %d standalone media.',
 					(int) ( $stats['users'] ?? 0 ),
 					(int) ( $stats['groups'] ?? 0 ),
 					(int) ( $stats['activities'] ?? 0 ),
@@ -812,7 +909,9 @@ final class MigrateCommand {
 					(int) ( $stats['follows'] ?? 0 ),
 					(int) ( $stats['reactions'] ?? 0 ),
 					(int) ( $stats['message_threads'] ?? 0 ),
-					(int) ( $stats['member_type_users'] ?? 0 )
+					(int) ( $stats['member_type_users'] ?? 0 ),
+					(int) ( $stats['media_albums'] ?? 0 ),
+					(int) ( $stats['standalone_media'] ?? 0 )
 				)
 			);
 		}
@@ -829,6 +928,12 @@ final class MigrateCommand {
 			$this->migrate_forums( $args, $assoc_args );
 		} else {
 			\WP_CLI::log( 'Skipping forums (Jetonomy is not active) - source forum content will NOT be migrated.' );
+		}
+
+		if ( MediaImporter::target_available() ) {
+			$this->migrate_media( $args, $assoc_args );
+		} else {
+			\WP_CLI::log( 'Skipping albums and standalone media (WPMediaVerse is not active) - source album photos will NOT be migrated.' );
 		}
 
 		if ( MessageImporter::target_available() ) {
