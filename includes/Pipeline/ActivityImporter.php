@@ -73,25 +73,34 @@ final class ActivityImporter {
 	 *
 	 * @param int $after Exclusive lower-bound activity id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,posts:int}
+	 * `posts` counts posts created this run; `existing` counts those an earlier
+	 * run already wrote.
+	 *
+	 * @return array{last:int,fetched:int,posts:int,existing:int}
 	 */
 	public function import_posts_batch( int $after, int $limit ): array {
-		$rows  = $this->adapter->activities( $after, $limit );
-		$posts = 0;
-		$last  = $after;
+		$rows     = $this->adapter->activities( $after, $limit );
+		$posts    = 0;
+		$existing = 0;
+		$last     = $after;
 
 		foreach ( $rows as $row ) {
-			$last  = (int) $row['source_id'];
-			$media = $this->adapter->activity_media( $last );
-			if ( $this->writer->import_post( $row, $media ) > 0 ) {
+			$last   = (int) $row['source_id'];
+			$media  = $this->adapter->activity_media( $last );
+			$result = $this->writer->import_post( $row, $media );
+
+			if ( $result['created'] ) {
 				++$posts;
+			} elseif ( $result['id'] > 0 ) {
+				++$existing;
 			}
 		}
 
 		return array(
-			'last'    => $last,
-			'fetched' => count( $rows ),
-			'posts'   => $posts,
+			'last'     => $last,
+			'fetched'  => count( $rows ),
+			'posts'    => $posts,
+			'existing' => $existing,
 		);
 	}
 
@@ -100,17 +109,22 @@ final class ActivityImporter {
 	 *
 	 * @param int $after Exclusive lower-bound activity id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,comments:int}
+	 * @return array{last:int,fetched:int,comments:int,existing:int}
 	 */
 	public function import_comments_batch( int $after, int $limit ): array {
 		$rows     = $this->adapter->activity_comments( $after, $limit );
 		$comments = 0;
+		$existing = 0;
 		$last     = $after;
 
 		foreach ( $rows as $row ) {
-			$last = (int) $row['source_id'];
-			if ( $this->writer->import_comment( $row ) > 0 ) {
+			$last   = (int) $row['source_id'];
+			$result = $this->writer->import_comment( $row );
+
+			if ( $result['created'] ) {
 				++$comments;
+			} elseif ( $result['id'] > 0 ) {
+				++$existing;
 			}
 		}
 
@@ -118,6 +132,7 @@ final class ActivityImporter {
 			'last'     => $last,
 			'fetched'  => count( $rows ),
 			'comments' => $comments,
+			'existing' => $existing,
 		);
 	}
 }

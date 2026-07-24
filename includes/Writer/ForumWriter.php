@@ -86,16 +86,22 @@ final class ForumWriter {
 	/**
 	 * Import one bbPress forum as a Jetonomy space. Idempotent via the id-map.
 	 *
+	 * Reports whether the discussion was CREATED, not merely resolved, so a
+	 * resumed run does not claim to have re-imported the whole forum tree.
+	 *
 	 * @param array<string,mixed> $forum       Source forum record.
 	 * @param int                 $category_id Jetonomy category id.
-	 * @return int Jetonomy space id (0 on failure).
+	 * @return array{id:int,created:bool} Jetonomy space id (0 on failure).
 	 */
-	public function import_forum( array $forum, int $category_id ): int {
+	public function import_forum( array $forum, int $category_id ): array {
 		$source_id = (int) $forum['source_id'];
 
 		$existing = IdMap::get( $this->source, 'forum_space', $source_id );
 		if ( null !== $existing ) {
-			return $existing;
+			return array(
+				'id'      => $existing,
+				'created' => false,
+			);
 		}
 
 		// A group's forum belongs INSIDE the space its group migrated into, not
@@ -104,7 +110,11 @@ final class ForumWriter {
 		$attached = $this->attach_to_space( $forum, $category_id );
 		if ( $attached > 0 ) {
 			IdMap::set( $this->source, 'forum_space', $source_id, $attached );
-			return $attached;
+
+			return array(
+				'id'      => $attached,
+				'created' => true,
+			);
 		}
 
 		$visibility = $this->visibility( (string) ( $forum['status'] ?? 'publish' ) );
@@ -131,26 +141,36 @@ final class ForumWriter {
 			IdMap::set( $this->source, 'forum_space', $source_id, $id );
 		}
 
-		return $id;
+		return array(
+			'id'      => $id,
+			'created' => $id > 0,
+		);
 	}
 
 	/**
 	 * Import one bbPress topic as a Jetonomy discussion post under its forum-space.
 	 *
 	 * @param array<string,mixed> $topic Source topic record.
-	 * @return int Jetonomy post id (0 on failure/skip).
+	 * @return array{id:int,created:bool} Jetonomy post id (0 on failure/skip).
 	 */
-	public function import_topic( array $topic ): int {
+	public function import_topic( array $topic ): array {
 		$source_id = (int) $topic['source_id'];
 
 		$existing = IdMap::get( $this->source, 'forum_post', $source_id );
 		if ( null !== $existing ) {
-			return $existing;
+			return array(
+				'id'      => $existing,
+				'created' => false,
+			);
 		}
 
 		$space_id = IdMap::get( $this->source, 'forum_space', (int) $topic['parent_id'] );
 		if ( null === $space_id ) {
-			return 0; // Parent forum was not imported.
+			// Parent forum was not imported.
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		$result = ImportMode::run(
@@ -171,7 +191,10 @@ final class ForumWriter {
 			IdMap::set( $this->source, 'forum_post', $source_id, $id );
 		}
 
-		return $id;
+		return array(
+			'id'      => $id,
+			'created' => $id > 0,
+		);
 	}
 
 	/**
@@ -179,19 +202,26 @@ final class ForumWriter {
 	 * under a parent reply when bbPress recorded one.
 	 *
 	 * @param array<string,mixed> $reply Source reply record.
-	 * @return int Jetonomy reply id (0 on failure/skip).
+	 * @return array{id:int,created:bool} Jetonomy reply id (0 on failure/skip).
 	 */
-	public function import_reply( array $reply ): int {
+	public function import_reply( array $reply ): array {
 		$source_id = (int) $reply['source_id'];
 
 		$existing = IdMap::get( $this->source, 'forum_reply', $source_id );
 		if ( null !== $existing ) {
-			return $existing;
+			return array(
+				'id'      => $existing,
+				'created' => false,
+			);
 		}
 
 		$post_id = IdMap::get( $this->source, 'forum_post', (int) $reply['parent_id'] );
 		if ( null === $post_id ) {
-			return 0; // Parent topic was not imported.
+			// Parent topic was not imported.
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
 		}
 
 		$input = array(
@@ -220,7 +250,10 @@ final class ForumWriter {
 			IdMap::set( $this->source, 'forum_reply', $source_id, $id );
 		}
 
-		return $id;
+		return array(
+			'id'      => $id,
+			'created' => $id > 0,
+		);
 	}
 
 	/**

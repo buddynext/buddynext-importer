@@ -77,29 +77,42 @@ final class SpaceImporter {
 	 *
 	 * @param int $after Exclusive lower-bound group id.
 	 * @param int $limit Groups per batch.
-	 * @return array{last:int,fetched:int,groups:int,members:int}
+	 * `groups` counts spaces created this run; `existing` counts those a previous
+	 * run already made. Members are still walked for an existing space, because a
+	 * resumed or incremental run may have new members to add to it.
+	 *
+	 * @return array{last:int,fetched:int,groups:int,existing:int,members:int}
 	 */
 	public function import_batch( int $after, int $limit ): array {
-		$groups  = $this->adapter->groups( $after, $limit );
-		$done    = 0;
-		$members = 0;
-		$last    = $after;
+		$groups   = $this->adapter->groups( $after, $limit );
+		$done     = 0;
+		$existing = 0;
+		$members  = 0;
+		$last     = $after;
 
 		foreach ( $groups as $group ) {
 			$last     = (int) $group['source_id'];
 			$bn_space = $this->writer->import_space( $group );
-			if ( 0 === $bn_space ) {
+
+			if ( 0 === $bn_space['id'] ) {
 				continue;
 			}
-			++$done;
-			$members += $this->import_members( (int) $group['source_id'], $bn_space, (int) $group['creator_id'] );
+
+			if ( $bn_space['created'] ) {
+				++$done;
+			} else {
+				++$existing;
+			}
+
+			$members += $this->import_members( (int) $group['source_id'], $bn_space['id'], (int) $group['creator_id'] );
 		}
 
 		return array(
-			'last'    => $last,
-			'fetched' => count( $groups ),
-			'groups'  => $done,
-			'members' => $members,
+			'last'     => $last,
+			'fetched'  => count( $groups ),
+			'groups'   => $done,
+			'existing' => $existing,
+			'members'  => $members,
 		);
 	}
 
