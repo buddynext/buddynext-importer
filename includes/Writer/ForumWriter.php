@@ -27,6 +27,14 @@ final class ForumWriter {
 	private const CATEGORY_SLUG = 'imported-forums';
 
 	/**
+	 * Slugs claimed during this run, so two source forums that sanitize to the
+	 * same base cannot collide with each other.
+	 *
+	 * @var array<string,bool>
+	 */
+	private static array $claimed_slugs = array();
+
+	/**
 	 * Source key, used for id-map scoping.
 	 *
 	 * @var string
@@ -91,17 +99,14 @@ final class ForumWriter {
 	 *
 	 * @param array<string,mixed> $forum       Source forum record.
 	 * @param int                 $category_id Jetonomy category id.
-	 * @return array{id:int,created:bool} Jetonomy space id (0 on failure).
+	 * @return array{id:int,created:bool,reason:string} Jetonomy space id (0 on failure).
 	 */
 	public function import_forum( array $forum, int $category_id ): array {
 		$source_id = (int) $forum['source_id'];
 
 		$existing = IdMap::get( $this->source, 'forum_space', $source_id );
 		if ( null !== $existing ) {
-			return array(
-				'id'      => $existing,
-				'created' => false,
-			);
+			return $this->outcome( $existing, false );
 		}
 
 		// A group's forum belongs INSIDE the space its group migrated into, not
@@ -111,10 +116,7 @@ final class ForumWriter {
 		if ( $attached > 0 ) {
 			IdMap::set( $this->source, 'forum_space', $source_id, $attached );
 
-			return array(
-				'id'      => $attached,
-				'created' => true,
-			);
+			return $this->outcome( $attached, true );
 		}
 
 		$visibility = $this->visibility( (string) ( $forum['status'] ?? 'publish' ) );
@@ -123,7 +125,7 @@ final class ForumWriter {
 			fn() => ( new \Jetonomy\CLI\Journeys\Space_Journey() )->create(
 				array(
 					'title'       => (string) $forum['title'],
-					'slug'        => $this->slug( (string) $forum['slug'], (string) $forum['title'], 'forum-' . $source_id ),
+					'slug'        => $this->unique_slug( (string) $forum['slug'], (string) $forum['title'], 'forum-' . $source_id ),
 					'category_id' => $category_id,
 					'type'        => 'forum',
 					'visibility'  => $visibility,
@@ -141,36 +143,29 @@ final class ForumWriter {
 			IdMap::set( $this->source, 'forum_space', $source_id, $id );
 		}
 
-		return array(
-			'id'      => $id,
-			'created' => $id > 0,
-		);
+		return $this->outcome( $id, $id > 0, $this->failure_reason( $result ) );
 	}
 
 	/**
 	 * Import one bbPress topic as a Jetonomy discussion post under its forum-space.
 	 *
 	 * @param array<string,mixed> $topic Source topic record.
-	 * @return array{id:int,created:bool} Jetonomy post id (0 on failure/skip).
+	 * @return array{id:int,created:bool,reason:string} Jetonomy post id (0 on failure/skip).
 	 */
 	public function import_topic( array $topic ): array {
 		$source_id = (int) $topic['source_id'];
 
 		$existing = IdMap::get( $this->source, 'forum_post', $source_id );
 		if ( null !== $existing ) {
-			return array(
-				'id'      => $existing,
-				'created' => false,
-			);
+			return $this->outcome( $existing, false );
 		}
 
 		$space_id = IdMap::get( $this->source, 'forum_space', (int) $topic['parent_id'] );
 		if ( null === $space_id ) {
-			// Parent forum was not imported.
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			// The parent forum never landed, so this topic has nowhere to go.
+			// Reported rather than dropped: one failed forum silently taking its
+			// whole tree with it is how a migration loses a discussion board.
+			return $this->outcome( 0, false, 'parent_forum_not_imported' );
 		}
 
 		$result = ImportMode::run(
@@ -191,10 +186,7 @@ final class ForumWriter {
 			IdMap::set( $this->source, 'forum_post', $source_id, $id );
 		}
 
-		return array(
-			'id'      => $id,
-			'created' => $id > 0,
-		);
+		return $this->outcome( $id, $id > 0, $this->failure_reason( $result ) );
 	}
 
 	/**
@@ -202,26 +194,19 @@ final class ForumWriter {
 	 * under a parent reply when bbPress recorded one.
 	 *
 	 * @param array<string,mixed> $reply Source reply record.
-	 * @return array{id:int,created:bool} Jetonomy reply id (0 on failure/skip).
+	 * @return array{id:int,created:bool,reason:string} Jetonomy reply id (0 on failure/skip).
 	 */
 	public function import_reply( array $reply ): array {
 		$source_id = (int) $reply['source_id'];
 
 		$existing = IdMap::get( $this->source, 'forum_reply', $source_id );
 		if ( null !== $existing ) {
-			return array(
-				'id'      => $existing,
-				'created' => false,
-			);
+			return $this->outcome( $existing, false );
 		}
 
 		$post_id = IdMap::get( $this->source, 'forum_post', (int) $reply['parent_id'] );
 		if ( null === $post_id ) {
-			// Parent topic was not imported.
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			return $this->outcome( 0, false, 'parent_topic_not_imported' );
 		}
 
 		$input = array(
@@ -250,10 +235,50 @@ final class ForumWriter {
 			IdMap::set( $this->source, 'forum_reply', $source_id, $id );
 		}
 
+		return $this->outcome( $id, $id > 0, $this->failure_reason( $result ) );
+	}
+
+	/**
+	 * Shape a writer outcome.
+	 *
+	 * @param int    $id      Target id (0 on failure/skip).
+	 * @param bool   $created Whether this call created the row.
+	 * @param string $reason  Skip reason, '' when there is nothing to report.
+	 * @return array{id:int,created:bool,reason:string}
+	 */
+	private function outcome( int $id, bool $created, string $reason = '' ): array {
 		return array(
 			'id'      => $id,
-			'created' => $id > 0,
+			'created' => $created,
+			'reason'  => $reason,
 		);
+	}
+
+	/**
+	 * Turn a failed Journey_Result into a short, groupable reason.
+	 *
+	 * Jetonomy answers with a sentence; the run summary wants a bucket it can
+	 * count. The sentence still reaches the operator through the debug log, but
+	 * "space_create_failed: 12" is what makes a shortfall legible at a glance.
+	 *
+	 * @param object $result Journey_Result.
+	 */
+	private function failure_reason( object $result ): string {
+		if ( $result->is_success() ) {
+			return '';
+		}
+
+		$errors = property_exists( $result, 'errors' ) ? (array) $result->errors : array();
+		$detail = trim( implode( ' | ', array_map( 'strval', $errors ) ) );
+
+		if ( '' !== $detail ) {
+			// Keep the sentence somewhere an operator can actually read it -
+			// the bucket name alone cannot carry "slug already exists".
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( '[buddynext-importer] forum write refused: ' . $detail );
+		}
+
+		return 'target_refused';
 	}
 
 	/**
@@ -328,7 +353,7 @@ final class ForumWriter {
 			fn() => ( new \Jetonomy\CLI\Journeys\Space_Journey() )->create(
 				array(
 					'title'       => (string) $forum['title'],
-					'slug'        => $this->slug( (string) $forum['slug'], (string) $forum['title'], 'space-' . $bn_space_id . '-forum-' . $source_id ),
+					'slug'        => $this->unique_slug( (string) $forum['slug'], (string) $forum['title'], 'space-' . $bn_space_id . '-forum-' . $source_id ),
 					'category_id' => $category_id,
 					'type'        => 'forum',
 					'visibility'  => $visibility,
@@ -365,15 +390,63 @@ final class ForumWriter {
 	}
 
 	/**
-	 * A non-empty slug, falling back to the title then a stable per-id slug.
+	 * A slug that is free to use, falling back to the title then a stable
+	 * per-id slug, and suffixed until nothing else holds it.
+	 *
+	 * Jetonomy space slugs are unique, and Space::create() simply returns 0 when
+	 * the insert collides. Sending a taken slug therefore lost the whole forum
+	 * AND every topic and reply under it (they resolve their parent through the
+	 * id-map, which never got an entry). Three ways a collision happens in the
+	 * field: a re-run after the id-map was lost, a source forum whose slug the
+	 * site already uses for an unrelated space, and two source forums that
+	 * sanitize down to the same slug. None of them should cost the operator a
+	 * forum, so the slug moves aside instead of the content disappearing.
+	 *
+	 * This mirrors SpaceWriter::unique_slug(), which already does the same for
+	 * BuddyNext spaces.
 	 *
 	 * @param string $slug     Preferred slug.
 	 * @param string $title    Title fallback.
 	 * @param string $fallback Final fallback.
 	 */
-	private function slug( string $slug, string $title, string $fallback ): string {
-		$candidate = sanitize_title( '' !== $slug ? $slug : $title );
-		return '' !== $candidate ? $candidate : $fallback;
+	private function unique_slug( string $slug, string $title, string $fallback ): string {
+		$base = sanitize_title( '' !== $slug ? $slug : $title );
+		if ( '' === $base ) {
+			$base = sanitize_title( $fallback );
+		}
+		if ( '' === $base ) {
+			$base = 'imported-forum';
+		}
+
+		$candidate = $base;
+		$suffix    = 2;
+
+		while ( $this->slug_taken( $candidate ) ) {
+			$candidate = $base . '-' . $suffix;
+			++$suffix;
+		}
+
+		self::$claimed_slugs[ $candidate ] = true;
+
+		return $candidate;
+	}
+
+	/**
+	 * Whether a slug is already held, either by an existing Jetonomy space or by
+	 * one this run just created.
+	 *
+	 * The in-run set matters: Space::create() does not bust the model's cached
+	 * slug->id lookup, so a slug created a moment ago can still read as free.
+	 * Two source forums sanitizing to the same base would then collide again.
+	 *
+	 * @param string $slug Candidate slug.
+	 */
+	private function slug_taken( string $slug ): bool {
+		if ( isset( self::$claimed_slugs[ $slug ] ) ) {
+			return true;
+		}
+
+		return null !== \Jetonomy\Models\Space::find_by_slug( $slug );
 	}
 
 	/**

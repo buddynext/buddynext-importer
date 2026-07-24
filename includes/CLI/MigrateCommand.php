@@ -685,6 +685,10 @@ final class MigrateCommand {
 		$this->report_existing( $forums['existing'], 'forums' );
 		$this->report_existing( $topics['existing'], 'topics' );
 		$this->report_existing( $replies['existing'], 'replies' );
+
+		$this->report_skips( $forums['skipped'], $forums['seen'], $forums['done'], 'forums' );
+		$this->report_skips( $topics['skipped'], $topics['seen'], $topics['done'], 'topics' );
+		$this->report_skips( $replies['skipped'], $replies['seen'], $replies['done'], 'replies' );
 	}
 
 	/**
@@ -982,17 +986,26 @@ final class MigrateCommand {
 		$after    = 0;
 		$total    = 0;
 		$existing = 0;
+		$seen     = 0;
+		$skipped  = array();
 
 		do {
 			$result    = $batch_fn( $after );
 			$total    += (int) ( $result[ $key ] ?? 0 );
 			$existing += (int) ( $result['existing'] ?? 0 );
+			$seen     += (int) $result['fetched'];
 			$after     = (int) $result['last'];
+
+			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 		} while ( (int) $result['fetched'] === $batch );
 
 		return array(
 			'done'     => $total,
 			'existing' => $existing,
+			'seen'     => $seen,
+			'skipped'  => $skipped,
 		);
 	}
 
