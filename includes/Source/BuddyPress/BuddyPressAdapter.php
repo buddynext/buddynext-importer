@@ -73,6 +73,10 @@ class BuddyPressAdapter implements SourceAdapter {
 				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
 				: $this->favorites_count(),
 			'message_threads'   => $this->message_thread_count(),
+			// rtMedia activity media (photos/videos/audio) on a BuddyPress source.
+			// BuddyBoss overrides activity_media differently (bp_media); this is
+			// the plain-BP path, 0 when rtMedia is absent.
+			'activity_media'    => $this->rtmedia_activity_count(),
 			'member_types'      => count( $this->member_types() ),
 			'member_type_users' => $this->member_type_assignment_count(),
 			'member_images'     => $this->image_owner_count( 'avatars', 'members' ),
@@ -845,7 +849,49 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * @return array<int,int>
 	 */
 	public function activity_media( int $activity_id ): array {
-		return array();
+		return $this->rtmedia_activity_attachments( $activity_id );
+	}
+
+	/**
+	 * WP attachment ids of the rtMedia items attached to a BuddyPress activity.
+	 *
+	 * The rtMedia plugin ("buddypress-media") is how activity photos/videos/audio
+	 * are created on a plain BuddyPress site - BuddyBoss uses bp_media instead.
+	 * Each rt_rtm_media row's `media_id` column IS the WP attachment id, and
+	 * `activity_id` links it to the source activity. Album rows carry no
+	 * attachment and are excluded. Learned from WPMediaVerse Pro's rtMedia
+	 * importer; here the attachments feed the SAME ingest path BuddyBoss media
+	 * uses, so they become media on the migrated BuddyNext post rather than
+	 * standalone records (BuddyPress is being replaced, not kept alongside).
+	 *
+	 * @param int $activity_id Source activity id.
+	 * @return array<int,int>
+	 */
+	protected function rtmedia_activity_attachments( int $activity_id ): array {
+		global $wpdb;
+
+		if ( $activity_id <= 0 || ! $this->table_exists( 'rt_rtm_media' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'rt_rtm_media';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT media_id FROM `{$table}` WHERE activity_id = %d AND media_type <> 'album' AND media_id > 0 ORDER BY id ASC", $activity_id ) );
+
+		return array_values( array_filter( array_map( 'intval', (array) $ids ) ) );
+	}
+
+	/**
+	 * Count rtMedia items attached to activities (the BuddyPress activity-media
+	 * source). 0 when rtMedia is not installed.
+	 */
+	protected function rtmedia_activity_count(): int {
+		if ( ! $this->table_exists( 'rt_rtm_media' ) ) {
+			return 0;
+		}
+
+		return $this->table_count( 'rt_rtm_media', "activity_id > 0 AND media_type <> 'album'" );
 	}
 
 	/**
