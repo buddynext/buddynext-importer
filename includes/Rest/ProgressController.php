@@ -512,6 +512,7 @@ final class ProgressController {
 				'source'      => $source,
 				'last'        => $result['last'],
 				'connections' => $result['connections'],
+				'skipped'     => $result['skipped'],
 				'done'        => $result['fetched'] < $batch,
 			)
 		);

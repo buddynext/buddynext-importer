@@ -72,24 +72,31 @@ final class FriendImporter {
 	 *
 	 * @param int $after Exclusive lower-bound friendship id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,connections:int}
+	 * @return array{last:int,fetched:int,connections:int,skipped:array<string,int>}
 	 */
 	public function import_batch( int $after, int $limit ): array {
 		$rows        = $this->adapter->friendships( $after, $limit );
 		$connections = 0;
+		$skipped     = array();
 		$last        = $after;
 
 		foreach ( $rows as $row ) {
-			$last = (int) $row['source_id'];
-			if ( $this->writer->import_friendship( $row ) ) {
+			$last   = (int) $row['source_id'];
+			$reason = $this->writer->import_friendship( $row );
+
+			if ( '' === $reason ) {
 				++$connections;
+				continue;
 			}
+
+			$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + 1;
 		}
 
 		return array(
 			'last'        => $last,
 			'fetched'     => count( $rows ),
 			'connections' => $connections,
+			'skipped'     => $skipped,
 		);
 	}
 }

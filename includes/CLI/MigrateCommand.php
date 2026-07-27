@@ -337,15 +337,24 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
 
-		$after = 0;
-		$total = 0;
+		$after   = 0;
+		$total   = 0;
+		$seen    = 0;
+		$skipped = array();
 		do {
-			$result = $importer->import_batch( $after, $batch );
-			$total += $result['connections'];
-			$after  = $result['last'];
+			$result  = $importer->import_batch( $after, $batch );
+			$total  += $result['connections'];
+			$seen   += $result['fetched'];
+			$after   = $result['last'];
+
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 		} while ( $result['fetched'] === $batch );
 
-		\WP_CLI::success( sprintf( 'Friendships imported: %d connections.', $total ) );
+		\WP_CLI::success( sprintf( 'Friendships imported: %d of %d connections.', $total, $seen ) );
+
+		$this->report_skips( $skipped, $seen, $total, 'connections' );
 	}
 
 	/**
@@ -392,15 +401,24 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
 
-		$after = 0;
-		$total = 0;
+		$after   = 0;
+		$total   = 0;
+		$seen    = 0;
+		$skipped = array();
 		do {
-			$result = $importer->import_batch( $after, $batch );
-			$total += $result['follows'];
-			$after  = $result['last'];
+			$result  = $importer->import_batch( $after, $batch );
+			$total  += $result['follows'];
+			$seen   += $result['fetched'];
+			$after   = $result['last'];
+
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 		} while ( $result['fetched'] === $batch );
 
-		\WP_CLI::success( sprintf( 'Follows imported: %d follows.', $total ) );
+		\WP_CLI::success( sprintf( 'Follows imported: %d of %d follows.', $total, $seen ) );
+
+		$this->report_skips( $skipped, $seen, $total, 'follows' );
 	}
 
 	/**
@@ -452,15 +470,24 @@ final class MigrateCommand {
 
 		// Batches are non-uniform (the usermeta fallback keysets by user and
 		// emits whole users), so loop until a batch comes back empty.
-		$after = 0;
-		$total = 0;
+		$after   = 0;
+		$total   = 0;
+		$seen    = 0;
+		$skipped = array();
 		do {
-			$result = $importer->import_batch( $after, $batch );
-			$total += $result['reactions'];
-			$after  = $result['last'];
+			$result  = $importer->import_batch( $after, $batch );
+			$total  += $result['reactions'];
+			$seen   += $result['fetched'];
+			$after   = $result['last'];
+
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 		} while ( $result['fetched'] > 0 );
 
-		\WP_CLI::success( sprintf( 'Reactions imported: %d likes.', $total ) );
+		\WP_CLI::success( sprintf( 'Reactions imported: %d of %d likes.', $total, $seen ) );
+
+		$this->report_skips( $skipped, $seen, $total, 'likes' );
 	}
 
 	/**
@@ -578,6 +605,20 @@ final class MigrateCommand {
 			'already_imported'      => '%1$d %2$s were already imported by an earlier run.',
 			'multiple_source_types' => '%1$d extra source member types were dropped: a BuddyNext member holds one type.',
 			'target_already_set'    => '%1$d %2$s were left alone: that member or space already had one in BuddyNext, and an import never replaces a picture somebody chose.',
+			// A like whose activity was spam/skipped goes with it - a correct,
+			// expected reduction, not a shortfall to warn about.
+			'activity_not_imported' => '%1$d %2$s were on activities that did not migrate (spam/skipped), so they were dropped with them.',
+			// A relationship one party has BLOCKED is not re-created - the block is
+			// a current safety decision ImportMode deliberately leaves in force.
+			// With the privacy preference lifted for the run, these "not allowed"
+			// codes can only come from a block, so they read as one.
+			'blocked'               => '%1$d %2$s were not re-created because one member blocks the other.',
+			'follow_not_allowed'    => '%1$d %2$s were not re-created because one member blocks the other.',
+			'connect_not_allowed'   => '%1$d %2$s were not re-created because one member blocks the other.',
+			// Malformed source rows that can never be a relationship - a member
+			// cannot follow or connect to themselves. Reported, not alarmed.
+			'self_follow'           => '%1$d self-referential %2$s in the source were skipped (a member cannot follow themselves).',
+			'self_connection'       => '%1$d self-referential %2$s in the source were skipped (a member cannot connect to themselves).',
 		);
 
 		foreach ( $notes as $reason => $wording ) {

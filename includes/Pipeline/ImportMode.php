@@ -156,5 +156,30 @@ final class ImportMode {
 		// replay — otherwise every long message in the archive is dropped with no
 		// way for the member to ever see it again.
 		add_filter( 'mvs_message_max_length', $unlimited, PHP_INT_MAX );
+
+		// Follow + connection privacy lifts, via BuddyNext's OWN public filters.
+		// A follow or friendship EXISTED at the source, so it is historical data
+		// we re-add during the replay; the member's who_can_follow /
+		// who_can_connect preference governs FUTURE actions, not the migration of
+		// a relationship that already happened. This mirrors the DM gate lift
+		// above (a thread that existed is replayed).
+		//
+		// A real BLOCK still refuses: PrivacyService checks bn_blocks BEFORE
+		// these filters (can_follow / can_connect early-return false on a block,
+		// and FollowService::follow() carries its own block guard), so lifting the
+		// preference here can never re-create a relationship across a block. Rows
+		// a block refuses are counted as reason-coded skips, never silent.
+		$allow = static function ( $allowed ) {
+			return self::$active ? true : $allowed;
+		};
+
+		add_filter( 'buddynext_can_follow', $allow, PHP_INT_MAX );
+		add_filter( 'buddynext_can_connect', $allow, PHP_INT_MAX );
+
+		// The follow cap (default 5,000) bounds a member's following set for
+		// feed performance - a today's-limit guard, not a privacy choice. Source
+		// history can legitimately exceed it, so it is lifted for the replay like
+		// the DM rate limits; new follows after migration are capped again.
+		add_filter( 'buddynext_max_following', $unlimited, PHP_INT_MAX );
 	}
 }

@@ -33,20 +33,33 @@ final class FollowWriter {
 	/**
 	 * Import one source follow.
 	 *
-	 * The target's who_can_follow privacy preference still applies (a member
-	 * who has since locked follows down is honoured - the import replays
-	 * history, it does not override today's choices). Denied or self-follow
-	 * rows are skipped, not errors.
+	 * ImportMode lifts the target's who_can_follow preference for the run (the
+	 * follow existed at the source - it is historical data we re-add), so the
+	 * only refusals left are the ones that SHOULD stand: a real block, or the
+	 * (lifted) follow cap. Whatever the service refuses is reported by its own
+	 * error code rather than dropped in silence.
 	 *
 	 * @param array<string,mixed> $follow Source follow record.
-	 * @return bool Whether a follow was written (or already existed).
+	 * @return string Empty string when written (or already present), else the skip reason.
 	 */
-	public function import_follow( array $follow ): bool {
+	public function import_follow( array $follow ): string {
 		$follower = (int) $follow['follower_id'];
 		$leader   = (int) $follow['leader_id'];
 
-		if ( $follower <= 0 || $leader <= 0 || $follower === $leader ) {
-			return false;
+		if ( $follower <= 0 || $leader <= 0 ) {
+			return 'invalid_row';
+		}
+
+		if ( $follower === $leader ) {
+			return 'self_follow';
+		}
+
+		// Already present from an earlier run. follow() is INSERT IGNORE so a
+		// re-write is harmless, but asking first lets the run report an honest
+		// "already imported" instead of re-counting it as freshly written - the
+		// DB is the idempotency source of truth, no id-map needed.
+		if ( $this->service()->is_following( $follower, $leader ) ) {
+			return 'already_imported';
 		}
 
 		$date   = (string) ( $follow['date_recorded'] ?? '' );
@@ -56,6 +69,13 @@ final class FollowWriter {
 			fn() => $this->service()->follow( $follower, $leader, '' !== $date ? $date : null )
 		);
 
-		return true === $result;
+		// follow() returns true on insert AND on an existing row (INSERT IGNORE),
+		// so a re-run reports success rather than a loss. Only a WP_Error is a
+		// row that did not land.
+		if ( is_wp_error( $result ) ) {
+			return sanitize_key( (string) $result->get_error_code() );
+		}
+
+		return true === $result ? '' : 'follow_refused';
 	}
 }
