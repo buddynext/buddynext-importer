@@ -1235,10 +1235,67 @@ final class MigrateCommand {
 			\WP_CLI::log( 'Skipping private messages (WPMediaVerse is not active) - source message threads will NOT be migrated.' );
 		}
 
+		// Creating posts schedules BuddyNext's async indexing (hashtags + search)
+		// on Action Scheduler. A live site drains that via WP-Cron within a minute,
+		// but a CLI migration generates no web traffic to trigger it, so the
+		// migrated site's hashtag feed and search stay empty until something runs
+		// the queue. Run it here so the result is query-ready the moment the
+		// migration finishes - no manual `wp action-scheduler run` afterwards.
+		$this->run_pending_index_jobs();
+
 		\WP_CLI::success( 'Migration complete.' );
 		\WP_CLI::log( 'Verify the result, then drop the temporary mapping tables with:' );
 		\WP_CLI::log( sprintf( '  wp buddynext-import cleanup --source=%s', $source ) );
 		\WP_CLI::log( 'After that you can deactivate and delete this importer.' );
+	}
+
+	/**
+	 * Drain the asynchronous indexing Action Scheduler jobs the import queued.
+	 *
+	 * Every post the import creates fires buddynext_post_created, which schedules
+	 * BuddyNext's async hashtag extraction and search indexing on Action Scheduler
+	 * (kept off the write path so a 100k-row import never blocks on indexing). A
+	 * live site drains that queue via WP-Cron within a minute, but a CLI migration
+	 * generates no web request to trigger cron - leaving the hashtag feed and
+	 * search empty until something runs the queue. Run the due queue here so the
+	 * migrated site is query-ready the moment migrate-all finishes.
+	 */
+	private function run_pending_index_jobs(): void {
+		if ( ! function_exists( 'as_get_scheduled_actions' ) ) {
+			return;
+		}
+
+		// Count pending actions that are DUE now. Async jobs are enqueued for
+		// immediate run; future-scheduled recurring actions are excluded, so the
+		// loop cannot spin on a job that is not meant to run yet.
+		$due_now = static function (): int {
+			$ids = as_get_scheduled_actions(
+				array(
+					'status'       => 'pending',
+					'date'         => gmdate( 'Y-m-d H:i:s' ),
+					'date_compare' => '<=',
+					'per_page'     => 1,
+				),
+				'ids'
+			);
+			return is_array( $ids ) ? count( $ids ) : 0;
+		};
+
+		if ( 0 === $due_now() ) {
+			return;
+		}
+
+		\WP_CLI::log( 'Running queued hashtag + search indexing...' );
+
+		// Each pass runs one Action Scheduler batch through its own cron entry
+		// point. The guard stops a runaway if a job keeps rescheduling itself.
+		$guard = 0;
+		while ( $due_now() > 0 && $guard < 500 ) {
+			do_action( 'action_scheduler_run_queue', 'BuddyNext import' );
+			++$guard;
+		}
+
+		\WP_CLI::log( '  Indexing complete - hashtag feed and search are ready.' );
 	}
 
 	/**
