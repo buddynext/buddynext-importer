@@ -1,63 +1,399 @@
-/* Importer admin page. */
+/**
+ * Importer admin page - premium presentation, styled to sit in the BuddyNext
+ * family (indigo #5b67d0 accent, soft cards, gradient progress). Self-contained:
+ * a local --bni-* token layer seeded with the family palette, so the page never
+ * depends on another plugin's stylesheet. Light + dark aware, responsive to 390px.
+ */
 
-.bni-intro {
-	max-width: 70ch;
-	color: #50575e;
-}
+.bni-wrap {
+	--bni-accent: #5b67d0;
+	--bni-accent-600: #4754ad;
+	--bni-accent-700: #36418b;
+	--bni-accent-100: #eef0fc;
+	--bni-accent-200: #dfe3f9;
+	--bni-surface: #ffffff;
+	--bni-surface-2: #f7f8fc;
+	--bni-text: #1c2033;
+	--bni-text-muted: #5a6072;
+	--bni-border: #e4e6f0;
+	--bni-radius: 14px;
+	--bni-radius-sm: 10px;
+	--bni-shadow: 0 1px 2px rgba(28, 32, 51, 0.04), 0 8px 24px -12px rgba(28, 32, 51, 0.18);
+	--bni-shadow-sm: 0 1px 2px rgba(28, 32, 51, 0.06);
 
-.bni-card {
-	background: #fff;
-	border: 1px solid #c3c4c7;
-	border-radius: 4px;
-	padding: 16px 20px;
-	margin-top: 16px;
-	max-width: 760px;
-}
-
-.bni-card__title {
-	margin-top: 0;
+	max-width: 880px;
+	color: var(--bni-text);
 	font-size: 14px;
 }
 
-.bni-source {
-	font-weight: 600;
-	margin: 0 0 12px;
-}
-
-.bni-stats__count {
-	text-align: end;
-	width: 8em;
-}
-
-.bni-progress {
-	background: #f0f0f1;
-	border-radius: 999px;
-	height: 10px;
+/* WP prints the screen <h1> before .wrap content; the hero carries the title. */
+.bni-wrap > h1 {
+	position: absolute;
+	width: 1px;
+	height: 1px;
 	overflow: hidden;
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+/* -------------------------------------------------------------- hero header */
+.bni-hero {
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	padding: 26px 28px;
+	margin: 12px 0 4px;
+	border-radius: var(--bni-radius);
+	color: #fff;
+	background:
+		radial-gradient(120% 140% at 100% 0%, rgba(255, 255, 255, 0.18), transparent 55%),
+		linear-gradient(135deg, var(--bni-accent) 0%, var(--bni-accent-700) 100%);
+	box-shadow: var(--bni-shadow);
+}
+
+.bni-hero__mark {
+	flex: 0 0 auto;
+	width: 52px;
+	height: 52px;
+	display: grid;
+	place-items: center;
+	border-radius: 14px;
+	background: rgba(255, 255, 255, 0.16);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.bni-hero__mark svg {
+	width: 26px;
+	height: 26px;
+	display: block;
+	fill: none;
+	stroke: #fff;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.bni-hero__title {
+	margin: 0;
+	padding: 0;
+	font-size: 22px;
+	font-weight: 700;
+	line-height: 1.2;
+	color: #fff;
+}
+
+.bni-hero__sub {
+	margin: 6px 0 0;
+	max-width: 62ch;
+	font-size: 13.5px;
+	line-height: 1.55;
+	color: rgba(255, 255, 255, 0.85);
+}
+
+/* -------------------------------------------------------------------- cards */
+.bni-card {
+	background: var(--bni-surface);
+	border: 1px solid var(--bni-border);
+	border-radius: var(--bni-radius);
+	padding: 22px 24px;
+	margin-top: 18px;
+	box-shadow: var(--bni-shadow-sm);
+}
+
+.bni-card__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 18px;
+}
+
+.bni-card__title {
+	margin: 0;
+	padding: 0;
+	font-size: 15px;
+	font-weight: 700;
+	color: var(--bni-text);
+}
+
+.bni-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 12px;
+	border-radius: 999px;
+	font-size: 12.5px;
+	font-weight: 600;
+	color: var(--bni-accent-700);
+	background: var(--bni-accent-100);
+	box-shadow: inset 0 0 0 1px var(--bni-accent-200);
+}
+
+.bni-badge::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--bni-accent);
+}
+
+.bni-muted {
+	color: var(--bni-text-muted);
+	margin: 0;
+}
+
+/* --------------------------------------------------------------- stat grid */
+.bni-stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+	gap: 12px;
+}
+
+.bni-stat {
+	position: relative;
+	padding: 14px 16px;
+	border-radius: var(--bni-radius-sm);
+	background: var(--bni-surface-2);
+	border: 1px solid var(--bni-border);
+	transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.bni-stat:hover {
+	transform: translateY(-2px);
+	border-color: var(--bni-accent-200);
+	box-shadow: var(--bni-shadow);
+}
+
+.bni-stat__num {
+	display: block;
+	font-size: 26px;
+	font-weight: 750;
+	line-height: 1.1;
+	letter-spacing: -0.01em;
+	color: var(--bni-accent-700);
+	font-variant-numeric: tabular-nums;
+}
+
+.bni-stat__label {
+	display: block;
+	margin-top: 4px;
+	font-size: 12.5px;
+	line-height: 1.35;
+	color: var(--bni-text-muted);
+	text-transform: capitalize;
+}
+
+/* ---------------------------------------------------------------- progress */
+.bni-progress {
+	position: relative;
+	background: var(--bni-accent-100);
+	border-radius: 999px;
+	height: 12px;
+	overflow: hidden;
+	box-shadow: inset 0 0 0 1px var(--bni-border);
 }
 
 .bni-progress__bar {
-	background: #2271b1;
+	position: relative;
 	height: 100%;
 	width: 0;
-	transition: width 0.2s ease;
+	border-radius: 999px;
+	background: linear-gradient(90deg, var(--bni-accent) 0%, var(--bni-accent-600) 100%);
+	transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Animated sheen while a run is active (class toggled from JS). */
+.bni-progress.is-running .bni-progress__bar::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+	animation: bni-sheen 1.4s linear infinite;
+}
+
+@keyframes bni-sheen {
+	from { transform: translateX(-100%); }
+	to { transform: translateX(100%); }
+}
+
+.bni-progress__meta {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 12px 0 0;
 }
 
 .bni-progress__label {
-	color: #50575e;
-	margin: 8px 0 0;
+	margin: 0;
+	font-weight: 600;
+	color: var(--bni-text);
 }
 
+.bni-progress__pct {
+	font-size: 13px;
+	font-weight: 700;
+	color: var(--bni-accent-700);
+	font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------- actions */
 .bni-actions {
-	margin-top: 16px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	margin-top: 20px;
 }
 
-@media ( max-width: 640px ) {
-	.bni-card {
-		padding: 12px 14px;
+/* Premium buttons, scoped so we do not fight core .button globally. */
+.bni-wrap .button.button-primary,
+.bni-wrap #bni-start {
+	background: linear-gradient(135deg, var(--bni-accent) 0%, var(--bni-accent-600) 100%);
+	border-color: var(--bni-accent-600);
+	border-radius: 9px;
+	padding: 6px 18px;
+	height: auto;
+	line-height: 2;
+	font-weight: 600;
+	box-shadow: 0 6px 16px -8px rgba(91, 103, 208, 0.9);
+	text-shadow: none;
+	transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+
+.bni-wrap .button.button-primary:hover:not(:disabled),
+.bni-wrap #bni-start:hover:not(:disabled) {
+	filter: brightness(1.05);
+	transform: translateY(-1px);
+	box-shadow: 0 10px 22px -8px rgba(91, 103, 208, 0.95);
+}
+
+.bni-wrap #bni-start-bg {
+	border-radius: 9px;
+	padding: 6px 16px;
+	height: auto;
+	line-height: 2;
+	font-weight: 600;
+	color: var(--bni-accent-700);
+	border-color: var(--bni-accent-200);
+	background: var(--bni-surface);
+}
+
+.bni-wrap #bni-start-bg:hover:not(:disabled) {
+	border-color: var(--bni-accent);
+	background: var(--bni-accent-100);
+	color: var(--bni-accent-700);
+}
+
+.bni-wrap .button:disabled,
+.bni-wrap .button[disabled] {
+	opacity: 0.55;
+	box-shadow: none;
+	filter: none;
+	transform: none;
+}
+
+.bni-cancel {
+	color: var(--bni-text-muted);
+	text-decoration: none;
+}
+
+.bni-cancel:hover {
+	color: #b32d2e;
+}
+
+.bni-hint {
+	display: flex;
+	gap: 8px;
+	margin: 14px 0 0;
+	padding: 12px 14px;
+	border-radius: var(--bni-radius-sm);
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--bni-text-muted);
+	background: var(--bni-accent-100);
+	border: 1px solid var(--bni-accent-200);
+}
+
+.bni-hint::before {
+	content: "";
+	flex: 0 0 auto;
+	width: 16px;
+	height: 16px;
+	margin-top: 1px;
+	border-radius: 50%;
+	background: var(--bni-accent);
+	box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85);
+}
+
+/* ------------------------------------------------------------------- notice */
+.bni-wrap #bni-notice {
+	border-radius: var(--bni-radius-sm);
+	margin: 16px 0 0;
+}
+
+/* --------------------------------------------------------------- dark mode */
+@media ( prefers-color-scheme: dark ) {
+	.bni-wrap {
+		--bni-accent-100: #262b47;
+		--bni-accent-200: #333a5e;
+		--bni-accent-700: #b9bfed;
+		--bni-surface: #1f2334;
+		--bni-surface-2: #262b3d;
+		--bni-text: #e9ebf5;
+		--bni-text-muted: #a3a9bf;
+		--bni-border: #343a52;
+		--bni-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px -12px rgba(0, 0, 0, 0.6);
+		--bni-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
 	}
 
-	.bni-stats__count {
-		width: 5em;
+	.bni-stat__num {
+		color: #aab2f2;
+	}
+}
+
+/* -------------------------------------------------------------- responsive */
+@media ( max-width: 782px ) {
+	.bni-hero {
+		padding: 22px;
+	}
+
+	.bni-hero__title {
+		font-size: 19px;
+	}
+
+	.bni-stats {
+		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+	}
+}
+
+@media ( max-width: 480px ) {
+	.bni-hero {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 20px;
+	}
+
+	.bni-card {
+		padding: 18px 16px;
+	}
+
+	.bni-stats {
+		grid-template-columns: repeat(2, 1fr);
+	}
+
+	.bni-stat__num {
+		font-size: 22px;
+	}
+
+	.bni-actions {
+		gap: 8px;
+	}
+
+	.bni-actions .button {
+		flex: 1 1 auto;
+		text-align: center;
 	}
 }
