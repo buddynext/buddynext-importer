@@ -40,9 +40,20 @@
 		if ( bar ) {
 			bar.style.width = percent + '%';
 		}
-		var wrap = bar ? bar.parentNode : null;
+		var wrap = el( 'bni-progress' );
 		if ( wrap ) {
 			wrap.setAttribute( 'aria-valuenow', String( percent ) );
+		}
+		var pct = el( 'bni-progress-pct' );
+		if ( pct ) {
+			pct.textContent = percent > 0 ? percent + '%' : '';
+		}
+	}
+
+	function setRunning( on ) {
+		var wrap = el( 'bni-progress' );
+		if ( wrap ) {
+			wrap.classList.toggle( 'is-running', !! on );
 		}
 	}
 
@@ -64,38 +75,49 @@
 	}
 
 	function renderStats( data ) {
-		var source = el( 'bni-source' );
-		var table = el( 'bni-stats' );
-		var body = el( 'bni-stats-body' );
-		var start = el( 'bni-start' );
+		var badge = el( 'bni-source' );
+		var empty = el( 'bni-source-empty' );
+		var grid = el( 'bni-stats-grid' );
 
 		if ( ! data || ! data.available ) {
-			source.textContent = ( cfg.i18n && cfg.i18n.noSource ) || '';
+			if ( empty ) {
+				empty.textContent = ( cfg.i18n && cfg.i18n.noSource ) || '';
+			}
 			return;
 		}
 
-		source.textContent = data.label;
+		if ( badge ) {
+			badge.textContent = data.label;
+			badge.hidden = false;
+		}
+		if ( empty ) {
+			empty.hidden = true;
+		}
+
 		total = computeTotal( data.stats );
 
-		while ( body.firstChild ) {
-			body.removeChild( body.firstChild );
+		if ( grid ) {
+			while ( grid.firstChild ) {
+				grid.removeChild( grid.firstChild );
+			}
+			Object.keys( data.stats ).forEach( function ( domain ) {
+				var tile = document.createElement( 'div' );
+				tile.className = 'bni-stat';
+				var num = document.createElement( 'span' );
+				num.className = 'bni-stat__num';
+				num.textContent = String( data.stats[ domain ] );
+				var label = document.createElement( 'span' );
+				label.className = 'bni-stat__label';
+				label.textContent = domain.replace( /_/g, ' ' );
+				tile.appendChild( num );
+				tile.appendChild( label );
+				grid.appendChild( tile );
+			} );
+			grid.hidden = false;
 		}
-		Object.keys( data.stats ).forEach( function ( domain ) {
-			var row = document.createElement( 'tr' );
-			var th = document.createElement( 'td' );
-			var td = document.createElement( 'td' );
-			th.textContent = domain.replace( /_/g, ' ' );
-			td.className = 'bni-stats__count';
-			td.textContent = String( data.stats[ domain ] );
-			row.appendChild( th );
-			row.appendChild( td );
-			body.appendChild( row );
-		} );
-		table.hidden = false;
 
-		if ( start && cfg.bnActive ) {
-			start.disabled = false;
-		} else if ( start ) {
+		toggleButtons( true );
+		if ( ! cfg.bnActive ) {
 			showNotice( ( cfg.i18n && cfg.i18n.bnInactive ) || '', 'warning' );
 		}
 	}
@@ -135,10 +157,8 @@
 	}
 
 	function runImport() {
-		var start = el( 'bni-start' );
-		if ( start ) {
-			start.disabled = true;
-		}
+		toggleButtons( false );
+		setRunning( true );
 		var notice = el( 'bni-notice' );
 		if ( notice ) {
 			notice.hidden = true;
@@ -153,14 +173,150 @@
 
 		chain.then( function () {
 			setBar( 100 );
+			setRunning( false );
 			setLabel( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.' );
 			showNotice( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.', 'success' );
 		} ).catch( function () {
-			if ( start ) {
-				start.disabled = false;
-			}
+			setRunning( false );
+			toggleButtons( true );
 			showNotice( ( cfg.i18n && cfg.i18n.runFailed ) || 'The import stopped on an error.', 'error' );
 		} );
+	}
+
+	// --- Background (server-side, Action Scheduler) import -------------------
+	// Unlike the browser /step loop above, this runs on the server, so the owner
+	// can close the tab. The page polls /status and resumes the display if the
+	// import is still running when the screen is reopened.
+
+	var pollTimer = null;
+
+	function toggleButtons( enabled ) {
+		var startBtn = el( 'bni-start' );
+		var startBg = el( 'bni-start-bg' );
+		if ( startBtn ) {
+			startBtn.disabled = ! ( enabled && cfg.bnActive );
+		}
+		if ( startBg ) {
+			startBg.disabled = ! ( enabled && cfg.bnActive );
+		}
+	}
+
+	function stopPolling() {
+		if ( pollTimer ) {
+			window.clearInterval( pollTimer );
+			pollTimer = null;
+		}
+		var hint = el( 'bni-bg-hint' );
+		var cancel = el( 'bni-cancel-bg' );
+		if ( hint ) {
+			hint.hidden = true;
+		}
+		if ( cancel ) {
+			cancel.hidden = true;
+		}
+		setRunning( false );
+	}
+
+	// Reflect a /status envelope in the UI. Returns true while still running.
+	function renderBgStatus( res ) {
+		if ( ! res || res.state === 'idle' ) {
+			return false;
+		}
+		setBar( res.percent || 0 );
+		if ( res.state === 'running' ) {
+			setLabel(
+				( ( cfg.i18n && cfg.i18n.importing ) || 'Importing' ) +
+				( res.phase ? ' ' + res.phase : '' ) +
+				'... (' + res.done + '/' + res.total + ')'
+			);
+			return true;
+		}
+		if ( res.state === 'complete' ) {
+			setBar( 100 );
+			setLabel( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.' );
+			showNotice( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.', 'success' );
+			return false;
+		}
+		if ( res.state === 'error' ) {
+			showNotice( ( cfg.i18n && cfg.i18n.runFailed ) || '', 'error' );
+			return false;
+		}
+		return false;
+	}
+
+	function pollStatus() {
+		return apiFetch( {
+			path: '/buddynext-importer/v1/status',
+			headers: { 'X-WP-Nonce': cfg.nonce }
+		} ).then( function ( res ) {
+			if ( ! renderBgStatus( res ) ) {
+				stopPolling();
+				toggleButtons( true );
+			}
+			return res;
+		} );
+	}
+
+	function beginPolling() {
+		var hint = el( 'bni-bg-hint' );
+		var cancel = el( 'bni-cancel-bg' );
+		if ( hint ) {
+			hint.hidden = false;
+		}
+		if ( cancel ) {
+			cancel.hidden = false;
+		}
+		toggleButtons( false );
+		setRunning( true );
+		if ( ! pollTimer ) {
+			pollTimer = window.setInterval( pollStatus, 3000 );
+		}
+	}
+
+	function runBackground() {
+		var notice = el( 'bni-notice' );
+		if ( notice ) {
+			notice.hidden = true;
+		}
+		apiFetch( {
+			path: '/buddynext-importer/v1/background',
+			method: 'POST',
+			headers: { 'X-WP-Nonce': cfg.nonce }
+		} ).then( function ( res ) {
+			beginPolling();
+			renderBgStatus( res );
+		} ).catch( function () {
+			toggleButtons( true );
+			showNotice( ( cfg.i18n && cfg.i18n.runFailed ) || '', 'error' );
+		} );
+	}
+
+	function cancelBackground() {
+		apiFetch( {
+			path: '/buddynext-importer/v1/background/cancel',
+			method: 'POST',
+			headers: { 'X-WP-Nonce': cfg.nonce }
+		} ).then( function () {
+			stopPolling();
+			setLabel( 'Idle.' );
+			toggleButtons( true );
+		} );
+	}
+
+	// On load, resume the live display only if an import is actually running.
+	function resumeIfRunning() {
+		if ( ! apiFetch ) {
+			return;
+		}
+		apiFetch( {
+			path: '/buddynext-importer/v1/status',
+			headers: { 'X-WP-Nonce': cfg.nonce }
+		} ).then( function ( res ) {
+			if ( res && res.state === 'running' ) {
+				renderBgStatus( res );
+				beginPolling();
+			}
+		} ).catch( function () {} );
 	}
 
 	function loadStats() {
@@ -179,9 +335,18 @@
 
 	document.addEventListener( 'DOMContentLoaded', function () {
 		loadStats();
+		resumeIfRunning();
 		var start = el( 'bni-start' );
 		if ( start ) {
 			start.addEventListener( 'click', runImport );
+		}
+		var startBg = el( 'bni-start-bg' );
+		if ( startBg ) {
+			startBg.addEventListener( 'click', runBackground );
+		}
+		var cancel = el( 'bni-cancel-bg' );
+		if ( cancel ) {
+			cancel.addEventListener( 'click', cancelBackground );
 		}
 	} );
 } )();

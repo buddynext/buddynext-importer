@@ -14,6 +14,7 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Rest;
 
+use BuddyNextImporter\Background\BackgroundImport;
 use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
@@ -74,6 +75,33 @@ final class ProgressController {
 			array(
 				'methods'             => 'GET',
 				'callback'            => array( $this, 'get_status' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/background',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'start_background' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'source' => array(
+						'type'              => 'string',
+						'required'          => false,
+						'sanitize_callback' => 'sanitize_key',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/background/cancel',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'cancel_background' ),
 				'permission_callback' => array( $this, 'require_admin' ),
 			)
 		);
@@ -168,21 +196,52 @@ final class ProgressController {
 	}
 
 	/**
-	 * GET /status - current import progress for the monitor.
-	 *
-	 * Phase 1 returns the idle envelope. Later phases populate phase/done/total
-	 * from the id-map as batches run.
+	 * GET /status - current background-import progress for the monitor.
 	 */
 	public function get_status(): WP_REST_Response {
-		return new WP_REST_Response(
-			array(
-				'state'   => 'idle',
-				'phase'   => null,
-				'done'    => 0,
-				'total'   => 0,
-				'percent' => 0,
-			)
-		);
+		return new WP_REST_Response( ( new BackgroundImport() )->status() );
+	}
+
+	/**
+	 * POST /background - start an unattended import via Action Scheduler, so the
+	 * owner can close the tab. Returns the initial status envelope.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function start_background( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		if ( ! Plugin::buddynext_active() ) {
+			return new WP_Error(
+				'buddynext_importer_no_target',
+				__( 'BuddyNext must be active before importing.', 'buddynext-importer' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		$source = $request->get_param( 'source' );
+		$source = is_string( $source ) && '' !== $source ? $source : AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			return new WP_Error(
+				'buddynext_importer_no_source',
+				__( 'No source community was found on this site.', 'buddynext-importer' ),
+				array( 'status' => 404 )
+			);
+		}
+
+		$runner = new BackgroundImport();
+		$runner->start( $source );
+
+		return new WP_REST_Response( $runner->status() );
+	}
+
+	/**
+	 * POST /background/cancel - stop the running background import.
+	 */
+	public function cancel_background(): WP_REST_Response {
+		$runner = new BackgroundImport();
+		$runner->cancel();
+
+		return new WP_REST_Response( $runner->status() );
 	}
 
 	/**

@@ -10,6 +10,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter;
 
 use BuddyNextImporter\Admin\ImporterPage;
+use BuddyNextImporter\Background\BackgroundImport;
 use BuddyNextImporter\CLI\MigrateCommand;
 use BuddyNextImporter\Pipeline\ImportMode;
 use BuddyNextImporter\Rest\ProgressController;
@@ -26,6 +27,11 @@ final class Plugin {
 	 */
 	public static function boot(): void {
 		ImportMode::register();
+
+		// The background runner listens for its Action Scheduler tick on every
+		// request (it no-ops unless a job is running), so it must register
+		// unconditionally - not only in wp-admin.
+		( new BackgroundImport() )->register();
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'buddynext-import', new MigrateCommand() );
