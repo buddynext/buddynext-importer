@@ -158,6 +158,19 @@ interface SourceAdapter {
 	public function activity_media( int $activity_id ): array;
 
 	/**
+	 * The same as {@see self::activity_media()}, but for a whole batch of
+	 * activities in one query set instead of one query per activity. Keyed by
+	 * activity id; an activity with no media is simply absent from the result
+	 * (callers default to an empty list). This is what the importer calls per
+	 * batch, so a 100k-activity migration issues a couple of queries per page
+	 * rather than one - or two, on BuddyBoss - per row.
+	 *
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>> Activity id => attachment ids.
+	 */
+	public function activity_media_for( array $activity_ids ): array;
+
+	/**
 	 * Member avatars and cover images, keyset-paginated by user id.
 	 *
 	 * These are files on disk, not rows: BuddyPress and BuddyBoss both store an

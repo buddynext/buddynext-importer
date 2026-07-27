@@ -83,13 +83,36 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 	 * @return array<int,int>
 	 */
 	public function activity_media( int $activity_id ): array {
+		return $this->activity_media_for( array( $activity_id ) )[ $activity_id ] ?? array();
+	}
+
+	/**
+	 * Batched activity media for a BuddyBoss source (bp_media / bp_video).
+	 *
+	 * One query reads every bp_media_ids / bp_video_ids meta row for the batch,
+	 * then one query per source table resolves those row ids to attachment ids -
+	 * two or three queries for a whole page instead of one or two per activity.
+	 *
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>> Activity id => attachment ids.
+	 */
+	public function activity_media_for( array $activity_ids ): array {
 		global $wpdb;
 
-		if ( ! $this->table_exists( 'bp_activity_meta' ) ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $activity_ids ),
+					static function ( $id ) {
+						return $id > 0;
+					}
+				)
+			)
+		);
+
+		if ( empty( $ids ) || ! $this->table_exists( 'bp_activity_meta' ) ) {
 			return array();
 		}
-
-		$attachments = array();
 
 		// Older BuddyBoss keeps videos in their own bp_video table; from 2.x the
 		// video component points at bp_media too (class-bp-video-component.php
@@ -101,36 +124,55 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 			'bp_video_ids' => $this->table_exists( 'bp_video' ) ? 'bp_video' : 'bp_media',
 		);
 
-		foreach ( $sources as $meta_key => $unprefixed ) {
-			if ( ! $this->table_exists( $unprefixed ) ) {
+		$meta_table   = $wpdb->prefix . 'bp_activity_meta';
+		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
+
+		// 1) Every media/video id-list for the whole batch, in one query.
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+		$meta_rows = $wpdb->get_results( $wpdb->prepare( "SELECT activity_id, meta_key, meta_value FROM `{$meta_table}` WHERE activity_id IN ( {$placeholders} ) AND meta_key IN ( 'bp_media_ids', 'bp_video_ids' )", $ids ), ARRAY_A );
+
+		// 2) Group each source row id by its table, remembering every activity it
+		// belongs to (the same media row can be shared across activities).
+		$rows_by_table = array();
+		foreach ( (array) $meta_rows as $meta ) {
+			$aid   = (int) $meta['activity_id'];
+			$table = $sources[ (string) $meta['meta_key'] ] ?? '';
+			if ( '' === $table || $aid <= 0 || ! $this->table_exists( $table ) ) {
 				continue;
 			}
-
-			$meta_table = $wpdb->prefix . 'bp_activity_meta';
-
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$raw = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM `{$meta_table}` WHERE activity_id = %d AND meta_key = %s", $activity_id, $meta_key ) );
-
-			$row_ids = $this->parse_id_list( (string) $raw );
-			if ( empty( $row_ids ) ) {
-				continue;
+			foreach ( $this->parse_id_list( (string) $meta['meta_value'] ) as $row_id ) {
+				$rows_by_table[ $table ][ (int) $row_id ][] = $aid;
 			}
+		}
 
-			$table        = $wpdb->prefix . $unprefixed;
-			$placeholders = implode( ', ', array_fill( 0, count( $row_ids ), '%d' ) );
+		// 3) Resolve each source table's row ids to attachment ids in one query,
+		// then fan each attachment back out to every activity that used it.
+		$out = array();
+		foreach ( $rows_by_table as $unprefixed => $row_map ) {
+			$row_ids = array_keys( $row_map );
+			$ph      = implode( ', ', array_fill( 0, count( $row_ids ), '%d' ) );
+			$table   = $wpdb->prefix . $unprefixed;
 
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-			$found = $wpdb->get_col( $wpdb->prepare( "SELECT attachment_id FROM `{$table}` WHERE id IN ( {$placeholders} )", $row_ids ) );
+			$found = $wpdb->get_results( $wpdb->prepare( "SELECT id, attachment_id FROM `{$table}` WHERE id IN ( {$ph} )", $row_ids ), ARRAY_A );
 
-			foreach ( $found as $attachment_id ) {
-				$attachment_id = (int) $attachment_id;
-				if ( $attachment_id > 0 ) {
-					$attachments[] = $attachment_id;
+			foreach ( (array) $found as $media ) {
+				$attachment_id = (int) $media['attachment_id'];
+				if ( $attachment_id <= 0 ) {
+					continue;
+				}
+				foreach ( ( $row_map[ (int) $media['id'] ] ?? array() ) as $aid ) {
+					$out[ $aid ][] = $attachment_id;
 				}
 			}
 		}
 
-		return array_values( array_unique( $attachments ) );
+		// De-dupe per activity (a media + video row can point at the same file).
+		foreach ( $out as $aid => $attachments ) {
+			$out[ $aid ] = array_values( array_unique( $attachments ) );
+		}
+
+		return $out;
 	}
 
 	/**
