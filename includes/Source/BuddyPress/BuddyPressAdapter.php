@@ -849,11 +849,22 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * @return array<int,int>
 	 */
 	public function activity_media( int $activity_id ): array {
-		return $this->rtmedia_activity_attachments( $activity_id );
+		return $this->rtmedia_activity_attachments_for( array( $activity_id ) )[ $activity_id ] ?? array();
 	}
 
 	/**
-	 * WP attachment ids of the rtMedia items attached to a BuddyPress activity.
+	 * Batched activity media for a plain BuddyPress source (rtMedia).
+	 *
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>> Activity id => attachment ids.
+	 */
+	public function activity_media_for( array $activity_ids ): array {
+		return $this->rtmedia_activity_attachments_for( $activity_ids );
+	}
+
+	/**
+	 * WP attachment ids of the rtMedia items attached to the given activities,
+	 * grouped by activity id, in a single query.
 	 *
 	 * The rtMedia plugin ("buddypress-media") is how activity photos/videos/audio
 	 * are created on a plain BuddyPress site - BuddyBoss uses bp_media instead.
@@ -864,22 +875,43 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * uses, so they become media on the migrated BuddyNext post rather than
 	 * standalone records (BuddyPress is being replaced, not kept alongside).
 	 *
-	 * @param int $activity_id Source activity id.
-	 * @return array<int,int>
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>> Activity id => attachment ids (row order).
 	 */
-	protected function rtmedia_activity_attachments( int $activity_id ): array {
+	protected function rtmedia_activity_attachments_for( array $activity_ids ): array {
 		global $wpdb;
 
-		if ( $activity_id <= 0 || ! $this->table_exists( 'rt_rtm_media' ) ) {
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $activity_ids ),
+					static function ( $id ) {
+						return $id > 0;
+					}
+				)
+			)
+		);
+
+		if ( empty( $ids ) || ! $this->table_exists( 'rt_rtm_media' ) ) {
 			return array();
 		}
 
-		$table = $wpdb->prefix . 'rt_rtm_media';
+		$table        = $wpdb->prefix . 'rt_rtm_media';
+		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT media_id FROM `{$table}` WHERE activity_id = %d AND media_type <> 'album' AND media_id > 0 ORDER BY id ASC", $activity_id ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT activity_id, media_id FROM `{$table}` WHERE activity_id IN ( {$placeholders} ) AND media_type <> 'album' AND media_id > 0 ORDER BY activity_id ASC, id ASC", $ids ), ARRAY_A );
 
-		return array_values( array_filter( array_map( 'intval', (array) $ids ) ) );
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$aid = (int) $row['activity_id'];
+			$mid = (int) $row['media_id'];
+			if ( $aid > 0 && $mid > 0 ) {
+				$out[ $aid ][] = $mid;
+			}
+		}
+
+		return $out;
 	}
 
 	/**

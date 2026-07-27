@@ -84,9 +84,17 @@ final class ActivityImporter {
 		$existing = 0;
 		$last     = $after;
 
+		// Resolve every activity's media in one query set for the whole page,
+		// instead of one lookup per row (an N+1 that dominated at scale).
+		$source_ids = array();
+		foreach ( $rows as $row ) {
+			$source_ids[] = (int) $row['source_id'];
+		}
+		$media_by_activity = $this->adapter->activity_media_for( $source_ids );
+
 		foreach ( $rows as $row ) {
 			$last   = (int) $row['source_id'];
-			$media  = $this->adapter->activity_media( $last );
+			$media  = $media_by_activity[ $last ] ?? array();
 			$result = $this->writer->import_post( $row, $media );
 
 			if ( $result['created'] ) {
