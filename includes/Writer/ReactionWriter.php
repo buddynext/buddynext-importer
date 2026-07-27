@@ -53,19 +53,30 @@ final class ReactionWriter {
 	 * Import one source like/favorite as a BuddyNext 'like' reaction.
 	 *
 	 * @param array<string,mixed> $reaction Source reaction record.
-	 * @return bool Whether a reaction was written (or already existed).
+	 * @return string Empty string when written (or already present), else the skip reason.
 	 */
-	public function import_reaction( array $reaction ): bool {
+	public function import_reaction( array $reaction ): string {
 		$user_id     = (int) $reaction['user_id'];
 		$activity_id = (int) $reaction['activity_id'];
 
 		if ( $user_id <= 0 || $activity_id <= 0 ) {
-			return false;
+			return 'invalid_row';
 		}
 
 		$post_id = IdMap::get( $this->source, 'post', $activity_id );
 		if ( null === $post_id ) {
-			return false; // The liked activity was not imported - drop the like.
+			// The liked activity was never imported (spam/skipped), so the like
+			// goes with it. Expected, but counted - an operator comparing source
+			// and target like totals needs to see this rather than wonder where
+			// the difference went.
+			return 'activity_not_imported';
+		}
+
+		// Already present from an earlier run - react() is INSERT IGNORE, but
+		// asking first lets the run report an honest "already imported" rather
+		// than re-counting it. The DB unique key remains the idempotency source.
+		if ( $this->service()->has_reacted( $user_id, 'post', (int) $post_id ) ) {
+			return 'already_imported';
 		}
 
 		$date   = (string) ( $reaction['date_created'] ?? '' );
@@ -74,6 +85,10 @@ final class ReactionWriter {
 			fn() => $this->service()->react( $user_id, 'post', $post_id, 'like', '' !== $date ? $date : null )
 		);
 
-		return true === $result;
+		if ( is_wp_error( $result ) ) {
+			return sanitize_key( (string) $result->get_error_code() );
+		}
+
+		return true === $result ? '' : 'reaction_refused';
 	}
 }

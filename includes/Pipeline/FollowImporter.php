@@ -72,24 +72,31 @@ final class FollowImporter {
 	 *
 	 * @param int $after Exclusive lower-bound follow id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,follows:int}
+	 * @return array{last:int,fetched:int,follows:int,skipped:array<string,int>}
 	 */
 	public function import_batch( int $after, int $limit ): array {
 		$rows    = $this->adapter->follows( $after, $limit );
 		$follows = 0;
+		$skipped = array();
 		$last    = $after;
 
 		foreach ( $rows as $row ) {
-			$last = max( $last, (int) $row['source_id'] );
-			if ( $this->writer->import_follow( $row ) ) {
+			$last   = max( $last, (int) $row['source_id'] );
+			$reason = $this->writer->import_follow( $row );
+
+			if ( '' === $reason ) {
 				++$follows;
+				continue;
 			}
+
+			$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + 1;
 		}
 
 		return array(
 			'last'    => $last,
 			'fetched' => count( $rows ),
 			'follows' => $follows,
+			'skipped' => $skipped,
 		);
 	}
 }
