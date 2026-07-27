@@ -1,6 +1,6 @@
 <?php
 /**
- * Activation routine: provisions the id-map table.
+ * Activation routine: provisions the id-map and resume-checkpoint tables.
  *
  * @package BuddyNextImporter
  */
@@ -9,6 +9,7 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Core;
 
+use BuddyNextImporter\Pipeline\Checkpoint;
 use BuddyNextImporter\Pipeline\IdMap;
 
 defined( 'ABSPATH' ) || exit;
@@ -19,10 +20,11 @@ defined( 'ABSPATH' ) || exit;
 final class Activator {
 
 	/**
-	 * Create/upgrade the id-map table and stamp the version.
+	 * Create/upgrade the id-map + checkpoint tables and stamp the version.
 	 */
 	public static function activate(): void {
 		IdMap::install();
+		Checkpoint::install();
 		update_option( 'buddynext_importer_version', BUDDYNEXT_IMPORTER_VERSION, false );
 	}
 }

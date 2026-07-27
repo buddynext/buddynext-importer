@@ -10,9 +10,11 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\CLI;
 
 use BuddyNextImporter\Pipeline\ActivityImporter;
+use BuddyNextImporter\Pipeline\Checkpoint;
 use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\FriendImporter;
+use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\ImageImporter;
 use BuddyNextImporter\Pipeline\MediaImporter;
 use BuddyNextImporter\Pipeline\MemberTypeImporter;
@@ -129,7 +131,7 @@ final class MigrateCommand {
 		$schema = $importer->import_schema();
 		\WP_CLI::log( sprintf( 'Schema imported: %d groups, %d fields.', $schema['groups'], $schema['fields'] ) );
 
-		$after        = 0;
+		$after        = Checkpoint::get( $source, 'profile_value' );
 		$total_users  = 0;
 		$total_values = 0;
 
@@ -138,6 +140,7 @@ final class MigrateCommand {
 			$total_users  += $result['users'];
 			$total_values += $result['values'];
 			$after         = $result['last'];
+			Checkpoint::set( $source, 'profile_value', $after );
 
 			if ( $result['users'] > 0 ) {
 				\WP_CLI::log( sprintf( '  ... %d members, %d values (last id %d)', $total_users, $total_values, $after ) );
@@ -198,22 +201,27 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
 
-		$after          = 0;
+		$after          = Checkpoint::get( $source, 'space' );
 		$total_groups   = 0;
 		$total_members  = 0;
 		$total_existing = 0;
+		$total_seen     = 0;
 
 		do {
 			$result          = $importer->import_batch( $after, $batch );
 			$total_groups   += $result['groups'];
 			$total_members  += $result['members'];
 			$total_existing += $result['existing'];
+			$total_seen     += $result['fetched'];
 			$after           = $result['last'];
+			Checkpoint::set( $source, 'space', $after );
 
 			if ( $result['groups'] > 0 ) {
 				\WP_CLI::log( sprintf( '  ... %d spaces, %d members (last group id %d)', $total_groups, $total_members, $after ) );
 			}
 		} while ( $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'space', $total_seen, $total_groups + $total_existing );
 
 		\WP_CLI::success( sprintf( 'Spaces imported: %d spaces, %d members.', $total_groups, $total_members ) );
 
@@ -266,26 +274,34 @@ final class MigrateCommand {
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
 
 		// Posts first, so comments can resolve their root post.
-		$after          = 0;
+		$after          = Checkpoint::get( $source, 'post' );
 		$posts          = 0;
 		$posts_existing = 0;
+		$posts_seen     = 0;
 		do {
 			$result          = $importer->import_posts_batch( $after, $batch );
 			$posts          += $result['posts'];
 			$posts_existing += $result['existing'];
+			$posts_seen     += $result['fetched'];
 			$after           = $result['last'];
+			Checkpoint::set( $source, 'post', $after );
 		} while ( $result['fetched'] === $batch );
+		$this->settle_checkpoint( $source, 'post', $posts_seen, $posts + $posts_existing );
 		\WP_CLI::log( sprintf( '%d posts imported.', $posts ) );
 
-		$after             = 0;
+		$after             = Checkpoint::get( $source, 'comment' );
 		$comments          = 0;
 		$comments_existing = 0;
+		$comments_seen     = 0;
 		do {
 			$result             = $importer->import_comments_batch( $after, $batch );
 			$comments          += $result['comments'];
 			$comments_existing += $result['existing'];
+			$comments_seen     += $result['fetched'];
 			$after              = $result['last'];
+			Checkpoint::set( $source, 'comment', $after );
 		} while ( $result['fetched'] === $batch );
+		$this->settle_checkpoint( $source, 'comment', $comments_seen, $comments + $comments_existing );
 
 		\WP_CLI::success( sprintf( 'Activity imported: %d posts, %d comments.', $posts, $comments ) );
 
@@ -337,20 +353,23 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
 
-		$after   = 0;
+		$after   = Checkpoint::get( $source, 'connection' );
 		$total   = 0;
 		$seen    = 0;
 		$skipped = array();
 		do {
-			$result  = $importer->import_batch( $after, $batch );
-			$total  += $result['connections'];
-			$seen   += $result['fetched'];
-			$after   = $result['last'];
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['connections'];
+			$seen  += $result['fetched'];
+			$after  = $result['last'];
+			Checkpoint::set( $source, 'connection', $after );
 
 			foreach ( $result['skipped'] as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
 		} while ( $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'connection', $seen, $total + array_sum( $skipped ) );
 
 		\WP_CLI::success( sprintf( 'Friendships imported: %d of %d connections.', $total, $seen ) );
 
@@ -401,20 +420,23 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
 
-		$after   = 0;
+		$after   = Checkpoint::get( $source, 'follow' );
 		$total   = 0;
 		$seen    = 0;
 		$skipped = array();
 		do {
-			$result  = $importer->import_batch( $after, $batch );
-			$total  += $result['follows'];
-			$seen   += $result['fetched'];
-			$after   = $result['last'];
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['follows'];
+			$seen  += $result['fetched'];
+			$after  = $result['last'];
+			Checkpoint::set( $source, 'follow', $after );
 
 			foreach ( $result['skipped'] as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
 		} while ( $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'follow', $seen, $total + array_sum( $skipped ) );
 
 		\WP_CLI::success( sprintf( 'Follows imported: %d of %d follows.', $total, $seen ) );
 
@@ -470,20 +492,23 @@ final class MigrateCommand {
 
 		// Batches are non-uniform (the usermeta fallback keysets by user and
 		// emits whole users), so loop until a batch comes back empty.
-		$after   = 0;
+		$after   = Checkpoint::get( $source, 'reaction' );
 		$total   = 0;
 		$seen    = 0;
 		$skipped = array();
 		do {
-			$result  = $importer->import_batch( $after, $batch );
-			$total  += $result['reactions'];
-			$seen   += $result['fetched'];
-			$after   = $result['last'];
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['reactions'];
+			$seen  += $result['fetched'];
+			$after  = $result['last'];
+			Checkpoint::set( $source, 'reaction', $after );
 
 			foreach ( $result['skipped'] as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
 		} while ( $result['fetched'] > 0 );
+
+		$this->settle_checkpoint( $source, 'reaction', $seen, $total + array_sum( $skipped ) );
 
 		\WP_CLI::success( sprintf( 'Reactions imported: %d of %d likes.', $total, $seen ) );
 
@@ -540,7 +565,7 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
 
-		$after           = 0;
+		$after           = Checkpoint::get( $source, 'dm_thread' );
 		$conversations   = 0;
 		$merged          = 0;
 		$messages        = 0;
@@ -554,11 +579,14 @@ final class MigrateCommand {
 			$messages        += $result['messages'];
 			$source_messages += $result['source_messages'];
 			$after            = $result['last'];
+			Checkpoint::set( $source, 'dm_thread', $after );
 
 			foreach ( $result['skipped'] as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
 		} while ( $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'dm_thread', $source_messages, $messages + array_sum( $skipped ) );
 
 		\WP_CLI::success(
 			sprintf(
@@ -706,13 +734,13 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
 
-		$forums = $this->run_loop( fn( $after ) => $importer->import_forums_batch( $after, $batch ), 'forums', $batch );
+		$forums = $this->run_loop( fn( $after ) => $importer->import_forums_batch( $after, $batch ), 'forums', $batch, $source, 'forum_space' );
 		\WP_CLI::log( sprintf( '%d forums imported.', $forums['done'] ) );
 
-		$topics = $this->run_loop( fn( $after ) => $importer->import_topics_batch( $after, $batch ), 'topics', $batch );
+		$topics = $this->run_loop( fn( $after ) => $importer->import_topics_batch( $after, $batch ), 'topics', $batch, $source, 'forum_post' );
 		\WP_CLI::log( sprintf( '%d topics imported.', $topics['done'] ) );
 
-		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch );
+		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch, $source, 'forum_reply' );
 
 		\WP_CLI::success(
 			sprintf(
@@ -789,7 +817,7 @@ final class MigrateCommand {
 			\WP_CLI::warning( sprintf( '%d source member types could not be created.', $vocabulary['skipped'] ) );
 		}
 
-		$after       = 0;
+		$after       = Checkpoint::get( $source, 'member_type_user' );
 		$assignments = 0;
 		$members     = 0;
 		$skipped     = array();
@@ -799,11 +827,14 @@ final class MigrateCommand {
 			$assignments += $result['assignments'];
 			$members     += $result['fetched'];
 			$after        = $result['last'];
+			Checkpoint::set( $source, 'member_type_user', $after );
 
 			foreach ( $result['skipped'] as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
 		} while ( $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'member_type_user', $members, $assignments + array_sum( $skipped ) );
 
 		\WP_CLI::success(
 			sprintf(
@@ -868,16 +899,21 @@ final class MigrateCommand {
 		// smaller than the row-only domains.
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
 
-		$after           = 0;
+		$after           = Checkpoint::get( $source, 'media_album' );
 		$albums          = 0;
 		$albums_existing = 0;
+		$albums_seen     = 0;
 
 		do {
 			$result           = $importer->import_albums_batch( $after, $batch );
 			$albums          += $result['albums'];
 			$albums_existing += $result['existing'];
+			$albums_seen     += $result['fetched'];
 			$after            = $result['last'];
+			Checkpoint::set( $source, 'media_album', $after );
 		} while ( $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'media_album', $albums_seen, $albums + $albums_existing );
 
 		\WP_CLI::log( sprintf( '%d albums imported.', $albums ) );
 
@@ -885,7 +921,7 @@ final class MigrateCommand {
 			\WP_CLI::log( sprintf( '  %d albums were already imported by an earlier run.', $albums_existing ) );
 		}
 
-		$after        = 0;
+		$after        = Checkpoint::get( $source, 'standalone_media' );
 		$media        = 0;
 		$source_media = 0;
 		$skipped      = array();
@@ -895,11 +931,14 @@ final class MigrateCommand {
 			$media        += $result['media'];
 			$source_media += $result['fetched'];
 			$after         = $result['last'];
+			Checkpoint::set( $source, 'standalone_media', $after );
 
 			foreach ( $result['skipped'] as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
 		} while ( $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'standalone_media', $source_media, $media + array_sum( $skipped ) );
 
 		\WP_CLI::success(
 			sprintf(
@@ -967,10 +1006,10 @@ final class MigrateCommand {
 		// default batch is smaller than the row-only domains.
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
 
-		$members = $this->image_loop( fn( $after ) => $importer->import_members_batch( $after, $batch ), 'members', $batch );
+		$members = $this->image_loop( fn( $after ) => $importer->import_members_batch( $after, $batch ), 'members', $batch, $source, 'member_image' );
 		\WP_CLI::log( sprintf( '%d members got their avatar and/or cover.', $members['done'] ) );
 
-		$spaces = $this->image_loop( fn( $after ) => $importer->import_groups_batch( $after, $batch ), 'spaces', $batch );
+		$spaces = $this->image_loop( fn( $after ) => $importer->import_groups_batch( $after, $batch ), 'spaces', $batch, $source, 'group_image' );
 
 		\WP_CLI::success(
 			sprintf(
@@ -987,13 +1026,15 @@ final class MigrateCommand {
 	/**
 	 * Drive an image batch loop to completion, collecting counts and skips.
 	 *
-	 * @param callable $batch_fn Receives the cursor, returns a batch result.
-	 * @param string   $key      The success-count key in the batch result.
-	 * @param int      $batch    Batch size.
+	 * @param callable $batch_fn   Receives the cursor, returns a batch result.
+	 * @param string   $key        The success-count key in the batch result.
+	 * @param int      $batch      Batch size.
+	 * @param string   $source     Source key, for the resume checkpoint.
+	 * @param string   $checkpoint Domain key under which the cursor is stored.
 	 * @return array{done:int,seen:int,skipped:array<string,int>}
 	 */
-	private function image_loop( callable $batch_fn, string $key, int $batch ): array {
-		$after   = 0;
+	private function image_loop( callable $batch_fn, string $key, int $batch, string $source, string $checkpoint ): array {
+		$after   = Checkpoint::get( $source, $checkpoint );
 		$done    = 0;
 		$seen    = 0;
 		$skipped = array();
@@ -1007,7 +1048,11 @@ final class MigrateCommand {
 			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
+
+			Checkpoint::set( $source, $checkpoint, $after );
 		} while ( (int) $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, $checkpoint, $seen, $done + array_sum( $skipped ) );
 
 		return array(
 			'done'    => $done,
@@ -1019,12 +1064,17 @@ final class MigrateCommand {
 	/**
 	 * Drive a keyset batch loop to completion, summing the named result count.
 	 *
-	 * @param callable $batch_fn Receives the cursor, returns a batch result.
-	 * @param string   $key      The count key in the batch result to sum.
-	 * @param int      $batch    Batch size (loop continues while a page is full).
+	 * Resumes from the domain's saved cursor and advances it after every batch, so
+	 * a re-run skips the already-migrated prefix. {@see self::settle_checkpoint()}.
+	 *
+	 * @param callable $batch_fn   Receives the cursor, returns a batch result.
+	 * @param string   $key        The count key in the batch result to sum.
+	 * @param int      $batch      Batch size (loop continues while a page is full).
+	 * @param string   $source     Source key, for the resume checkpoint.
+	 * @param string   $checkpoint Domain key under which the cursor is stored.
 	 */
-	private function run_loop( callable $batch_fn, string $key, int $batch ): array {
-		$after    = 0;
+	private function run_loop( callable $batch_fn, string $key, int $batch, string $source, string $checkpoint ): array {
+		$after    = Checkpoint::get( $source, $checkpoint );
 		$total    = 0;
 		$existing = 0;
 		$seen     = 0;
@@ -1040,7 +1090,11 @@ final class MigrateCommand {
 			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
 				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
 			}
+
+			Checkpoint::set( $source, $checkpoint, $after );
 		} while ( (int) $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, $checkpoint, $seen, $total + $existing + array_sum( $skipped ) );
 
 		return array(
 			'done'     => $total,
@@ -1048,6 +1102,26 @@ final class MigrateCommand {
 			'seen'     => $seen,
 			'skipped'  => $skipped,
 		);
+	}
+
+	/**
+	 * Decide whether a completed domain's resume cursor is safe to keep.
+	 *
+	 * The cursor may only ever skip rows that are already handled. If a run wrote
+	 * (or deterministically skipped) fewer rows than it read, a gap was left behind
+	 * the cursor - a transient write failure. Keeping the cursor would hide that
+	 * gap on the next run, so it is cleared: the next run re-scans from the start
+	 * and the id-map refills the hole. A stale cursor costs a re-scan, never a row.
+	 *
+	 * @param string $source    Source key.
+	 * @param string $domain    Domain key.
+	 * @param int    $seen      Source rows read this run.
+	 * @param int    $accounted Rows written + already-present + categorised skips.
+	 */
+	private function settle_checkpoint( string $source, string $domain, int $seen, int $accounted ): void {
+		if ( $seen > $accounted ) {
+			Checkpoint::clear( $source, $domain );
+		}
 	}
 
 	/**
@@ -1161,6 +1235,50 @@ final class MigrateCommand {
 			\WP_CLI::log( 'Skipping private messages (WPMediaVerse is not active) - source message threads will NOT be migrated.' );
 		}
 
-		\WP_CLI::success( 'Migration complete. You can now deactivate and remove this importer.' );
+		\WP_CLI::success( 'Migration complete.' );
+		\WP_CLI::log( 'Verify the result, then drop the temporary mapping tables with:' );
+		\WP_CLI::log( sprintf( '  wp buddynext-import cleanup --source=%s', $source ) );
+		\WP_CLI::log( 'After that you can deactivate and delete this importer.' );
+	}
+
+	/**
+	 * Remove the importer's temporary working tables (id-map + resume checkpoint).
+	 *
+	 * These two tables are scaffolding for a one-time migration: the id-map makes
+	 * every write idempotent and resolves relationships, the checkpoint lets a
+	 * resumed run skip what is already done. Once the migration is verified they
+	 * serve no purpose on the live site, so this drops them - the standard "stage,
+	 * then tear down" end of an import.
+	 *
+	 * Run this ONLY when the migration is complete and checked. Afterwards there is
+	 * no duplicate protection: a fresh `migrate-*` run would re-create every row
+	 * from scratch, because the map that remembered what was already imported is
+	 * gone. That is why it is a deliberate, confirmed step and never automatic.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--yes]
+	 * : Skip the confirmation prompt.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import cleanup
+	 *     wp buddynext-import cleanup --yes
+	 *
+	 * @subcommand cleanup
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function cleanup( array $args, array $assoc_args ): void {
+		\WP_CLI::confirm(
+			'This drops the importer id-map and resume-checkpoint tables. Do this only after the migration is complete and verified: a later import run would then re-create rows from scratch, with no duplicate protection. Continue?',
+			$assoc_args
+		);
+
+		IdMap::drop();
+		Checkpoint::drop();
+
+		\WP_CLI::success( 'Removed the importer working tables (id-map + checkpoint). You can now deactivate and delete this importer.' );
 	}
 }

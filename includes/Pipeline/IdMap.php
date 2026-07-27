@@ -145,4 +145,17 @@ final class IdMap {
 		);
 		// phpcs:enable
 	}
+
+	/**
+	 * Drop the whole table. Part of the post-migration teardown: the id-map is
+	 * scaffolding for a one-time import, removed once the result is verified.
+	 */
+	public static function drop(): void {
+		global $wpdb;
+
+		$table = self::table();
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.NotPrepared
+		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
+	}
 }
