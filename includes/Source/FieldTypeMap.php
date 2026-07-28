@@ -30,7 +30,16 @@ final class FieldTypeMap {
 		'selectbox'                    => 'select',
 		'multiselectbox'               => 'multiselect',
 		'radio'                        => 'radio',
-		'checkbox'                     => 'checkbox',
+		// BuddyNext has NO 'checkbox' type — its 20 types are text, textarea, url,
+		// email, phone, number, date, boolean, select, radio, multiselect,
+		// category_multiselect, member_type(_multiselect), color, date_extended,
+		// location, multi_select_advanced, number_advanced, conditional. Emitting
+		// 'checkbox' created a field of an unknown type whose values were then
+		// dropped on write: FieldType::is_multiselect_family('checkbox') is false,
+		// so the array branch never ran, and sanitize() has no case for it either.
+		// 'multiselect' is the exact semantic equivalent — several selections from
+		// a fixed option list, stored as an array of slugs.
+		'checkbox'                     => 'multiselect',
 		'datebox'                      => 'date',
 		'number'                       => 'number',
 		'url'                          => 'url',
@@ -56,11 +65,16 @@ final class FieldTypeMap {
 		'multiselect_custom_post_type' => 'multiselect',
 		'tags'                         => 'multiselect',
 		'token'                        => 'multiselect',
-		'checkbox_acceptance'          => 'checkbox',
+		// A single accept/decline tick, not a multi-choice list.
+		'checkbox_acceptance'          => 'boolean',
 		'color'                        => 'text',
 		'fromto'                       => 'text',
-		'file'                         => 'file',
-		'image'                        => 'file',
+		// 'file' is not a BuddyNext type either, so these dropped their values for
+		// the same reason. There is no file/attachment field to migrate into, so
+		// the stored reference is preserved verbatim as text rather than being
+		// lost — 'url' would reject a bare attachment ID and drop it again.
+		'file'                         => 'text',
+		'image'                        => 'text',
 	);
 
 	/**
@@ -68,7 +82,7 @@ final class FieldTypeMap {
 	 *
 	 * @var array<int,string>
 	 */
-	private const MULTI = array( 'multiselect', 'checkbox' );
+	private const MULTI = array( 'multiselect' );
 
 	/**
 	 * Source types that are not custom profile data (synced to the WP user, or an
@@ -118,6 +132,6 @@ final class FieldTypeMap {
 	 * @param string $source_type Source field type slug.
 	 */
 	public static function has_options( string $source_type ): bool {
-		return in_array( self::to_bn_type( $source_type ), array( 'select', 'radio', 'checkbox', 'multiselect' ), true );
+		return in_array( self::to_bn_type( $source_type ), array( 'select', 'radio', 'multiselect' ), true );
 	}
 }
