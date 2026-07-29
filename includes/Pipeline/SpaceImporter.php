@@ -83,6 +83,53 @@ final class SpaceImporter {
 	 *
 	 * @return array{last:int,fetched:int,groups:int,existing:int,members:int}
 	 */
+	/**
+	 * Import the source's group types as BuddyNext space categories.
+	 *
+	 * Runs BEFORE spaces: a space carries its category_id at create time, so a
+	 * category that does not exist yet cannot be attached to one.
+	 *
+	 * Group types are a handful of rows, not a domain that needs paging, so the
+	 * whole set moves in one call - the cursor is still reported so the runner
+	 * can treat this like any other step.
+	 *
+	 * @param int $after Cursor (unused - the set is imported whole).
+	 * @param int $limit Batch size (unused).
+	 * @return array{last:int,fetched:int,categories:int,existing:int}
+	 */
+	public function import_categories_batch( int $after, int $limit ): array {
+		if ( $after > 0 ) {
+			// Already done in the first call; report an empty page so the step ends.
+			return array(
+				'last'       => $after,
+				'fetched'    => 0,
+				'categories' => 0,
+				'existing'   => 0,
+			);
+		}
+
+		$types      = $this->adapter->group_types();
+		$categories = 0;
+		$existing   = 0;
+
+		foreach ( $types as $type ) {
+			$result = $this->writer->import_category( $type );
+
+			if ( $result['created'] ) {
+				++$categories;
+			} elseif ( $result['id'] > 0 ) {
+				++$existing;
+			}
+		}
+
+		return array(
+			'last'       => count( $types ) > 0 ? 1 : 0,
+			'fetched'    => count( $types ),
+			'categories' => $categories,
+			'existing'   => $existing,
+		);
+	}
+
 	public function import_batch( int $after, int $limit ): array {
 		$groups   = $this->adapter->groups( $after, $limit );
 		$done     = 0;
@@ -90,9 +137,16 @@ final class SpaceImporter {
 		$members  = 0;
 		$last     = $after;
 
+		// One query for the whole page's group types, so resolving each space's
+		// category costs nothing per row.
+		$type_map = $this->adapter->group_type_map(
+			array_map( static fn ( array $g ): int => (int) $g['source_id'], $groups )
+		);
+
 		foreach ( $groups as $group ) {
-			$last     = (int) $group['source_id'];
-			$bn_space = $this->writer->import_space( $group );
+			$last                = (int) $group['source_id'];
+			$group['type_ids']   = $type_map[ (int) $group['source_id'] ] ?? array();
+			$bn_space            = $this->writer->import_space( $group );
 
 			if ( 0 === $bn_space['id'] ) {
 				continue;

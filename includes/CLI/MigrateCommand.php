@@ -201,6 +201,19 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 50;
 
+		// Group types become space categories, and a space carries its
+		// category_id at create time - so they have to land first.
+		$categories = $importer->import_categories_batch( 0, $batch );
+		if ( $categories['fetched'] > 0 ) {
+			\WP_CLI::log(
+				sprintf(
+					'  %d space categories from %d source group types.',
+					$categories['categories'] + $categories['existing'],
+					$categories['fetched']
+				)
+			);
+		}
+
 		$after          = Checkpoint::get( $source, 'space' );
 		$total_groups   = 0;
 		$total_members  = 0;

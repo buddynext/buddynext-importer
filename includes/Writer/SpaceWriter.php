@@ -58,12 +58,141 @@ final class SpaceWriter {
 	}
 
 	/**
+	 * The BuddyNext category id for a group, via the first of its group types
+	 * that has been imported.
+	 *
+	 * @param array<int,int> $type_ids Source group-type term ids, in term order.
+	 */
+	private function resolve_category( array $type_ids ): int {
+		foreach ( $type_ids as $term_id ) {
+			$mapped = IdMap::get( $this->source, 'space_category', (int) $term_id );
+			if ( null !== $mapped ) {
+				return (int) $mapped;
+			}
+		}
+
+		return 0;
+	}
+
+	/**
 	 * Resolve the BuddyNext SpaceMemberService.
 	 *
 	 * @return object SpaceMemberService.
 	 */
 	private function members(): object {
 		return buddynext_service( 'space_members' );
+	}
+
+	/**
+	 * Import one source group type as a BuddyNext space category.
+	 *
+	 * Idempotent via the id-map, and tolerant of a category that already exists
+	 * under the same slug - a re-run adopts it rather than failing on the
+	 * slug_conflict the service returns.
+	 *
+	 * @param array<string,mixed> $type Source group type.
+	 * @return array{id:int,created:bool}
+	 */
+	public function import_category( array $type ): array {
+		$source_id = (int) $type['source_id'];
+
+		$existing = IdMap::get( $this->source, 'space_category', $source_id );
+		if ( null !== $existing ) {
+			return array(
+				'id'      => $existing,
+				'created' => false,
+			);
+		}
+
+		$service = $this->categories();
+		if ( null === $service ) {
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
+		}
+
+		$slug = sanitize_title( (string) $type['slug'] );
+
+		$result = ImportMode::run(
+			fn() => $service->create(
+				array(
+					'name'        => (string) $type['name'],
+					'slug'        => $slug,
+					'description' => (string) ( $type['description'] ?? '' ),
+				)
+			)
+		);
+
+		if ( is_wp_error( $result ) ) {
+			// A category with this slug is already there (an earlier run, or the
+			// owner made it by hand). Adopt it: the mapping is what matters, and
+			// creating "team-2" alongside "team" would split the directory.
+			$found = $this->find_category_by_slug( $slug );
+			if ( $found > 0 ) {
+				IdMap::set( $this->source, 'space_category', $source_id, $found );
+
+				return array(
+					'id'      => $found,
+					'created' => false,
+				);
+			}
+
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
+		}
+
+		$bn_id = (int) $result;
+		IdMap::set( $this->source, 'space_category', $source_id, $bn_id );
+
+		return array(
+			'id'      => $bn_id,
+			'created' => true,
+		);
+	}
+
+	/**
+	 * Resolve the BuddyNext space category service, or null when unavailable.
+	 *
+	 * @return object|null
+	 */
+	private function categories(): ?object {
+		// Not a container binding: BuddyNext constructs this service directly
+		// wherever it uses it (see DemoDataService), and the container THROWS on
+		// an unregistered key rather than returning null - so asking it for one
+		// would fatal the import rather than skip the domain.
+		if ( ! class_exists( '\\BuddyNext\\Spaces\\SpaceCategoryService' ) ) {
+			return null;
+		}
+
+		static $service = null;
+		if ( null === $service ) {
+			$service = new \BuddyNext\Spaces\SpaceCategoryService();
+		}
+
+		return method_exists( $service, 'create' ) ? $service : null;
+	}
+
+	/**
+	 * Find an existing space category id by slug.
+	 *
+	 * @param string $slug Category slug.
+	 */
+	private function find_category_by_slug( string $slug ): int {
+		$service = $this->categories();
+		if ( null === $service || ! method_exists( $service, 'get_all' ) ) {
+			return 0;
+		}
+
+		foreach ( (array) $service->get_all() as $category ) {
+			if ( is_array( $category ) && sanitize_title( (string) ( $category['slug'] ?? '' ) ) === $slug ) {
+				return (int) ( $category['id'] ?? 0 );
+			}
+		}
+
+		return 0;
 	}
 
 	/**
@@ -100,6 +229,16 @@ final class SpaceWriter {
 			// instead of the migration run time.
 			'created_at'  => (string) ( $group['date_created'] ?? '' ),
 		);
+
+		// A source group may hold SEVERAL types; a space has one category. The
+		// first in term order wins and the rest are reported as a skip rather
+		// than dropped silently - losing a group's classification without saying
+		// so is how a migrated directory quietly stops filtering.
+		$type_ids    = array_map( 'intval', (array) ( $group['type_ids'] ?? array() ) );
+		$category_id = $this->resolve_category( $type_ids );
+		if ( $category_id > 0 ) {
+			$data['category_id'] = $category_id;
+		}
 
 		// Resolve a sub-space parent that was already imported.
 		$parent_source_id = (int) $group['parent_id'];

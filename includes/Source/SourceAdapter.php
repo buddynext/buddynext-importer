@@ -306,4 +306,23 @@ interface SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function thread_messages( int $thread_id ): array;
+
+	/**
+	 * Group types, which become BuddyNext space categories.
+	 *
+	 * @return array<int,array<string,mixed>> Each with source_id, name, slug, description.
+	 */
+	public function group_types(): array;
+
+	/**
+	 * Group-type term ids for a page of groups, keyed by group id.
+	 *
+	 * Batched, so resolving a space's category never costs a query per row. A
+	 * source group may carry several types where a space has one category, so
+	 * the order decides which one the space takes.
+	 *
+	 * @param array<int,int> $group_ids Source group ids.
+	 * @return array<int,array<int,int>>
+	 */
+	public function group_type_map( array $group_ids ): array;
 }

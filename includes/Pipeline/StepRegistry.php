@@ -115,6 +115,20 @@ final class StepRegistry {
 			},
 		);
 
+		// Categories BEFORE spaces: a space carries category_id at create time, so
+		// the category has to exist before the space that points at it.
+		$steps[] = self::step(
+			$source,
+			'space_categories',
+			null,
+			__( 'space categories', 'buddynext-importer' ),
+			'space_category',
+			static fn (): bool => null !== SpaceImporter::for_source( $source ),
+			static fn ( int $c, int $b ): array => SpaceImporter::for_source( $source )->import_categories_batch( $c, $b ),
+			static fn ( array $r ): int => (int) $r['categories'],
+			'group_types'
+		);
+
 		$steps[] = self::step(
 			$source,
 			'spaces',

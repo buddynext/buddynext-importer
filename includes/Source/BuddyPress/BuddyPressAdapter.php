@@ -76,6 +76,7 @@ class BuddyPressAdapter implements SourceAdapter {
 			// wrote, which reads as the importer inventing connections.
 			'friendships'       => $this->table_count( 'bp_friends' ),
 			'follows'           => $this->table_count( 'bp_follow' ),
+			'group_types'       => count( $this->group_types() ),
 			'reactions'         => $this->table_exists( 'bb_user_reactions' )
 				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
 				: $this->favorites_count(),
@@ -828,6 +829,105 @@ class BuddyPressAdapter implements SourceAdapter {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Group types, which become BuddyNext space categories.
+	 *
+	 * BuddyPress registers group types as a TAXONOMY (`bp_group_type`), so the
+	 * definitions are terms and the assignments are term relationships against
+	 * the group id. BuddyBoss additionally keeps a `bp-group-type` post for each
+	 * one, which is where its human label lives - so the post title is preferred
+	 * when present and the term name is the fallback.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function group_types(): array {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			"SELECT t.term_id, t.name, t.slug, tt.description
+			   FROM {$wpdb->terms} t
+			   JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+			  WHERE tt.taxonomy = 'bp_group_type'
+			  ORDER BY t.term_id ASC",
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$slug  = (string) $row['slug'];
+			$label = (string) $row['name'];
+
+			// BuddyBoss names the type on a post; the term slug is the join key.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$post_title = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT p.post_title FROM {$wpdb->posts} p
+					  INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_bp_group_type_key'
+					  WHERE p.post_type = 'bp-group-type' AND p.post_status = 'publish' AND pm.meta_value = %s
+					  LIMIT 1",
+					$slug
+				)
+			);
+			if ( is_string( $post_title ) && '' !== $post_title ) {
+				$label = $post_title;
+			}
+
+			$out[] = array(
+				'source_id'   => (int) $row['term_id'],
+				'name'        => $label,
+				'slug'        => $slug,
+				'description' => (string) $row['description'],
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Group-type term ids for a page of groups, keyed by group id.
+	 *
+	 * Batched deliberately: resolving a type per group would be one query per
+	 * row inside the space loop, which is the N+1 this importer avoids
+	 * everywhere else.
+	 *
+	 * A source group may carry SEVERAL types where a space has one category, so
+	 * the order matters - the first is the one the space takes.
+	 *
+	 * @param array<int,int> $group_ids Source group ids.
+	 * @return array<int,array<int,int>> group id => term ids, in term order.
+	 */
+	public function group_type_map( array $group_ids ): array {
+		global $wpdb;
+
+		$group_ids = array_values( array_unique( array_map( 'intval', $group_ids ) ) );
+		if ( array() === $group_ids ) {
+			return array();
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT tr.object_id, tt.term_id
+				   FROM {$wpdb->term_relationships} tr
+				   JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+				  WHERE tt.taxonomy = 'bp_group_type' AND tr.object_id IN ( {$placeholders} )
+				  ORDER BY tr.object_id ASC, tr.term_order ASC, tt.term_id ASC",
+				...$group_ids
+			),
+			ARRAY_A
+		);
+
+		$map = array();
+		foreach ( (array) $rows as $row ) {
+			$map[ (int) $row['object_id'] ][] = (int) $row['term_id'];
+		}
+
+		return $map;
 	}
 
 	/**
