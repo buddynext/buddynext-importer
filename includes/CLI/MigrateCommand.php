@@ -14,6 +14,7 @@ use BuddyNextImporter\Pipeline\Checkpoint;
 use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\ImportLedger;
+use BuddyNextImporter\Verify\VerifyService;
 use BuddyNextImporter\Pipeline\FriendImporter;
 use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\ImageImporter;
@@ -1399,6 +1400,148 @@ final class MigrateCommand {
 		}
 
 		\WP_CLI::log( '  Indexing complete - hashtag feed and search are ready.' );
+	}
+
+	/**
+	 * Verify a migration: coverage, per-domain totals, and spot-checks.
+	 *
+	 * The importer can only report what it wrote, and that number says nothing
+	 * about what it declined to write or whether a row landed in the right
+	 * place. This counts the source independently, compares it with what landed,
+	 * and then walks randomly sampled objects end to end - the space a post
+	 * belongs to, the comments and reactions hanging off it, a space's members.
+	 *
+	 * Sampling is random deliberately: a fixed sample only proves the rows it
+	 * names, and the failures worth catching have all been in the tail.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--samples=<samples>]
+	 * : How many objects of each kind to spot-check. Default 5.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import verify
+	 *     wp buddynext-import verify --samples=20
+	 *
+	 * @subcommand verify
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function verify( array $args, array $assoc_args ): void {
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$samples = isset( $assoc_args['samples'] ) ? max( 1, (int) $assoc_args['samples'] ) : 5;
+		$report  = ( new VerifyService() )->report( $source, $samples );
+
+		if ( empty( $report['available'] ) ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$problems = 0;
+
+		// 1. What cannot migrate at all.
+		\WP_CLI::log( '' );
+		\WP_CLI::log( '== Coverage ==' );
+		$blocked = (int) ( $report['coverage']['blocked_rows'] ?? 0 );
+		if ( 0 === $blocked ) {
+			\WP_CLI::log( '  Everything in this source has somewhere to go.' );
+		} else {
+			\WP_CLI::log( sprintf( '  WARNING: %d row(s) cannot migrate:', $blocked ) );
+			foreach ( (array) $report['coverage']['reasons'] as $reason ) {
+				\WP_CLI::log( sprintf( '  %6d  %s', (int) $reason['rows'], (string) $reason['reason'] ) );
+			}
+		}
+
+		// 2. Totals, source counted independently.
+		\WP_CLI::log( '' );
+		\WP_CLI::log( '== Domains ==' );
+		\WP_CLI::log( sprintf( '  %-22s %10s %10s', 'DOMAIN', 'IN SOURCE', 'IMPORTED' ) );
+		foreach ( (array) $report['domains'] as $row ) {
+			if ( ! $row['available'] && 0 === (int) $row['imported'] ) {
+				continue;
+			}
+
+			$expected = $row['expected'];
+			$short    = ( null !== $expected && (int) $row['imported'] < (int) $expected );
+			if ( $short ) {
+				++$problems;
+			}
+
+			\WP_CLI::log(
+				sprintf(
+					'  %-22s %10s %10d%s',
+					(string) $row['label'],
+					null === $expected ? '-' : (string) $expected,
+					(int) $row['imported'],
+					$short ? '   short by ' . ( (int) $expected - (int) $row['imported'] ) : ''
+				)
+			);
+		}
+
+		// 3. Objects, walked end to end. Totals cannot see placement.
+		foreach ( array( 'spaces' => 'Spaces', 'activities' => 'Activities' ) as $key => $label ) {
+			$rows = (array) ( $report['samples'][ $key ] ?? array() );
+			if ( array() === $rows ) {
+				continue;
+			}
+
+			\WP_CLI::log( '' );
+			\WP_CLI::log( sprintf( '== Spot-check: %s (%d sampled at random) ==', $label, count( $rows ) ) );
+
+			foreach ( $rows as $row ) {
+				$name = (string) ( $row['name'] ?? $row['content'] ?? ( '#' . $row['source_id'] ) );
+
+				if ( empty( $row['problems'] ) ) {
+					\WP_CLI::log( sprintf( '  ok    %-38s %s', substr( $name, 0, 38 ), (string) $row['detail'] ) );
+					continue;
+				}
+
+				++$problems;
+				\WP_CLI::log( sprintf( '  FAIL  %-38s %s', substr( $name, 0, 38 ), (string) $row['detail'] ) );
+				foreach ( (array) $row['problems'] as $problem ) {
+					\WP_CLI::log( sprintf( '        -> %s', (string) $problem ) );
+				}
+			}
+		}
+
+		\WP_CLI::log( '' );
+		if ( 0 === $problems ) {
+			\WP_CLI::success( 'Verified: every domain accounted for and every sampled object correct.' );
+			return;
+		}
+
+		// A shortfall is not automatically a fault - content can be legitimately
+		// unmigratable - so this is a finding to read, not a failed build.
+		\WP_CLI::log(
+			sprintf(
+				'WARNING: %d finding(s). A shortfall is not automatically a fault: check it against the Coverage section above before treating it as one.',
+				$problems
+			)
+		);
+
+		// Non-zero only for a genuinely wrong OBJECT, never for a shortfall that
+		// Coverage already explained - otherwise every migration with legitimately
+		// unmigratable content would look like a failed one.
+		$broken = 0;
+		foreach ( array( 'spaces', 'activities' ) as $kind ) {
+			foreach ( (array) ( $report['samples'][ $kind ] ?? array() ) as $row ) {
+				$broken += count( (array) $row['problems'] );
+			}
+		}
+		if ( $broken > 0 ) {
+			\WP_CLI::halt( 1 );
+		}
 	}
 
 	/**
