@@ -173,16 +173,66 @@ final class VerifyService {
 			$stored      = (int) $wpdb->get_var( $wpdb->prepare( "SELECT member_count FROM {$wpdb->prefix}bn_spaces WHERE id = %d", $bn ) ); // phpcs:ignore WordPress.DB
 			$name        = (string) $wpdb->get_var( $wpdb->prepare( "SELECT name FROM {$wpdb->prefix}bn_spaces WHERE id = %d", $bn ) ); // phpcs:ignore WordPress.DB
 
+			// Activity belongs in the space report, not in a global posts total.
+			// A group post is refused when its author is not a member of that
+			// group - BuddyNext enforcing the space's own rules - so the shortfall
+			// is a fact about THIS space and is only explicable next to it.
+			$src_activity = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$wpdb->prefix}bp_activity
+					  WHERE component = 'groups' AND type = 'activity_update' AND is_spam = 0 AND hide_sitewide = 0 AND item_id = %d", // phpcs:ignore WordPress.DB
+					$src
+				)
+			);
+			$bn_activity  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}bn_posts WHERE space_id = %d", $bn ) ); // phpcs:ignore WordPress.DB
+
 			$problems = array();
 			if ( $stored !== $bn_active ) {
 				$problems[] = sprintf( 'member_count says %d, %d active members exist', $stored, $bn_active );
+			}
+
+			$notes = array();
+			if ( $bn_activity < $src_activity ) {
+				// Attribute the gap rather than just reporting it. Posts by a
+				// non-member are refused by design; anything left over is not.
+				$by_outsiders = (int) $wpdb->get_var(
+					$wpdb->prepare(
+						"SELECT COUNT(*) FROM {$wpdb->prefix}bp_activity a
+						  WHERE a.component = 'groups' AND a.type = 'activity_update' AND a.is_spam = 0
+						    AND a.hide_sitewide = 0 AND a.item_id = %d
+						    AND NOT EXISTS (
+						        SELECT 1 FROM {$wpdb->prefix}bp_groups_members m
+						         WHERE m.group_id = a.item_id AND m.user_id = a.user_id AND m.is_confirmed = 1
+						    )", // phpcs:ignore WordPress.DB
+						$src
+					)
+				);
+
+				$missing = $src_activity - $bn_activity;
+				if ( $by_outsiders >= $missing ) {
+					$notes[] = sprintf( '%d post(s) refused - author is not a member', $missing );
+				} else {
+					// Only the part outsiders cannot account for is a defect.
+					$problems[] = sprintf(
+						'%d post(s) missing, only %d explained by a non-member author',
+						$missing,
+						$by_outsiders
+					);
+				}
 			}
 
 			$out[] = array(
 				'name'      => $name,
 				'source_id' => $src,
 				'bn_id'     => $bn,
-				'detail'    => sprintf( '%d confirmed source members -> %d active', $src_members, $bn_active ),
+				'detail'    => sprintf(
+					'%d confirmed member(s) -> %d active; %d activity -> %d%s',
+					$src_members,
+					$bn_active,
+					$src_activity,
+					$bn_activity,
+					$notes ? ' (' . implode( '; ', $notes ) . ')' : ''
+				),
 				'problems'  => $problems,
 			);
 		}

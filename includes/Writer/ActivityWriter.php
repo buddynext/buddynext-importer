@@ -114,12 +114,16 @@ final class ActivityWriter {
 		}
 
 		// The source hid this from its own sitewide feed - a hidden group's post,
-		// or a blog post that is private or password protected. BuddyPress core
-		// carries no privacy column, so the importer would default it to public
-		// and the migration itself would publish something the source kept back.
-		// There is no BuddyNext privacy that means "hidden from everyone but its
-		// own context", so it is not imported rather than guessed at.
-		if ( ! empty( $activity['hide_sitewide'] ) ) {
+		// or a blog post that is not publicly readable. BuddyPress core carries no
+		// privacy column, so without this the importer would default it to public
+		// and the migration itself would publish what the source kept back.
+		//
+		// Landing IN a space is not that: a BuddyNext space carries its own
+		// privacy, and a hidden group maps to a `secret` space, which is exactly
+		// the "visible only inside its own context" the source meant. So withheld
+		// content keeps its place when it has one, and is only dropped when it
+		// would otherwise land in the global feed with nothing to protect it.
+		if ( ! empty( $activity['hide_sitewide'] ) && $space_id <= 0 ) {
 			return array(
 				'id'      => 0,
 				'created' => false,
