@@ -113,8 +113,14 @@ final class ActivityWriter {
 			$space_id = $mapped;
 		}
 
+		// A blog-post announcement is a link card, not a status update: it has a
+		// URL, a title and usually an image, and BuddyNext has a `link` type for
+		// exactly that. Bringing it across is also what lets its comment thread
+		// come with it - those comments have no other parent to attach to.
+		$is_blog_post = 'new_blog_post' === (string) ( $activity['source_type'] ?? 'activity_update' );
+
 		$data = array(
-			'type'       => empty( $media_ids ) ? 'text' : 'media',
+			'type'       => $is_blog_post ? 'link' : ( empty( $media_ids ) ? 'text' : 'media' ),
 			'content'    => $content,
 			'space_id'   => $space_id,
 			'privacy'    => PrivacyMap::post_privacy( (string) ( $activity['privacy'] ?? 'public' ) ),
@@ -123,6 +129,22 @@ final class ActivityWriter {
 
 		if ( ! empty( $media_ids ) ) {
 			$data['media_ids'] = $media_ids;
+		}
+
+		if ( $is_blog_post ) {
+			$data['link_url'] = $this->blog_post_url( $activity );
+
+			// link_meta is built here, NEVER left empty. PostService::create()
+			// fetches Open Graph data over HTTP whenever link_url is set and
+			// link_meta is not - and it does so on the write path, without
+			// consulting the buddynext_enable_link_preview toggle. One outbound
+			// request per blog post would make a large migration crawl and hand
+			// it a new way to fail: a slow host, a dead URL, no outbound network.
+			//
+			// It is also unnecessary. These are the site's own posts, so the
+			// title, excerpt and featured image are in the database already, and
+			// they are better than anything a scrape would return.
+			$data['link_meta'] = $this->link_meta_for( $activity );
 		}
 
 		$result = ImportMode::run(
@@ -209,6 +231,80 @@ final class ActivityWriter {
 			'id'      => $bn_id,
 			'created' => true,
 		);
+	}
+
+	/**
+	 * The URL a blog-post card should point at.
+	 *
+	 * BuddyPress stores whatever the permalink was when the activity was
+	 * recorded, which is often the unpretty `?p=123` form - it still resolves,
+	 * but it is not what anyone wants to see on a card, and it will not survive
+	 * being copied anywhere. When the post is still here its CURRENT permalink
+	 * is both prettier and more correct, so prefer it and keep the recorded link
+	 * as the fallback for a post that has since gone.
+	 *
+	 * @param array<string,mixed> $activity Source activity row.
+	 */
+	private function blog_post_url( array $activity ): string {
+		$post_id = (int) ( $activity['secondary_item_id'] ?? 0 );
+
+		if ( $post_id > 0 ) {
+			$permalink = get_permalink( $post_id );
+			if ( is_string( $permalink ) && '' !== $permalink ) {
+				return $permalink;
+			}
+		}
+
+		return (string) ( $activity['primary_link'] ?? '' );
+	}
+
+	/**
+	 * Build a link card for a blog-post announcement from LOCAL data.
+	 *
+	 * BuddyPress records the published post's id in `secondary_item_id`, so on
+	 * the site being migrated the post itself is right there - no HTTP needed.
+	 * When it cannot be resolved (deleted since, or an activity from another
+	 * site in a network) the activity's own text stands in, and a minimal card
+	 * is still returned: an EMPTY link_meta is what triggers the network fetch
+	 * this is here to avoid.
+	 *
+	 * @param array<string,mixed> $activity Source activity row.
+	 * @return array{title:string,description:string,thumbnail:string}
+	 */
+	private function link_meta_for( array $activity ): array {
+		$meta = array(
+			'title'       => '',
+			'description' => '',
+			'thumbnail'   => '',
+		);
+
+		$post_id = (int) ( $activity['secondary_item_id'] ?? 0 );
+		$post    = $post_id > 0 ? get_post( $post_id ) : null;
+
+		if ( $post instanceof \WP_Post ) {
+			$meta['title']       = (string) get_the_title( $post );
+			$excerpt             = has_excerpt( $post ) ? (string) $post->post_excerpt : (string) $post->post_content;
+			$meta['description'] = wp_trim_words( wp_strip_all_tags( $excerpt ), 40, '' );
+
+			$thumbnail = get_the_post_thumbnail_url( $post, 'medium_large' );
+			if ( is_string( $thumbnail ) && '' !== $thumbnail ) {
+				$meta['thumbnail'] = $thumbnail;
+			}
+
+			return $meta;
+		}
+
+		// No local post: fall back to what the activity itself carries.
+		$meta['title']       = trim( wp_strip_all_tags( (string) ( $activity['content'] ?? '' ) ) );
+		$meta['description'] = '';
+
+		if ( '' === $meta['title'] ) {
+			$meta['title'] = (string) ( $activity['primary_link'] ?? '' );
+		}
+
+		$meta['title'] = wp_trim_words( $meta['title'], 20, '' );
+
+		return $meta;
 	}
 
 	/**

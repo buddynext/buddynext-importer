@@ -1336,7 +1336,7 @@ final class MigrateCommand {
 
 		\WP_CLI::warning(
 			sprintf(
-				'%d comment(s) cannot be migrated: their root activity is not an activity_update, so it is never imported and there is no post for them to attach to.',
+				'%d comment(s) cannot be migrated: they sit on activity types the importer does not carry (system notices such as joining a group or making a friend), so there is no post for them to attach to.',
 				$blocked
 			)
 		);

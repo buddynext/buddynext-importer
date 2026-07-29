@@ -83,7 +83,7 @@ final class VerifyService {
 					$blocked[] = array(
 						'reason' => sprintf(
 							/* translators: %s: source activity type. */
-							__( 'comments on a %s activity - that root is not imported, so there is no post to attach them to', 'buddynext-importer' ),
+							__( 'comments on a %s activity - a system notice the importer does not carry, so there is no post to attach them to', 'buddynext-importer' ),
 							(string) $row['type']
 						),
 						'rows'   => (int) $row['comments'],

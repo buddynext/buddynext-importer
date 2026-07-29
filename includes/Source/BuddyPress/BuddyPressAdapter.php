@@ -21,6 +21,24 @@ defined( 'ABSPATH' ) || exit;
 class BuddyPressAdapter implements SourceAdapter {
 
 	/**
+	 * Source activity types that become BuddyNext posts.
+	 *
+	 * `activity_update` is a member's own post. `new_blog_post` is BuddyPress
+	 * announcing a published article - real content with a URL, which maps to a
+	 * BuddyNext `link` post and brings its comment thread with it. Everything
+	 * else BuddyPress records (joined_group, friendship_created, new_member,
+	 * updated_profile) is a system notice rather than content, and BuddyNext has
+	 * nothing to import it into.
+	 *
+	 * Read by the posts query, by the `activities` stat, and by the comment-root
+	 * check - so those three cannot drift apart, which is exactly how comments
+	 * came to be counted against a root set nothing imported.
+	 *
+	 * @var array<int,string>
+	 */
+	private const IMPORTED_ACTIVITY_TYPES = array( 'activity_update', 'new_blog_post' );
+
+	/**
 	 * Taxonomy that carries member-type assignments on the user object. Set by
 	 * bp_set_member_type() in both BuddyPress and BuddyBoss.
 	 */
@@ -68,7 +86,7 @@ class BuddyPressAdapter implements SourceAdapter {
 			// included. Counting only confirmed ones understated the source, so a
 			// genuine shortfall looked like a surplus.
 			'group_members'     => $this->table_count( 'bp_groups_members' ),
-			'activities'        => $this->table_count( 'bp_activity', "type = 'activity_update'" ),
+			'activities'        => $this->table_count( 'bp_activity', "type IN ('" . implode( "','", self::IMPORTED_ACTIVITY_TYPES ) . "') AND is_spam = 0" ),
 			'activity_comments' => $this->table_count( 'bp_activity', "type = 'activity_comment'" ),
 			// Every row, not just the confirmed ones: friendships() reads the whole
 			// table and a pending request migrates as a pending connection. Counting
@@ -782,18 +800,24 @@ class BuddyPressAdapter implements SourceAdapter {
 		$privacy_col = $this->column_exists( 'bp_activity', 'privacy' ) ? ', privacy' : '';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, item_id, content, date_recorded{$privacy_col} FROM `{$table}` WHERE type = 'activity_update' AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		$types        = implode( "','", self::IMPORTED_ACTIVITY_TYPES );
+		$rows         = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, type, item_id, secondary_item_id, primary_link, content, date_recorded{$privacy_col} FROM `{$table}` WHERE type IN ('{$types}') AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
 			$out[] = array(
-				'source_id'     => (int) $row['id'],
-				'user_id'       => (int) $row['user_id'],
-				'component'     => (string) $row['component'],
-				'item_id'       => (int) $row['item_id'],
-				'content'       => (string) wp_unslash( $row['content'] ),
-				'date_recorded' => (string) $row['date_recorded'],
-				'privacy'       => isset( $row['privacy'] ) ? (string) $row['privacy'] : 'public',
+				'source_id'         => (int) $row['id'],
+				'user_id'           => (int) $row['user_id'],
+				'component'         => (string) $row['component'],
+				'source_type'       => (string) $row['type'],
+				'item_id'           => (int) $row['item_id'],
+				// For new_blog_post this is the published post's ID, which is how
+				// a link card is built from local data instead of an HTTP fetch.
+				'secondary_item_id' => (int) $row['secondary_item_id'],
+				'primary_link'      => (string) $row['primary_link'],
+				'content'           => (string) wp_unslash( $row['content'] ),
+				'date_recorded'     => (string) $row['date_recorded'],
+				'privacy'           => isset( $row['privacy'] ) ? (string) $row['privacy'] : 'public',
 			);
 		}
 
@@ -877,7 +901,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				'type'       => $type,
 				'comments'   => (int) $row['n'],
 				// Only a comment on an imported root can itself be imported.
-				'importable' => 'activity_update' === $type,
+				'importable' => in_array( $type, self::IMPORTED_ACTIVITY_TYPES, true ),
 			);
 		}
 

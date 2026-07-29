@@ -81,6 +81,13 @@ $WP bp playground messages   --count="$MESSAGES"
 # --topics and --replies are PER PARENT, and replies is capped at 100.
 $WP bp playground forums     --forums=8 --topics=15 --replies=8 2>/dev/null || echo "  (forums skipped - bbPress inactive)"
 
+# The playground's new_blog_post rows are synthetic - secondary_item_id 0 and a
+# /blog/ permalink - so they cannot exercise resolving the published post
+# locally, which is the whole point of building a link card without an HTTP
+# fetch. These carry real post ids and permalinks.
+echo "== realistic blog-post activities =="
+$WP eval-file /scripts/seed-blog-posts.php
+
 echo
 echo "== relationship baseline (before any migration) =="
 # Captured now so what the migration moved is compared against a fixed

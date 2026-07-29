@@ -143,7 +143,7 @@ final class ImporterPage {
 					'domain'     => __( 'Domain', 'buddynext-importer' ),
 					'shortfall'  => __( 'Fewer rows than the source holds. Some content cannot migrate - see the note below the table.', 'buddynext-importer' ),
 					/* translators: 1: number of comments, 2: list of activity types with counts. */
-					'commentRoots' => __( '%1$d comment(s) will not be migrated. They were posted on activity types BuddyNext does not import, so there is no post for them to attach to: %2$s.', 'buddynext-importer' ),
+					'commentRoots' => __( '%1$d comment(s) will not be migrated. They sit on system notices - joining a group, making a friend - which are not content and have no BuddyNext equivalent to attach to: %2$s.', 'buddynext-importer' ),
 					'count'      => __( 'Records', 'buddynext-importer' ),
 				),
 			)
