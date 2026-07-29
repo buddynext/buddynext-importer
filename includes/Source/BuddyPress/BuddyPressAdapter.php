@@ -801,7 +801,7 @@ class BuddyPressAdapter implements SourceAdapter {
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$types        = implode( "','", self::IMPORTED_ACTIVITY_TYPES );
-		$rows         = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, type, item_id, secondary_item_id, primary_link, content, date_recorded{$privacy_col} FROM `{$table}` WHERE type IN ('{$types}') AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		$rows         = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, type, item_id, secondary_item_id, primary_link, content, date_recorded, hide_sitewide{$privacy_col} FROM `{$table}` WHERE type IN ('{$types}') AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -817,6 +817,11 @@ class BuddyPressAdapter implements SourceAdapter {
 				'primary_link'      => (string) $row['primary_link'],
 				'content'           => (string) wp_unslash( $row['content'] ),
 				'date_recorded'     => (string) $row['date_recorded'],
+				// BuddyPress sets this on activity it deliberately keeps OUT of the
+				// sitewide feed - content from hidden groups, and blog posts that
+				// are private or password protected. It is the source telling us
+				// this was never public.
+				'hide_sitewide'     => (int) $row['hide_sitewide'],
 				'privacy'           => isset( $row['privacy'] ) ? (string) $row['privacy'] : 'public',
 			);
 		}

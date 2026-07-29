@@ -113,6 +113,19 @@ final class ActivityWriter {
 			$space_id = $mapped;
 		}
 
+		// The source hid this from its own sitewide feed - a hidden group's post,
+		// or a blog post that is private or password protected. BuddyPress core
+		// carries no privacy column, so the importer would default it to public
+		// and the migration itself would publish something the source kept back.
+		// There is no BuddyNext privacy that means "hidden from everyone but its
+		// own context", so it is not imported rather than guessed at.
+		if ( ! empty( $activity['hide_sitewide'] ) ) {
+			return array(
+				'id'      => 0,
+				'created' => false,
+			);
+		}
+
 		// A blog-post announcement is a link card, not a status update: it has a
 		// URL, a title and usually an image, and BuddyNext has a `link` type for
 		// exactly that. Bringing it across is also what lets its comment thread
@@ -132,6 +145,17 @@ final class ActivityWriter {
 		}
 
 		if ( $is_blog_post ) {
+			// hide_sitewide reflects the post as it was when BuddyPress recorded
+			// the activity. A post made private, password protected or unpublished
+			// SINCE then still carries a public flag, so the live post decides.
+			// The card would otherwise expose its title, excerpt and image.
+			if ( ! $this->blog_post_is_public( $activity ) ) {
+				return array(
+					'id'      => 0,
+					'created' => false,
+				);
+			}
+
 			$data['link_url'] = $this->blog_post_url( $activity );
 
 			// link_meta is built here, NEVER left empty. PostService::create()
@@ -231,6 +255,38 @@ final class ActivityWriter {
 			'id'      => $bn_id,
 			'created' => true,
 		);
+	}
+
+	/**
+	 * Whether a blog post is still safe to surface in a feed.
+	 *
+	 * A card carries the post's title, excerpt and featured image, so it must
+	 * only be built for a post anyone could read. A post that has since been
+	 * made private, given a password, or taken out of `publish` is none of those
+	 * - and the activity row recorded when it WAS public cannot know that.
+	 *
+	 * A post that no longer exists is allowed through: the card then falls back
+	 * to the activity's own text and its recorded link, which is what the source
+	 * showed publicly at the time and reveals nothing new.
+	 *
+	 * @param array<string,mixed> $activity Source activity row.
+	 */
+	private function blog_post_is_public( array $activity ): bool {
+		$post_id = (int) ( $activity['secondary_item_id'] ?? 0 );
+		if ( $post_id <= 0 ) {
+			return true;
+		}
+
+		$post = get_post( $post_id );
+		if ( ! $post instanceof \WP_Post ) {
+			return true;
+		}
+
+		if ( 'publish' !== (string) $post->post_status ) {
+			return false;
+		}
+
+		return '' === (string) $post->post_password;
 	}
 
 	/**
