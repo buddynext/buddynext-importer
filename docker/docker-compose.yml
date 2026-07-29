@@ -54,6 +54,7 @@ services:
       - ../../wpmediaverse:/var/www/html/wp-content/plugins/wpmediaverse:ro
       - ../../jetonomy:/var/www/html/wp-content/plugins/jetonomy:ro
       - ..:/var/www/html/wp-content/plugins/buddynext-importer:ro
+      - ./.playground:/var/www/html/wp-content/plugins/buddypress-playground-cli:ro
       # Fixture + reconciliation scripts.
       - ./scripts:/scripts:ro
     working_dir: /var/www/html
@@ -82,6 +83,7 @@ services:
       - ../../wpmediaverse:/var/www/html/wp-content/plugins/wpmediaverse:ro
       - ../../jetonomy:/var/www/html/wp-content/plugins/jetonomy:ro
       - ..:/var/www/html/wp-content/plugins/buddynext-importer:ro
+      - ./.playground:/var/www/html/wp-content/plugins/buddypress-playground-cli:ro
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
 
 volumes:
