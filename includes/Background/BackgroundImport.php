@@ -23,20 +23,9 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Background;
 
-use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\Checkpoint;
-use BuddyNextImporter\Pipeline\FollowImporter;
-use BuddyNextImporter\Pipeline\ForumImporter;
-use BuddyNextImporter\Pipeline\FriendImporter;
-use BuddyNextImporter\Pipeline\ImageImporter;
-use BuddyNextImporter\Pipeline\MediaImporter;
-use BuddyNextImporter\Pipeline\MemberTypeImporter;
-use BuddyNextImporter\Pipeline\MessageImporter;
-use BuddyNextImporter\Pipeline\ProfileImporter;
-use BuddyNextImporter\Pipeline\ReactionImporter;
-use BuddyNextImporter\Pipeline\SpaceImporter;
+use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
-use BuddyNextImporter\Source\AdapterRegistry;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -188,7 +177,7 @@ final class BackgroundImport {
 			}
 
 			$cursor = Checkpoint::get( $source, $step['domain'] );
-			$result = ( $step['run'] )( $cursor );
+			$result = ( $step['run'] )( $cursor, self::BATCH );
 			Checkpoint::set( $source, $step['domain'], (int) $result['last'] );
 
 			$fetched   = (int) $result['fetched'];
@@ -216,242 +205,15 @@ final class BackgroundImport {
 	}
 
 	/**
-	 * The ordered list of import steps, matching the CLI migrate-all sequence so
-	 * relationships resolve (spaces before their activity, forums before topics
-	 * before replies, and so on). Each step batches one domain.
+	 * The ordered list of import steps, read from the shared registry so this
+	 * runner, the REST endpoint and the admin page can never disagree about what
+	 * a full migration contains.
 	 *
 	 * @param string $source Source key.
-	 * @return array<int,array{label:string,domain:string,empty_done:bool,available:callable,run:callable}>
+	 * @return array<int,array{phase:string,stage:?string,label:string,domain:string,empty_done:bool,available:callable,run:callable}>
 	 */
 	private function steps( string $source ): array {
-		$steps = array();
-
-		$steps[] = array(
-			'label'      => __( 'Profiles', 'buddynext-importer' ),
-			'domain'     => 'profile_value',
-			'empty_done' => false,
-			'available'  => static function () use ( $source ) {
-				return null !== ProfileImporter::for_source( $source );
-			},
-			'run'        => static function ( int $cursor ) use ( $source ) {
-				$imp = ProfileImporter::for_source( $source );
-				if ( null === $imp ) {
-					return array(
-						'fetched' => 0,
-						'last'    => $cursor,
-					);
-				}
-				if ( 0 === $cursor ) {
-					$imp->import_schema();
-				}
-				$r = $imp->import_values_batch( $cursor, self::BATCH );
-				return array(
-					'fetched' => (int) $r['users'],
-					'last'    => (int) $r['last'],
-				);
-			},
-		);
-
-		$steps[] = array(
-			'label'      => __( 'Member types', 'buddynext-importer' ),
-			'domain'     => 'member_type_user',
-			'empty_done' => false,
-			'available'  => static function () use ( $source ) {
-				return MemberTypeImporter::target_available() && null !== MemberTypeImporter::for_source( $source );
-			},
-			'run'        => static function ( int $cursor ) use ( $source ) {
-				$imp = MemberTypeImporter::for_source( $source );
-				if ( null === $imp ) {
-					return array(
-						'fetched' => 0,
-						'last'    => $cursor,
-					);
-				}
-				if ( 0 === $cursor ) {
-					$imp->import_types();
-				}
-				$r = $imp->import_batch( $cursor, self::BATCH );
-				return array(
-					'fetched' => (int) $r['fetched'],
-					'last'    => (int) $r['last'],
-				);
-			},
-		);
-
-		$steps[] = $this->simple_step(
-			__( 'Spaces', 'buddynext-importer' ),
-			'space',
-			static function () use ( $source ) {
-				return null !== SpaceImporter::for_source( $source );
-			},
-			static function ( int $cursor ) use ( $source ) {
-				return SpaceImporter::for_source( $source )->import_batch( $cursor, self::BATCH );
-			}
-		);
-
-		$steps[] = $this->simple_step(
-			__( 'Activity posts', 'buddynext-importer' ),
-			'post',
-			static function () use ( $source ) {
-				return null !== ActivityImporter::for_source( $source );
-			},
-			static function ( int $cursor ) use ( $source ) {
-				return ActivityImporter::for_source( $source )->import_posts_batch( $cursor, self::BATCH );
-			}
-		);
-
-		$steps[] = $this->simple_step(
-			__( 'Activity comments', 'buddynext-importer' ),
-			'comment',
-			static function () use ( $source ) {
-				return null !== ActivityImporter::for_source( $source );
-			},
-			static function ( int $cursor ) use ( $source ) {
-				return ActivityImporter::for_source( $source )->import_comments_batch( $cursor, self::BATCH );
-			}
-		);
-
-		$steps[] = $this->simple_step(
-			__( 'Connections', 'buddynext-importer' ),
-			'connection',
-			static function () use ( $source ) {
-				return null !== FriendImporter::for_source( $source );
-			},
-			static function ( int $cursor ) use ( $source ) {
-				return FriendImporter::for_source( $source )->import_batch( $cursor, self::BATCH );
-			}
-		);
-
-		$steps[] = $this->simple_step(
-			__( 'Follows', 'buddynext-importer' ),
-			'follow',
-			static function () use ( $source ) {
-				return null !== FollowImporter::for_source( $source );
-			},
-			static function ( int $cursor ) use ( $source ) {
-				return FollowImporter::for_source( $source )->import_batch( $cursor, self::BATCH );
-			}
-		);
-
-		// Reactions keyset is non-uniform (the usermeta fallback emits whole
-		// users), so the step is done only when a batch comes back empty.
-		$steps[] = array(
-			'label'      => __( 'Reactions', 'buddynext-importer' ),
-			'domain'     => 'reaction',
-			'empty_done' => true,
-			'available'  => static function () use ( $source ) {
-				return null !== ReactionImporter::for_source( $source );
-			},
-			'run'        => static function ( int $cursor ) use ( $source ) {
-				return ReactionImporter::for_source( $source )->import_batch( $cursor, self::BATCH );
-			},
-		);
-
-		$forums_available = static function () use ( $source ) {
-			return ForumImporter::target_available() && null !== ForumImporter::for_source( $source );
-		};
-		$steps[]          = $this->simple_step(
-			__( 'Forums', 'buddynext-importer' ),
-			'forum_space',
-			$forums_available,
-			static function ( int $cursor ) use ( $source ) {
-				return ForumImporter::for_source( $source )->import_forums_batch( $cursor, self::BATCH );
-			}
-		);
-		$steps[]          = $this->simple_step(
-			__( 'Forum topics', 'buddynext-importer' ),
-			'forum_post',
-			$forums_available,
-			static function ( int $cursor ) use ( $source ) {
-				return ForumImporter::for_source( $source )->import_topics_batch( $cursor, self::BATCH );
-			}
-		);
-		$steps[]          = $this->simple_step(
-			__( 'Forum replies', 'buddynext-importer' ),
-			'forum_reply',
-			$forums_available,
-			static function ( int $cursor ) use ( $source ) {
-				return ForumImporter::for_source( $source )->import_replies_batch( $cursor, self::BATCH );
-			}
-		);
-
-		$images_available = static function () use ( $source ) {
-			return ImageImporter::target_available() && null !== ImageImporter::for_source( $source );
-		};
-		$steps[]          = $this->simple_step(
-			__( 'Member images', 'buddynext-importer' ),
-			'member_image',
-			$images_available,
-			static function ( int $cursor ) use ( $source ) {
-				return ImageImporter::for_source( $source )->import_members_batch( $cursor, self::BATCH );
-			}
-		);
-		$steps[]          = $this->simple_step(
-			__( 'Space images', 'buddynext-importer' ),
-			'group_image',
-			$images_available,
-			static function ( int $cursor ) use ( $source ) {
-				return ImageImporter::for_source( $source )->import_groups_batch( $cursor, self::BATCH );
-			}
-		);
-
-		$media_available = static function () use ( $source ) {
-			return MediaImporter::target_available() && null !== MediaImporter::for_source( $source );
-		};
-		$steps[]         = $this->simple_step(
-			__( 'Albums', 'buddynext-importer' ),
-			'media_album',
-			$media_available,
-			static function ( int $cursor ) use ( $source ) {
-				return MediaImporter::for_source( $source )->import_albums_batch( $cursor, self::BATCH );
-			}
-		);
-		$steps[]         = $this->simple_step(
-			__( 'Media', 'buddynext-importer' ),
-			'standalone_media',
-			$media_available,
-			static function ( int $cursor ) use ( $source ) {
-				return MediaImporter::for_source( $source )->import_media_batch( $cursor, self::BATCH );
-			}
-		);
-
-		$steps[] = $this->simple_step(
-			__( 'Messages', 'buddynext-importer' ),
-			'dm_thread',
-			static function () use ( $source ) {
-				return MessageImporter::target_available() && null !== MessageImporter::for_source( $source );
-			},
-			static function ( int $cursor ) use ( $source ) {
-				return MessageImporter::for_source( $source )->import_batch( $cursor, self::BATCH );
-			}
-		);
-
-		return $steps;
-	}
-
-	/**
-	 * Build a step whose batch method returns the standard `fetched`/`last` pair.
-	 *
-	 * @param string   $label     Display label.
-	 * @param string   $domain    Checkpoint domain key.
-	 * @param callable $available Returns whether the step can run here.
-	 * @param callable $run       Receives the cursor, returns the batch result.
-	 * @return array{label:string,domain:string,empty_done:bool,available:callable,run:callable}
-	 */
-	private function simple_step( string $label, string $domain, callable $available, callable $run ): array {
-		return array(
-			'label'      => $label,
-			'domain'     => $domain,
-			'empty_done' => false,
-			'available'  => $available,
-			'run'        => static function ( int $cursor ) use ( $run ) {
-				$r = $run( $cursor );
-				return array(
-					'fetched' => (int) ( $r['fetched'] ?? 0 ),
-					'last'    => (int) ( $r['last'] ?? $cursor ),
-				);
-			},
-		);
+		return StepRegistry::steps( $source );
 	}
 
 	/**

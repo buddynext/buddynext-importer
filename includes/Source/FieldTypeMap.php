@@ -21,6 +21,11 @@ final class FieldTypeMap {
 	/**
 	 * Source type slug -> BuddyNext field type.
 	 *
+	 * EVERY value here must be a slug registered in BuddyNext's FieldType::types().
+	 * A type the engine does not know has no render, sanitize or display path, so
+	 * the field imports as an empty shell and its values are dropped on the way in.
+	 * `self::unregistered_targets()` asserts this against the live registry.
+	 *
 	 * @var array<string,string>
 	 */
 	private const MAP = array(
@@ -133,5 +138,33 @@ final class FieldTypeMap {
 	 */
 	public static function has_options( string $source_type ): bool {
 		return in_array( self::to_bn_type( $source_type ), array( 'select', 'radio', 'multiselect' ), true );
+	}
+
+	/**
+	 * Map targets that BuddyNext's field-type registry does not know about.
+	 *
+	 * The registry is filterable (`buddynext_field_types`), so this is answered
+	 * against the LIVE registry on this site rather than a copied list that would
+	 * drift. Empty is the healthy result; anything returned would import as a
+	 * field with no render, sanitize or display path.
+	 *
+	 * @return array<int,string> Sorted, unique unregistered target slugs.
+	 */
+	public static function unregistered_targets(): array {
+		if ( ! class_exists( '\BuddyNext\Profile\FieldType' ) ) {
+			return array();
+		}
+
+		$registered = \BuddyNext\Profile\FieldType::types();
+		$unknown    = array_filter(
+			array_unique( array_values( self::MAP ) ),
+			static function ( string $target ) use ( $registered ): bool {
+				return ! array_key_exists( $target, $registered );
+			}
+		);
+
+		sort( $unknown );
+
+		return $unknown;
 	}
 }

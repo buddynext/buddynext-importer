@@ -3,9 +3,10 @@
  * REST surface for the admin importer flow: source stats + a progress monitor.
  * Namespace buddynext-importer/v1.
  *
- * Phase 1 ships the read endpoints (stats, status). The batched /step endpoint
- * that advances a large import lands with the domain writers in later phases;
- * here it returns the idle envelope so the admin UI can be wired end-to-end.
+ * Read endpoints (stats, status) report what a source holds and how far a run
+ * has got. The batched /step endpoint advances an in-browser import one keyset
+ * batch at a time; the phases it accepts come from StepRegistry, so it stays in
+ * step with the background runner and the CLI.
  *
  * @package BuddyNextImporter
  */
@@ -15,14 +16,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\Rest;
 
 use BuddyNextImporter\Background\BackgroundImport;
-use BuddyNextImporter\Pipeline\ActivityImporter;
-use BuddyNextImporter\Pipeline\ForumImporter;
-use BuddyNextImporter\Pipeline\FriendImporter;
-use BuddyNextImporter\Pipeline\ImageImporter;
-use BuddyNextImporter\Pipeline\MediaImporter;
-use BuddyNextImporter\Pipeline\MemberTypeImporter;
-use BuddyNextImporter\Pipeline\ProfileImporter;
-use BuddyNextImporter\Pipeline\SpaceImporter;
+use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
 use WP_Error;
@@ -140,7 +134,10 @@ final class ProgressController {
 					'stage'  => array(
 						'type'              => 'string',
 						'required'          => false,
-						'default'           => 'posts',
+						// Blank resolves to the phase's FIRST stage, which is the one a
+						// client must run first (posts before comments, forums before
+						// topics, albums before the media that belongs to them).
+						'default'           => '',
 						'sanitize_callback' => 'sanitize_key',
 					),
 				),
@@ -248,8 +245,10 @@ final class ProgressController {
 	 * POST /step - advance the import by one keyset batch.
 	 *
 	 * The admin run loop calls this repeatedly until `done` is true, so a large
-	 * site imports without a request timeout. Phase 2 implements the `profiles`
-	 * phase; later phases extend the switch.
+	 * site imports without a request timeout. Which phases exist, in what order,
+	 * and how each one runs all come from {@see StepRegistry} - the same list the
+	 * background runner ticks through - so this endpoint cannot fall behind the
+	 * domains the importer actually supports.
 	 *
 	 * @param WP_REST_Request $request Request.
 	 */
@@ -263,6 +262,7 @@ final class ProgressController {
 		}
 
 		$phase  = (string) $request->get_param( 'phase' );
+		$stage  = (string) $request->get_param( 'stage' );
 		$source = $request->get_param( 'source' );
 		$source = is_string( $source ) && '' !== $source ? $source : AdapterRegistry::detect_active_key();
 		$after  = (int) $request->get_param( 'after' );
@@ -276,364 +276,44 @@ final class ProgressController {
 			);
 		}
 
-		if ( 'profiles' === $phase ) {
-			return $this->step_profiles( $source, $after, $batch );
-		}
+		$step = StepRegistry::find( $source, $phase, $stage );
 
-		if ( 'member_types' === $phase ) {
-			return $this->step_member_types( $source, $after, $batch );
-		}
-
-		if ( 'spaces' === $phase ) {
-			return $this->step_spaces( $source, $after, $batch );
-		}
-
-		if ( 'activity' === $phase ) {
-			return $this->step_activity( $source, (string) $request->get_param( 'stage' ), $after, $batch );
-		}
-
-		if ( 'friends' === $phase ) {
-			return $this->step_friends( $source, $after, $batch );
-		}
-
-		if ( 'forums' === $phase ) {
-			return $this->step_forums( $source, (string) $request->get_param( 'stage' ), $after, $batch );
-		}
-
-		if ( 'media' === $phase ) {
-			return $this->step_media( $source, (string) $request->get_param( 'stage' ), $after, $batch );
-		}
-
-		if ( 'images' === $phase ) {
-			return $this->step_images( $source, (string) $request->get_param( 'stage' ), $after, $batch );
-		}
-
-		return new WP_Error(
-			'buddynext_importer_unknown_phase',
-			/* translators: %s: phase name. */
-			sprintf( __( 'Unknown import phase: %s', 'buddynext-importer' ), $phase ),
-			array( 'status' => 400 )
-		);
-	}
-
-	/**
-	 * Advance the profiles phase by one batch.
-	 *
-	 * @param string $source Source key.
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_profiles( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
-		$importer = ProfileImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		$schema = 0 === $after ? $importer->import_schema() : array();
-		$result = $importer->import_values_batch( $after, $batch );
-
-		return new WP_REST_Response(
-			array(
-				'phase'  => 'profiles',
-				'source' => $source,
-				'schema' => $schema,
-				'last'   => $result['last'],
-				'users'  => $result['users'],
-				'values' => $result['values'],
-				'done'   => $result['users'] < $batch,
-			)
-		);
-	}
-
-	/**
-	 * Advance the avatars/covers phase by one batch.
-	 *
-	 * Two stages: `members` then `groups`. Group images need their space, so the
-	 * spaces phase must have run first.
-	 *
-	 * @param string $source Source key.
-	 * @param string $stage  Stage (members|groups).
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_images( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
-		if ( ! ImageImporter::target_available() ) {
+		if ( null === $step ) {
 			return new WP_Error(
-				'buddynext_importer_no_image_pipeline',
-				__( "BuddyNext's image pipeline is unavailable.", 'buddynext-importer' ),
-				array( 'status' => 409 )
+				'buddynext_importer_unknown_phase',
+				/* translators: %s: phase name. */
+				sprintf( __( 'Unknown import phase: %s', 'buddynext-importer' ), $phase ),
+				array( 'status' => 400 )
 			);
 		}
 
-		$importer = ImageImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		if ( 'groups' === $stage ) {
-			$result = $importer->import_groups_batch( $after, $batch );
-			$count  = array( 'spaces' => $result['spaces'] );
-		} else {
-			$stage  = 'members';
-			$result = $importer->import_members_batch( $after, $batch );
-			$count  = array( 'members' => $result['members'] );
-		}
-
-		return new WP_REST_Response(
-			array_merge(
-				array(
-					'phase'   => 'images',
-					'stage'   => $stage,
-					'source'  => $source,
-					'last'    => $result['last'],
-					'skipped' => $result['skipped'],
-					'done'    => $result['fetched'] < $batch,
+		if ( ! ( $step['available'] )() ) {
+			return new WP_Error(
+				'buddynext_importer_step_unavailable',
+				sprintf(
+					/* translators: %s: step label, e.g. "forums". */
+					__( 'This site cannot import %s - the source reader or the target engine for that domain is not active. GET /stats lists what this site can import.', 'buddynext-importer' ),
+					$step['label']
 				),
-				$count
-			)
-		);
-	}
-
-	/**
-	 * Advance the standalone-media phase by one batch.
-	 *
-	 * Two stages: `albums` first, then `media`, so each photo finds its album
-	 * already mapped.
-	 *
-	 * @param string $source Source key.
-	 * @param string $stage  Stage (albums|media).
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_media( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
-		if ( ! MediaImporter::target_available() ) {
-			return new WP_Error(
-				'buddynext_importer_no_media_engine',
-				__( 'WPMediaVerse must be active to import media.', 'buddynext-importer' ),
 				array( 'status' => 409 )
 			);
 		}
 
-		$importer = MediaImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		if ( 'media' === $stage ) {
-			$result = $importer->import_media_batch( $after, $batch );
-			$count  = array(
-				'media'   => $result['media'],
-				'skipped' => $result['skipped'],
-			);
-		} else {
-			$stage  = 'albums';
-			$result = $importer->import_albums_batch( $after, $batch );
-			$count  = array( 'albums' => $result['albums'] );
-		}
+		$result  = ( $step['run'] )( $after, $batch );
+		$fetched = (int) $result['fetched'];
 
 		return new WP_REST_Response(
 			array_merge(
+				$result,
 				array(
-					'phase'  => 'media',
-					'stage'  => $stage,
+					'phase'  => $step['phase'],
+					'stage'  => $step['stage'],
 					'source' => $source,
-					'last'   => $result['last'],
-					'done'   => $result['fetched'] < $batch,
-				),
-				$count
-			)
-		);
-	}
-
-	/**
-	 * Advance the member-types phase by one batch.
-	 *
-	 * The first call (cursor 0) also imports the type vocabulary, mirroring the
-	 * profiles phase where the schema lands before any member value.
-	 *
-	 * @param string $source Source key.
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_member_types( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
-		$importer = MemberTypeImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		$types  = 0 === $after ? $importer->import_types() : array();
-		$result = $importer->import_batch( $after, $batch );
-
-		return new WP_REST_Response(
-			array(
-				'phase'       => 'member_types',
-				'source'      => $source,
-				'types'       => $types,
-				'last'        => $result['last'],
-				'members'     => $result['fetched'],
-				'assignments' => $result['assignments'],
-				'skipped'     => $result['skipped'],
-				'done'        => $result['fetched'] < $batch,
-			)
-		);
-	}
-
-	/**
-	 * Advance the spaces phase by one batch.
-	 *
-	 * @param string $source Source key.
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_spaces( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
-		$importer = SpaceImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		$result = $importer->import_batch( $after, $batch );
-
-		return new WP_REST_Response(
-			array(
-				'phase'   => 'spaces',
-				'source'  => $source,
-				'last'    => $result['last'],
-				'groups'  => $result['groups'],
-				'members' => $result['members'],
-				'done'    => $result['fetched'] < $batch,
-			)
-		);
-	}
-
-	/**
-	 * Advance the activity phase by one batch. Stage 'posts' runs first to
-	 * completion, then stage 'comments' (so a comment's root post is mapped).
-	 *
-	 * @param string $source Source key.
-	 * @param string $stage  'posts' or 'comments'.
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_activity( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
-		$importer = ActivityImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		if ( 'comments' === $stage ) {
-			$result = $importer->import_comments_batch( $after, $batch );
-
-			return new WP_REST_Response(
-				array(
-					'phase'    => 'activity',
-					'stage'    => 'comments',
-					'source'   => $source,
-					'last'     => $result['last'],
-					'comments' => $result['comments'],
-					'done'     => $result['fetched'] < $batch,
+					// A non-uniform keyset only proves it is finished when a batch
+					// comes back empty; a uniform one is done on a short page.
+					'done'   => $step['empty_done'] ? 0 === $fetched : $fetched < $batch,
 				)
-			);
-		}
-
-		$result = $importer->import_posts_batch( $after, $batch );
-
-		return new WP_REST_Response(
-			array(
-				'phase'  => 'activity',
-				'stage'  => 'posts',
-				'source' => $source,
-				'last'   => $result['last'],
-				'posts'  => $result['posts'],
-				// Posts stage is done when the page is short; the client then runs the comments stage.
-				'done'   => $result['fetched'] < $batch,
 			)
-		);
-	}
-
-	/**
-	 * Advance the friends phase by one batch.
-	 *
-	 * @param string $source Source key.
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_friends( string $source, int $after, int $batch ): WP_REST_Response|WP_Error {
-		$importer = FriendImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		$result = $importer->import_batch( $after, $batch );
-
-		return new WP_REST_Response(
-			array(
-				'phase'       => 'friends',
-				'source'      => $source,
-				'last'        => $result['last'],
-				'connections' => $result['connections'],
-				'skipped'     => $result['skipped'],
-				'done'        => $result['fetched'] < $batch,
-			)
-		);
-	}
-
-	/**
-	 * Advance the forums phase by one batch. Stages run forums -> topics ->
-	 * replies (so each child resolves its parent). Requires Jetonomy.
-	 *
-	 * @param string $source Source key.
-	 * @param string $stage  'forums' | 'topics' | 'replies'.
-	 * @param int    $after  Cursor.
-	 * @param int    $batch  Batch size.
-	 */
-	private function step_forums( string $source, string $stage, int $after, int $batch ): WP_REST_Response|WP_Error {
-		if ( ! ForumImporter::target_available() ) {
-			return new WP_Error(
-				'buddynext_importer_no_jetonomy',
-				__( 'Jetonomy must be active to import forums.', 'buddynext-importer' ),
-				array( 'status' => 409 )
-			);
-		}
-
-		$importer = ForumImporter::for_source( $source );
-		if ( null === $importer ) {
-			return $this->unavailable();
-		}
-
-		if ( 'topics' === $stage ) {
-			$result = $importer->import_topics_batch( $after, $batch );
-			$count  = array( 'topics' => $result['topics'] );
-		} elseif ( 'replies' === $stage ) {
-			$result = $importer->import_replies_batch( $after, $batch );
-			$count  = array( 'replies' => $result['replies'] );
-		} else {
-			$stage  = 'forums';
-			$result = $importer->import_forums_batch( $after, $batch );
-			$count  = array( 'forums' => $result['forums'] );
-		}
-
-		return new WP_REST_Response(
-			array_merge(
-				array(
-					'phase'  => 'forums',
-					'stage'  => $stage,
-					'source' => $source,
-					'last'   => $result['last'],
-					'done'   => $result['fetched'] < $batch,
-				),
-				$count
-			)
-		);
-	}
-
-	/**
-	 * Standard "source unavailable" error.
-	 */
-	private function unavailable(): WP_Error {
-		return new WP_Error(
-			'buddynext_importer_unavailable',
-			__( 'The selected source is not available on this site.', 'buddynext-importer' ),
-			array( 'status' => 409 )
 		);
 	}
 }
