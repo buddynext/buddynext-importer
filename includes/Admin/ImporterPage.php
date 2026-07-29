@@ -10,7 +10,9 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Admin;
 
+use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
+use BuddyNextImporter\Source\AdapterRegistry;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -80,6 +82,8 @@ final class ImporterPage {
 			true
 		);
 
+		$source = AdapterRegistry::detect_active_key();
+
 		wp_localize_script(
 			'buddynext-importer-admin',
 			'buddynextImporter',
@@ -87,6 +91,11 @@ final class ImporterPage {
 				'restUrl'  => esc_url_raw( rest_url( 'buddynext-importer/v1' ) ),
 				'nonce'    => wp_create_nonce( 'wp_rest' ),
 				'bnActive' => Plugin::buddynext_active(),
+				// The run order comes from the shared registry, already filtered to
+				// what this site can actually import. The browser loop used to carry
+				// its own hardcoded list, which knew 5 of the 16 domains - so "Start
+				// import" reported success after migrating a third of the community.
+				'steps'    => null === $source ? array() : StepRegistry::client_steps( $source ),
 				'i18n'     => array(
 					'noSource'   => __( 'No BuddyPress or BuddyBoss data was found on this site.', 'buddynext-importer' ),
 					'bnInactive' => __( 'BuddyNext is not active. Activate it before importing.', 'buddynext-importer' ),

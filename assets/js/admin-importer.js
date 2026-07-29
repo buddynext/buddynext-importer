@@ -1,7 +1,12 @@
 /**
  * Importer admin page: loads source stats over REST and runs the migration as a
- * sequence of batched /step calls (profiles -> spaces -> activity -> friends),
- * driving the progress monitor so a large site imports without a request timeout.
+ * sequence of batched /step calls, driving the progress monitor so a large site
+ * imports without a request timeout.
+ *
+ * The phase list is NOT defined here - it is handed over in cfg.steps from the
+ * PHP StepRegistry, already filtered to the domains this site can import. A
+ * hardcoded copy in this file is what let "Start import" migrate 5 of 16 domains
+ * and still report success.
  */
 ( function () {
 	'use strict';
@@ -9,15 +14,8 @@
 	var cfg = window.buddynextImporter || {};
 	var apiFetch = window.wp && window.wp.apiFetch;
 
-	// Dependency-ordered phases. Activity runs posts then comments so a comment
-	// can resolve its root post.
-	var PHASES = [
-		{ phase: 'profiles', stage: null, label: 'profile fields' },
-		{ phase: 'spaces', stage: null, label: 'spaces and members' },
-		{ phase: 'activity', stage: 'posts', label: 'posts' },
-		{ phase: 'activity', stage: 'comments', label: 'comments' },
-		{ phase: 'friends', stage: null, label: 'connections' }
-	];
+	// Dependency-ordered phases, from the server registry (see file header).
+	var PHASES = Array.isArray( cfg.steps ) ? cfg.steps : [];
 
 	var total = 0;
 
@@ -64,14 +62,21 @@
 		}
 	}
 
+	// Every /step response carries a uniform `count` of rows written, so this does
+	// not need to know each phase's own key. Summing a per-phase list here is how
+	// the bar used to count six domains out of sixteen.
 	function stepCount( res ) {
-		return ( res.values || 0 ) + ( res.members || 0 ) + ( res.groups || 0 ) +
-			( res.posts || 0 ) + ( res.comments || 0 ) + ( res.connections || 0 );
+		return ( res && res.count ) || 0;
 	}
 
+	// The denominator is everything the source holds. /stats returns one entry per
+	// domain, so summing its values keeps the total honest as domains are added -
+	// no second list to update.
 	function computeTotal( stats ) {
-		return ( stats.profile_values || 0 ) + ( stats.groups || 0 ) + ( stats.group_members || 0 ) +
-			( stats.activities || 0 ) + ( stats.activity_comments || 0 ) + ( stats.friendships || 0 );
+		return Object.keys( stats || {} ).reduce( function ( sum, domain ) {
+			var value = stats[ domain ];
+			return sum + ( typeof value === 'number' ? value : 0 );
+		}, 0 );
 	}
 
 	function renderStats( data ) {
@@ -157,6 +162,13 @@
 	}
 
 	function runImport() {
+		// No registry means no source was detected, so there is nothing to run.
+		// Without this the empty chain would resolve straight to "Import complete."
+		if ( ! PHASES.length ) {
+			showNotice( ( cfg.i18n && cfg.i18n.noSource ) || '', 'warning' );
+			return;
+		}
+
 		toggleButtons( false );
 		setRunning( true );
 		var notice = el( 'bni-notice' );

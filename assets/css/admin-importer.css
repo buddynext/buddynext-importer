@@ -2,7 +2,11 @@
  * Importer admin page - premium presentation, styled to sit in the BuddyNext
  * family (indigo #5b67d0 accent, soft cards, gradient progress). Self-contained:
  * a local --bni-* token layer seeded with the family palette, so the page never
- * depends on another plugin's stylesheet. Light + dark aware, responsive to 390px.
+ * depends on another plugin's stylesheet. Responsive to 390px.
+ *
+ * Deliberately light-only: the WordPress admin content area is light under every
+ * core colour scheme, so honouring prefers-color-scheme here would darken our
+ * cards inside a light page and recolour WP's own notices illegibly.
  */
 
 .bni-wrap {
@@ -14,6 +18,7 @@
 	--bni-surface: #ffffff;
 	--bni-surface-2: #f7f8fc;
 	--bni-text: #1c2033;
+	--bni-wp-ink: #1d2327;
 	--bni-text-muted: #5a6072;
 	--bni-border: #e4e6f0;
 	--bni-radius: 14px;
@@ -328,29 +333,15 @@
 }
 
 /* ------------------------------------------------------------------- notice */
+
+/* A WP notice is admin chrome with its own palette (a tinted background and a
+   coloured left rule). It sits inside .bni-wrap, so it inherits the card ink
+   unless told otherwise - which is what once put near-white text on the light
+   green "Import complete" background. Pin it to WordPress's own admin ink. */
 .bni-wrap #bni-notice {
 	border-radius: var(--bni-radius-sm);
 	margin: 16px 0 0;
-}
-
-/* --------------------------------------------------------------- dark mode */
-@media ( prefers-color-scheme: dark ) {
-	.bni-wrap {
-		--bni-accent-100: #262b47;
-		--bni-accent-200: #333a5e;
-		--bni-accent-700: #b9bfed;
-		--bni-surface: #1f2334;
-		--bni-surface-2: #262b3d;
-		--bni-text: #e9ebf5;
-		--bni-text-muted: #a3a9bf;
-		--bni-border: #343a52;
-		--bni-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px -12px rgba(0, 0, 0, 0.6);
-		--bni-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-	}
-
-	.bni-stat__num {
-		color: #aab2f2;
-	}
+	color: var(--bni-wp-ink);
 }
 
 /* -------------------------------------------------------------- responsive */
