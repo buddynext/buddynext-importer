@@ -4,6 +4,8 @@
 #   ./run.sh          full cycle from scratch, hand-written adversarial fixture
 #   ./run.sh reign    same, but seeded from the Wbcom Reign BuddyPress demo pack
 #                     (a real community - every domain has data to move)
+#   ./run.sh bp       BLANK site + a BuddyPress community only (no BuddyNext),
+#                     sized with USERS/GROUPS/ACTIVITIES env vars
 #   ./run.sh small    50-user community via buddypress-playground-cli
 #   ./run.sh large    5000-user community, for scale
 #   ./run.sh fresh    a CLEAN site - WordPress + BuddyPress + BuddyNext, no
@@ -52,6 +54,7 @@ MIGRATE=yes
 case "${1:-all}" in
 	reign)    SEED=/scripts/seed-source-reign.sh; set -- all ;;
 	fresh)    SEED=/scripts/seed-fresh.sh; MIGRATE=no; set -- all ;;
+	bp)       SEED=/scripts/seed-bp-only.sh; MIGRATE=no; set -- all ;;
 	small)    SEED=/scripts/seed-playground.sh; export SCENARIO=small_community; set -- all ;;
 	large)    SEED=/scripts/seed-playground.sh; export SCENARIO=large_community; set -- all ;;
 	reign-ui) SEED=/scripts/seed-source-reign.sh; MIGRATE=no; set -- all ;;
@@ -63,7 +66,7 @@ if [ "${1:-all}" = "all" ]; then
 	$DC up -d
 	echo "== waiting for the database =="
 	until $DC exec -T db mysqladmin ping -h 127.0.0.1 -uroot -proot --silent >/dev/null 2>&1; do sleep 2; done
-	$DC exec -T -e SCENARIO="${SCENARIO:-small_community}" wp bash "$SEED"
+	$DC exec -T -e SCENARIO="${SCENARIO:-small_community}" -e USERS="${USERS:-}" -e GROUPS="${GROUPS:-}" -e ACTIVITIES="${ACTIVITIES:-}" -e MESSAGES="${MESSAGES:-}" wp bash "$SEED"
 fi
 
 echo
