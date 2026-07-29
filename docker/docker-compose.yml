@@ -1,0 +1,63 @@
+# Migration fixture: a throwaway WordPress with a REAL BuddyPress community in
+# it, so `migrate-all` can be run against source data and every domain
+# reconciled source-vs-destination.
+#
+# Nothing here touches a Local site. The whole stack is disposable:
+#   docker compose down -v   removes the database with it.
+#
+# The plugins under test are BIND-MOUNTED from the working copy, so a code
+# change is picked up by the next `wp` call without a rebuild.
+
+services:
+  db:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    tmpfs:
+      # The database is a fixture, never a record. Keeping it in RAM makes a
+      # re-seed cheap and guarantees no state survives `down`.
+      - /var/lib/mysql
+
+  wp:
+    image: wordpress:cli-php8.2
+    # Root inside a disposable fixture container: the named volume is root-owned,
+    # and running as uid 33 left wp-content/upgrade and uploads unwritable, which
+    # silently half-extracted core and then failed the plugin install.
+    user: "0:0"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      # The image runs as uid 33 with no writable HOME, so wp-cli cannot make
+      # its cache dir. (The 128M php.ini limit is raised at the call site instead -
+      # this image ignores WP_CLI_PHP_ARGS.)
+      HOME: /tmp
+      WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
+    volumes:
+      - wp-core:/var/www/html
+      # Plugins under test, live from the working copy.
+      - ../../buddynext:/var/www/html/wp-content/plugins/buddynext:ro
+      - ../../buddynext-pro:/var/www/html/wp-content/plugins/buddynext-pro:ro
+      - ../../wpmediaverse:/var/www/html/wp-content/plugins/wpmediaverse:ro
+      - ../../jetonomy:/var/www/html/wp-content/plugins/jetonomy:ro
+      - ..:/var/www/html/wp-content/plugins/buddynext-importer:ro
+      # Fixture + reconciliation scripts.
+      - ./scripts:/scripts:ro
+    working_dir: /var/www/html
+    entrypoint: ["sleep", "infinity"]
+
+volumes:
+  wp-core:
