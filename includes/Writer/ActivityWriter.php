@@ -94,8 +94,23 @@ final class ActivityWriter {
 
 		$space_id = 0;
 		if ( 'groups' === (string) $activity['component'] ) {
-			$mapped   = IdMap::get( $this->source, 'space', (int) $activity['item_id'] );
-			$space_id = null === $mapped ? 0 : $mapped;
+			$mapped = IdMap::get( $this->source, 'space', (int) $activity['item_id'] );
+
+			// The group did not become a space, so this post has nowhere to go.
+			// It must NOT fall through to space_id 0: that is the global feed,
+			// and BuddyPress core carries no privacy column, so the post would be
+			// republished as a public, site-wide one. A private or hidden group's
+			// content would change audience during the migration, and no row
+			// count would show it - the totals still reconcile. Skipping loses a
+			// post; publishing it discloses one.
+			if ( null === $mapped ) {
+				return array(
+					'id'      => 0,
+					'created' => false,
+				);
+			}
+
+			$space_id = $mapped;
 		}
 
 		$data = array(
