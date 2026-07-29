@@ -1204,7 +1204,19 @@ final class MigrateCommand {
 		}
 
 		$this->migrate_profiles( $args, $assoc_args );
-		$this->migrate_member_types( $args, $assoc_args );
+
+		// Guarded like every other optional domain. migrate_member_types() opens
+		// with WP_CLI::error() when the member-type service is unavailable, and
+		// error() HALTS the command — so calling it unguarded meant an
+		// unavailable service aborted migrate-all right after profiles and every
+		// later domain (spaces, activity, friends, follows, reactions, forums,
+		// images, media, messages) was never attempted. The operator saw one
+		// error line rather than nine skips.
+		if ( MemberTypeImporter::target_available() ) {
+			$this->migrate_member_types( $args, $assoc_args );
+		} else {
+			\WP_CLI::log( 'Skipping member types (BuddyNext member-type service is unavailable) - source member types will NOT be migrated.' );
+		}
 		$this->migrate_spaces( $args, $assoc_args );
 		$this->migrate_activity( $args, $assoc_args );
 		$this->migrate_friends( $args, $assoc_args );
@@ -1221,6 +1233,8 @@ final class MigrateCommand {
 		// domains, so a member's avatar is in place when their content lands.
 		if ( ImageImporter::target_available() ) {
 			$this->migrate_images( $args, $assoc_args );
+		} else {
+			\WP_CLI::log( 'Skipping avatars and cover images (BuddyNext image storage is unavailable) - source avatars/covers will NOT be migrated.' );
 		}
 
 		if ( MediaImporter::target_available() ) {

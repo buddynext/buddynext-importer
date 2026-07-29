@@ -35,10 +35,15 @@ final class FieldTypeMap {
 		'selectbox'                    => 'select',
 		'multiselectbox'               => 'multiselect',
 		'radio'                        => 'radio',
-		// A BP checkbox field is a multi-value list of option slugs, which is
-		// exactly BuddyNext's `multiselect`. ('checkbox' is NOT a BuddyNext type -
-		// mapping to it dropped every value, and left a field the engine degraded
-		// to a text input until Installer's schema v16 converged it to boolean.)
+		// BuddyNext has NO 'checkbox' type — its 20 types are text, textarea, url,
+		// email, phone, number, date, boolean, select, radio, multiselect,
+		// category_multiselect, member_type(_multiselect), color, date_extended,
+		// location, multi_select_advanced, number_advanced, conditional. Emitting
+		// 'checkbox' created a field of an unknown type whose values were then
+		// dropped on write: FieldType::is_multiselect_family('checkbox') is false,
+		// so the array branch never ran, and sanitize() has no case for it either.
+		// 'multiselect' is the exact semantic equivalent — several selections from
+		// a fixed option list, stored as an array of slugs.
 		'checkbox'                     => 'multiselect',
 		'datebox'                      => 'date',
 		'number'                       => 'number',
@@ -65,16 +70,16 @@ final class FieldTypeMap {
 		'multiselect_custom_post_type' => 'multiselect',
 		'tags'                         => 'multiselect',
 		'token'                        => 'multiselect',
-		// A single "I accept" tickbox, not an option list - BuddyNext's `boolean`
-		// reads and writes the same '1'/'0' this stores.
+		// A single accept/decline tick, not a multi-choice list.
 		'checkbox_acceptance'          => 'boolean',
 		'color'                        => 'text',
 		'fromto'                       => 'text',
-		// BuddyNext has no file/upload field type (neither Free nor Pro registers
-		// one). The stored value is an attachment URL, so it lands in a `url`
-		// field - the same convergence Installer applies to legacy 'file' rows.
-		'file'                         => 'url',
-		'image'                        => 'url',
+		// 'file' is not a BuddyNext type either, so these dropped their values for
+		// the same reason. There is no file/attachment field to migrate into, so
+		// the stored reference is preserved verbatim as text rather than being
+		// lost — 'url' would reject a bare attachment ID and drop it again.
+		'file'                         => 'text',
+		'image'                        => 'text',
 	);
 
 	/**

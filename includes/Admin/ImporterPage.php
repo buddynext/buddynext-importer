@@ -33,6 +33,43 @@ final class ImporterPage {
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue' ) );
+
+		// Shortcut straight from the plugins list, the WordPress convention every
+		// comparable plugin follows. The page lives under Tools, which is not
+		// where someone looks immediately after activating an importer.
+		if ( defined( 'BUDDYNEXT_IMPORTER_FILE' ) ) {
+			add_filter(
+				'plugin_action_links_' . plugin_basename( (string) constant( 'BUDDYNEXT_IMPORTER_FILE' ) ),
+				array( $this, 'action_links' )
+			);
+		}
+	}
+
+	/**
+	 * Prepend an "Import to BuddyNext" link to the plugins-list row actions.
+	 *
+	 * @param array<int|string,string> $links Existing action links.
+	 * @return array<int|string,string>
+	 */
+	public function action_links( $links ): array {
+		$links = is_array( $links ) ? $links : array();
+
+		// Gated on the same capability as the page itself, so a user who cannot
+		// open it is not shown a link into a permission error.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return $links;
+		}
+
+		array_unshift(
+			$links,
+			sprintf(
+				'<a href="%s">%s</a>',
+				esc_url( admin_url( 'tools.php?page=' . self::SLUG ) ),
+				esc_html__( 'Import to BuddyNext', 'buddynext-importer' )
+			)
+		);
+
+		return $links;
 	}
 
 	/**
