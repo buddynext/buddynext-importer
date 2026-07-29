@@ -64,10 +64,17 @@ class BuddyPressAdapter implements SourceAdapter {
 			'profile_fields'    => $this->table_count( 'bp_xprofile_fields', 'parent_id = 0' ),
 			'profile_values'    => $this->table_count( 'bp_xprofile_data' ),
 			'groups'            => $this->table_count( 'bp_groups' ),
-			'group_members'     => $this->table_count( 'bp_groups_members', 'is_confirmed = 1' ),
+			// Every row: group_members() reads the whole table, pending memberships
+			// included. Counting only confirmed ones understated the source, so a
+			// genuine shortfall looked like a surplus.
+			'group_members'     => $this->table_count( 'bp_groups_members' ),
 			'activities'        => $this->table_count( 'bp_activity', "type = 'activity_update'" ),
 			'activity_comments' => $this->table_count( 'bp_activity', "type = 'activity_comment'" ),
-			'friendships'       => $this->table_count( 'bp_friends', 'is_confirmed = 1' ),
+			// Every row, not just the confirmed ones: friendships() reads the whole
+			// table and a pending request migrates as a pending connection. Counting
+			// only confirmed rows here reported fewer in the source than the import
+			// wrote, which reads as the importer inventing connections.
+			'friendships'       => $this->table_count( 'bp_friends' ),
 			'follows'           => $this->table_count( 'bp_follow' ),
 			'reactions'         => $this->table_exists( 'bb_user_reactions' )
 				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
@@ -108,8 +115,22 @@ class BuddyPressAdapter implements SourceAdapter {
 	private function favorites_count(): int {
 		global $wpdb;
 
+		// Each row is one USER's serialized list of favourited activity ids, so
+		// COUNT(*) counted people rather than likes - a member with forty
+		// favourites read as one. Unserialize and total the ids, because that is
+		// what ReactionImporter goes on to import.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key = 'bp_favorite_activities' AND meta_value NOT IN ( '', 'a:0:{}' )" );
+		$rows = $wpdb->get_col( "SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'bp_favorite_activities' AND meta_value NOT IN ( '', 'a:0:{}' )" );
+
+		$total = 0;
+		foreach ( (array) $rows as $raw ) {
+			$ids = maybe_unserialize( (string) $raw );
+			if ( is_array( $ids ) ) {
+				$total += count( $ids );
+			}
+		}
+
+		return $total;
 	}
 
 	/**

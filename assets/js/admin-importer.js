@@ -188,6 +188,7 @@
 			setRunning( false );
 			setLabel( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.' );
 			showNotice( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.', 'success' );
+			loadSummary();
 		} ).catch( function () {
 			setRunning( false );
 			toggleButtons( true );
@@ -247,6 +248,7 @@
 			setBar( 100 );
 			setLabel( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.' );
 			showNotice( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.', 'success' );
+			loadSummary();
 			return false;
 		}
 		if ( res.state === 'error' ) {
@@ -331,6 +333,65 @@
 		} ).catch( function () {} );
 	}
 
+	// --- What was imported -------------------------------------------------
+	// Rendered from /summary rather than accumulated during the run, so it is
+	// still correct after a reload and identical whichever way the import ran.
+
+	function renderSummary( data ) {
+		var card = el( 'bni-summary-card' );
+		var body = el( 'bni-summary-body' );
+		if ( ! card || ! body || ! data || ! data.has_run || ! data.rows ) {
+			return;
+		}
+
+		while ( body.firstChild ) {
+			body.removeChild( body.firstChild );
+		}
+
+		data.rows.forEach( function ( row ) {
+			// A domain this site cannot import at all is noise unless it moved
+			// something, so leave it out rather than print a row of zeroes.
+			if ( ! row.available && ! row.imported ) {
+				return;
+			}
+
+			var tr = document.createElement( 'tr' );
+
+			var name = document.createElement( 'td' );
+			name.textContent = row.label;
+			tr.appendChild( name );
+
+			var src = document.createElement( 'td' );
+			src.className = 'bni-summary__num';
+			src.textContent = ( null === row.source || undefined === row.source ) ? '\u2014' : String( row.source );
+			tr.appendChild( src );
+
+			var got = document.createElement( 'td' );
+			got.className = 'bni-summary__num';
+			got.textContent = String( row.imported );
+			// Flag only a real shortfall against a comparable source count.
+			if ( 'number' === typeof row.source && row.imported < row.source ) {
+				got.className += ' is-short';
+				got.title = ( cfg.i18n && cfg.i18n.shortfall ) || '';
+			}
+			tr.appendChild( got );
+
+			body.appendChild( tr );
+		} );
+
+		card.hidden = false;
+	}
+
+	function loadSummary() {
+		if ( ! apiFetch ) {
+			return;
+		}
+		return apiFetch( {
+			path: '/buddynext-importer/v1/summary',
+			headers: { 'X-WP-Nonce': cfg.nonce }
+		} ).then( renderSummary ).catch( function () {} );
+	}
+
 	function loadStats() {
 		if ( ! apiFetch ) {
 			return;
@@ -347,6 +408,7 @@
 
 	document.addEventListener( 'DOMContentLoaded', function () {
 		loadStats();
+		loadSummary();
 		resumeIfRunning();
 		var start = el( 'bni-start' );
 		if ( start ) {

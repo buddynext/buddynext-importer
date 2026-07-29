@@ -12,8 +12,19 @@ set -euo pipefail
 WP="php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html"
 
 echo "== WordPress core =="
-$WP core download --force --version=latest
-$WP config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress --dbhost=db:3306 --force
+# The web container owns core + wp-config in the shared volume; racing it with
+# our own core download left a half-copied tree. Wait for it, then install.
+# version.php appears early while wp-content is still being copied, so waiting
+# on it alone let the plugin install run against a half-populated tree.
+for i in $(seq 1 90); do
+	if [ -f /var/www/html/wp-includes/version.php ] && [ -f /var/www/html/wp-config.php ] \
+		&& [ -f /var/www/html/wp-settings.php ] && [ -d /var/www/html/wp-content/plugins ]; then
+		break
+	fi
+	sleep 2
+done
+mkdir -p /var/www/html/wp-content/upgrade /var/www/html/wp-content/uploads
+chmod -R 777 /var/www/html/wp-content/upgrade /var/www/html/wp-content/uploads 2>/dev/null || true
 $WP core install --url=http://localhost:8080 --title="BI Fixture" \
 	--admin_user=admin --admin_password=admin --admin_email=admin@example.test --skip-email
 

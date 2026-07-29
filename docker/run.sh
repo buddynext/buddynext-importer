@@ -4,6 +4,10 @@
 #   ./run.sh          full cycle from scratch, hand-written adversarial fixture
 #   ./run.sh reign    same, but seeded from the Wbcom Reign BuddyPress demo pack
 #                     (a real community - every domain has data to move)
+#   ./run.sh reign-ui seed the Reign source but do NOT migrate, so the import can
+#                     be run from the admin page at http://localhost:8080 - that
+#                     is a different code path from the CLI and needs its own
+#                     verification
 #   ./run.sh migrate  re-run the migration + reconcile against the existing fixture
 #   ./run.sh shell    a wp-cli shell inside the container
 #   ./run.sh down     tear everything down
@@ -22,15 +26,20 @@ case "${1:-all}" in
 		$DC exec wp bash
 		exit 0
 		;;
+	reconcile)
+		$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html eval-file /scripts/reconcile.php
+		exit 0
+		;;
 esac
 
 # Which source community to build. The hand-written one is adversarial but
 # small; the Reign demo pack is real and exercises every domain.
 SEED=/scripts/seed-source.sh
-if [ "${1:-all}" = "reign" ]; then
-	SEED=/scripts/seed-source-reign.sh
-	set -- all
-fi
+MIGRATE=yes
+case "${1:-all}" in
+	reign)    SEED=/scripts/seed-source-reign.sh; set -- all ;;
+	reign-ui) SEED=/scripts/seed-source-reign.sh; MIGRATE=no; set -- all ;;
+esac
 
 if [ "${1:-all}" = "all" ]; then
 	echo "== tearing down any previous fixture =="
@@ -47,6 +56,15 @@ echo "== activating the target stack =="
 # addons are optional: without WPMediaVerse there are no DMs or media to import,
 # without Jetonomy no forums - the importer skips those domains by design.
 $WP plugin activate buddynext wpmediaverse jetonomy buddynext-importer || true
+
+if [ "$MIGRATE" = "no" ]; then
+	echo
+	echo "== source ready, target untouched =="
+	echo "Run the import from the admin page, then reconcile:"
+	echo "  http://localhost:8080/wp-admin/tools.php?page=buddynext-importer&autologin=1"
+	echo "  ./run.sh reconcile"
+	exit 0
+fi
 
 echo
 echo "== migrate =="

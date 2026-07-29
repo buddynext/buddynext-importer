@@ -58,6 +58,7 @@ final class StepRegistry {
 		$steps[] = array(
 			'phase'      => 'profiles',
 			'stage'      => null,
+			'stat'       => 'profile_values',
 			'label'      => __( 'profile fields', 'buddynext-importer' ),
 			'domain'     => 'profile_value',
 			'empty_done' => false,
@@ -70,6 +71,8 @@ final class StepRegistry {
 
 				$schema = 0 === $cursor ? $importer->import_schema() : array();
 				$result = $importer->import_values_batch( $cursor, $batch );
+
+				ImportLedger::add( $source, 'profile_value', (int) $result['values'] );
 
 				return array_merge(
 					$result,
@@ -85,6 +88,7 @@ final class StepRegistry {
 		$steps[] = array(
 			'phase'      => 'member_types',
 			'stage'      => null,
+			'stat'       => 'member_type_users',
 			'label'      => __( 'member types', 'buddynext-importer' ),
 			'domain'     => 'member_type_user',
 			'empty_done' => false,
@@ -99,6 +103,8 @@ final class StepRegistry {
 				$types  = 0 === $cursor ? $importer->import_types() : array();
 				$result = $importer->import_batch( $cursor, $batch );
 
+				ImportLedger::add( $source, 'member_type_user', (int) $result['assignments'] );
+
 				return array_merge(
 					$result,
 					array(
@@ -110,6 +116,7 @@ final class StepRegistry {
 		);
 
 		$steps[] = self::step(
+			$source,
 			'spaces',
 			null,
 			__( 'spaces and members', 'buddynext-importer' ),
@@ -117,55 +124,67 @@ final class StepRegistry {
 			static fn (): bool => null !== SpaceImporter::for_source( $source ),
 			static fn ( int $c, int $b ): array => SpaceImporter::for_source( $source )->import_batch( $c, $b ),
 			// A spaces batch writes both the space rows and their memberships.
-			static fn ( array $r ): int => (int) $r['groups'] + (int) $r['members']
+			static fn ( array $r ): int => (int) $r['groups'] + (int) $r['members'],
+			// Both sides count spaces AND memberships, or 11 groups would be
+			// compared against 11 spaces plus their 54 members.
+			'groups,group_members'
 		);
 
 		$activity_available = static fn (): bool => null !== ActivityImporter::for_source( $source );
 
 		$steps[] = self::step(
+			$source,
 			'activity',
 			'posts',
 			__( 'posts', 'buddynext-importer' ),
 			'post',
 			$activity_available,
 			static fn ( int $c, int $b ): array => ActivityImporter::for_source( $source )->import_posts_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['posts']
+			static fn ( array $r ): int => (int) $r['posts'],
+			'activities'
 		);
 
 		$steps[] = self::step(
+			$source,
 			'activity',
 			'comments',
 			__( 'comments', 'buddynext-importer' ),
 			'comment',
 			$activity_available,
 			static fn ( int $c, int $b ): array => ActivityImporter::for_source( $source )->import_comments_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['comments']
+			static fn ( array $r ): int => (int) $r['comments'],
+			'activity_comments'
 		);
 
 		$steps[] = self::step(
+			$source,
 			'friends',
 			null,
 			__( 'connections', 'buddynext-importer' ),
 			'connection',
 			static fn (): bool => null !== FriendImporter::for_source( $source ),
 			static fn ( int $c, int $b ): array => FriendImporter::for_source( $source )->import_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['connections']
+			static fn ( array $r ): int => (int) $r['connections'],
+			'friendships'
 		);
 
 		$steps[] = self::step(
+			$source,
 			'follows',
 			null,
 			__( 'follows', 'buddynext-importer' ),
 			'follow',
 			static fn (): bool => null !== FollowImporter::for_source( $source ),
 			static fn ( int $c, int $b ): array => FollowImporter::for_source( $source )->import_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['follows']
+			static fn ( array $r ): int => (int) $r['follows'],
+			'follows'
 		);
 
 		// The reactions keyset is non-uniform (the usermeta fallback emits whole
 		// users), so a short batch does not mean the domain is finished - only an
 		// empty one does.
 		$steps[] = self::step(
+			$source,
 			'reactions',
 			null,
 			__( 'reactions', 'buddynext-importer' ),
@@ -173,6 +192,7 @@ final class StepRegistry {
 			static fn (): bool => null !== ReactionImporter::for_source( $source ),
 			static fn ( int $c, int $b ): array => ReactionImporter::for_source( $source )->import_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['reactions'],
+			'reactions',
 			true
 		);
 
@@ -180,82 +200,97 @@ final class StepRegistry {
 			&& null !== ForumImporter::for_source( $source );
 
 		$steps[] = self::step(
+			$source,
 			'forums',
 			'forums',
 			__( 'forums', 'buddynext-importer' ),
 			'forum_space',
 			$forums_available,
 			static fn ( int $c, int $b ): array => ForumImporter::for_source( $source )->import_forums_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['forums']
+			static fn ( array $r ): int => (int) $r['forums'],
+			''
 		);
 
 		$steps[] = self::step(
+			$source,
 			'forums',
 			'topics',
 			__( 'forum topics', 'buddynext-importer' ),
 			'forum_post',
 			$forums_available,
 			static fn ( int $c, int $b ): array => ForumImporter::for_source( $source )->import_topics_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['topics']
+			static fn ( array $r ): int => (int) $r['topics'],
+			''
 		);
 
 		$steps[] = self::step(
+			$source,
 			'forums',
 			'replies',
 			__( 'forum replies', 'buddynext-importer' ),
 			'forum_reply',
 			$forums_available,
 			static fn ( int $c, int $b ): array => ForumImporter::for_source( $source )->import_replies_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['replies']
+			static fn ( array $r ): int => (int) $r['replies'],
+			''
 		);
 
 		$images_available = static fn (): bool => ImageImporter::target_available()
 			&& null !== ImageImporter::for_source( $source );
 
 		$steps[] = self::step(
+			$source,
 			'images',
 			'members',
 			__( 'member images', 'buddynext-importer' ),
 			'member_image',
 			$images_available,
 			static fn ( int $c, int $b ): array => ImageImporter::for_source( $source )->import_members_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['members']
+			static fn ( array $r ): int => (int) $r['members'],
+			'member_images'
 		);
 
 		$steps[] = self::step(
+			$source,
 			'images',
 			'groups',
 			__( 'space images', 'buddynext-importer' ),
 			'group_image',
 			$images_available,
 			static fn ( int $c, int $b ): array => ImageImporter::for_source( $source )->import_groups_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['spaces']
+			static fn ( array $r ): int => (int) $r['spaces'],
+			'group_images'
 		);
 
 		$media_available = static fn (): bool => MediaImporter::target_available()
 			&& null !== MediaImporter::for_source( $source );
 
 		$steps[] = self::step(
+			$source,
 			'media',
 			'albums',
 			__( 'albums', 'buddynext-importer' ),
 			'media_album',
 			$media_available,
 			static fn ( int $c, int $b ): array => MediaImporter::for_source( $source )->import_albums_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['albums']
+			static fn ( array $r ): int => (int) $r['albums'],
+			''
 		);
 
 		$steps[] = self::step(
+			$source,
 			'media',
 			'media',
 			__( 'media', 'buddynext-importer' ),
 			'standalone_media',
 			$media_available,
 			static fn ( int $c, int $b ): array => MediaImporter::for_source( $source )->import_media_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['media']
+			static fn ( array $r ): int => (int) $r['media'],
+			'standalone_media'
 		);
 
 		$steps[] = self::step(
+			$source,
 			'messages',
 			null,
 			__( 'messages', 'buddynext-importer' ),
@@ -263,7 +298,8 @@ final class StepRegistry {
 			static fn (): bool => MessageImporter::target_available()
 				&& null !== MessageImporter::for_source( $source ),
 			static fn ( int $c, int $b ): array => MessageImporter::for_source( $source )->import_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['messages']
+			static fn ( array $r ): int => (int) $r['messages'],
+			'message_threads'
 		);
 
 		return $steps;
@@ -333,6 +369,7 @@ final class StepRegistry {
 	/**
 	 * Build a step whose batch method returns the standard `last`/`fetched` pair.
 	 *
+	 * @param string      $source     Source key, for the ledger.
 	 * @param string      $phase      REST phase name.
 	 * @param string|null $stage      REST stage name, when the phase has stages.
 	 * @param string      $label      Lower-case display label.
@@ -340,10 +377,14 @@ final class StepRegistry {
 	 * @param callable    $available  Returns whether the step can run here.
 	 * @param callable    $run        (cursor, batch) -> importer result.
 	 * @param callable    $count      Importer result -> rows written.
+	 * @param string      $stat       Matching /stats key(s) for the source side,
+	 *                                comma-separated when a domain writes rows
+	 *                                counted by more than one source stat.
 	 * @param bool        $empty_done Step ends on an empty batch, not a short one.
 	 * @return array{phase:string,stage:?string,label:string,domain:string,empty_done:bool,available:callable,run:callable}
 	 */
 	private static function step(
+		string $source,
 		string $phase,
 		?string $stage,
 		string $label,
@@ -351,16 +392,18 @@ final class StepRegistry {
 		callable $available,
 		callable $run,
 		callable $count,
+		string $stat = '',
 		bool $empty_done = false
 	): array {
 		return array(
 			'phase'      => $phase,
 			'stage'      => $stage,
+			'stat'       => $stat,
 			'label'      => $label,
 			'domain'     => $domain,
 			'empty_done' => $empty_done,
 			'available'  => $available,
-			'run'        => static function ( int $cursor, int $batch ) use ( $available, $run, $count ): array {
+			'run'        => static function ( int $cursor, int $batch ) use ( $available, $run, $count, $source, $domain ): array {
 				// A step can go unavailable between the check and the call (a
 				// plugin deactivated mid-import), so re-check rather than fatal on
 				// a null importer.
@@ -369,8 +412,11 @@ final class StepRegistry {
 				}
 
 				$result = $run( $cursor, $batch );
+				$rows   = $count( $result );
 
-				return array_merge( $result, array( 'count' => $count( $result ) ) );
+				ImportLedger::add( $source, $domain, $rows );
+
+				return array_merge( $result, array( 'count' => $rows ) );
 			},
 		);
 	}

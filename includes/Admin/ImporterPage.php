@@ -141,6 +141,7 @@ final class ImporterPage {
 					'complete'   => __( 'Import complete. You can now deactivate and remove this importer.', 'buddynext-importer' ),
 					'runFailed'  => __( 'The import stopped on an error. It is safe to run again - it resumes where it left off.', 'buddynext-importer' ),
 					'domain'     => __( 'Domain', 'buddynext-importer' ),
+					'shortfall'  => __( 'Fewer rows than the source holds. Some content cannot migrate - see the note below the table.', 'buddynext-importer' ),
 					'count'      => __( 'Records', 'buddynext-importer' ),
 				),
 			)

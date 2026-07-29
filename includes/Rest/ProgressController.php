@@ -16,6 +16,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\Rest;
 
 use BuddyNextImporter\Background\BackgroundImport;
+use BuddyNextImporter\Pipeline\ImportLedger;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
@@ -52,6 +53,23 @@ final class ProgressController {
 			array(
 				'methods'             => 'GET',
 				'callback'            => array( $this, 'get_stats' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'source' => array(
+						'type'              => 'string',
+						'required'          => false,
+						'sanitize_callback' => 'sanitize_key',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/summary',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_summary' ),
 				'permission_callback' => array( $this, 'require_admin' ),
 				'args'                => array(
 					'source' => array(
@@ -190,6 +208,88 @@ final class ProgressController {
 				'stats'     => $adapter->stats(),
 			)
 		);
+	}
+
+	/**
+	 * GET /summary - what the migration actually moved, per domain.
+	 *
+	 * "Import complete" on its own is not an answer to "did my hundred message
+	 * threads arrive?". This pairs each domain's source count with the rows the
+	 * run wrote, so the owner can see the migration land rather than take the
+	 * word of a green notice. Reading it from the ledger rather than the run
+	 * means it survives a page reload and covers the background import too.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function get_summary( WP_REST_Request $request ): WP_REST_Response {
+		$source = $request->get_param( 'source' );
+		$source = is_string( $source ) && '' !== $source ? $source : AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			return new WP_REST_Response(
+				array(
+					'source'  => null,
+					'has_run' => false,
+					'rows'    => array(),
+				)
+			);
+		}
+
+		$adapter = AdapterRegistry::get( $source );
+		$stats   = null !== $adapter && $adapter->is_available() ? $adapter->stats() : array();
+		$ledger  = ImportLedger::for_source( $source );
+
+		$rows = array();
+		foreach ( StepRegistry::steps( $source ) as $step ) {
+			$domain = (string) $step['domain'];
+			$stat   = (string) ( $step['stat'] ?? '' );
+
+			$rows[] = array(
+				'label'     => (string) $step['label'],
+				'domain'    => $domain,
+				'imported'  => (int) ( $ledger[ $domain ] ?? 0 ),
+				// Null means the source has no comparable count for this stage -
+				// better than printing a 0 that reads as "none found".
+				'source'    => self::source_total( $stat, $stats ),
+				'available' => (bool) ( $step['available'] )(),
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'source'  => $source,
+				'has_run' => ImportLedger::has_run( $source ),
+				'rows'    => $rows,
+			)
+		);
+	}
+
+	/**
+	 * Sum the source stats a domain is measured against.
+	 *
+	 * A domain can write rows counted by more than one source stat - the spaces
+	 * step creates both spaces and their memberships - so a step may name
+	 * several keys. Returns null when the source offers no comparable count,
+	 * which reads as "no basis for comparison" rather than "none found".
+	 *
+	 * @param string             $stat  Comma-separated /stats keys, possibly empty.
+	 * @param array<string,int>  $stats The source stats.
+	 */
+	private static function source_total( string $stat, array $stats ): ?int {
+		if ( '' === $stat ) {
+			return null;
+		}
+
+		$total = null;
+		foreach ( explode( ',', $stat ) as $key ) {
+			$key = trim( $key );
+			if ( '' === $key || ! isset( $stats[ $key ] ) ) {
+				continue;
+			}
+			$total = (int) $total + (int) $stats[ $key ];
+		}
+
+		return $total;
 	}
 
 	/**

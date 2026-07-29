@@ -344,8 +344,57 @@
 	color: var(--bni-wp-ink);
 }
 
+/* ------------------------------------------------------------------ summary */
+.bni-summary {
+	width: 100%;
+	border-collapse: collapse;
+	margin-top: 12px;
+	font-size: 13px;
+}
+
+.bni-summary th,
+.bni-summary td {
+	padding: 8px 10px;
+	text-align: left;
+	border-bottom: 1px solid var(--bni-border);
+}
+
+.bni-summary thead th {
+	color: var(--bni-text-muted);
+	font-weight: 600;
+	text-transform: uppercase;
+	font-size: 11px;
+	letter-spacing: 0.04em;
+}
+
+.bni-summary tbody tr:last-child td {
+	border-bottom: 0;
+}
+
+.bni-summary__num {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	width: 6.5rem;
+}
+
+/* A shortfall is not automatically a fault, so it is marked rather than alarmed:
+   weight and colour, no red banner. The tooltip carries the explanation. */
+.bni-summary td.is-short {
+	color: var(--bni-accent-700);
+	font-weight: 600;
+}
+
 /* -------------------------------------------------------------- responsive */
 @media ( max-width: 782px ) {
+	.bni-summary th,
+	.bni-summary td {
+		padding: 7px 6px;
+	}
+
+	.bni-summary__num {
+		width: 4.5rem;
+	}
+
 	.bni-hero {
 		padding: 22px;
 	}

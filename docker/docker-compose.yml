@@ -59,5 +59,30 @@ services:
     working_dir: /var/www/html
     entrypoint: ["sleep", "infinity"]
 
+  # Serves the same WordPress the cli container manages, so the admin importer
+  # page can be driven in a real browser. The in-browser "Start import" runs a
+  # completely different code path from the CLI - its own phase list, its own
+  # REST calls - and that path is where the 5-of-16 bug lived.
+  web:
+    image: wordpress:php8.2-apache
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+    volumes:
+      - wp-core:/var/www/html
+      - ../../buddynext:/var/www/html/wp-content/plugins/buddynext:ro
+      - ../../buddynext-pro:/var/www/html/wp-content/plugins/buddynext-pro:ro
+      - ../../wpmediaverse:/var/www/html/wp-content/plugins/wpmediaverse:ro
+      - ../../jetonomy:/var/www/html/wp-content/plugins/jetonomy:ro
+      - ..:/var/www/html/wp-content/plugins/buddynext-importer:ro
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
+
 volumes:
   wp-core:

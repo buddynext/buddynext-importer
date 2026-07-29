@@ -68,4 +68,29 @@ defined( 'ABSPATH' ) || exit;
 			<?php esc_html_e( 'The import is running on the server. You can leave this page - it will keep going, and reopening this screen will show its progress.', 'buddynext-importer' ); ?>
 		</p>
 	</div>
+
+	<?php
+	/*
+	 * What the migration actually moved. "Import complete" alone cannot answer
+	 * "did my hundred message threads arrive?", and a migration is exactly the
+	 * moment an owner needs that answered. Populated from /summary, so it is
+	 * still here after a reload and covers the background run too.
+	 */
+	?>
+	<div class="bni-card" id="bni-summary-card" hidden>
+		<h2 class="bni-card__title"><?php esc_html_e( 'What was imported', 'buddynext-importer' ); ?></h2>
+		<table class="bni-summary" id="bni-summary">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Domain', 'buddynext-importer' ); ?></th>
+					<th scope="col" class="bni-summary__num"><?php esc_html_e( 'In source', 'buddynext-importer' ); ?></th>
+					<th scope="col" class="bni-summary__num"><?php esc_html_e( 'Imported', 'buddynext-importer' ); ?></th>
+				</tr>
+			</thead>
+			<tbody id="bni-summary-body"></tbody>
+		</table>
+		<p class="bni-hint">
+			<?php esc_html_e( 'A domain can be legitimately short - private content its author cannot post into, or content whose parent was not migrated. A domain marked unavailable needs the plugin that owns it (Jetonomy for forums, WPMediaVerse for media and messages).', 'buddynext-importer' ); ?>
+		</p>
+	</div>
 </div>
