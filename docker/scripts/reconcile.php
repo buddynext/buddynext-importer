@@ -57,18 +57,18 @@ $cmp(
 	'checkbox fields were the 0/25 loss'
 );
 $cmp(
-	'  of which checkbox',
+	'  of which multi-value',
 	$count(
 		"SELECT COUNT(*) FROM {$p}bp_xprofile_data d
 		   JOIN {$p}bp_xprofile_fields f ON f.id = d.field_id
-		  WHERE f.type = 'checkbox' AND d.value <> ''"
+		  WHERE f.type IN ( 'checkbox', 'multiselectbox' ) AND d.value <> ''"
 	),
 	$count(
 		"SELECT COUNT(*) FROM {$p}bn_profile_values v
 		   JOIN {$p}bn_profile_fields f ON f.id = v.field_id
 		  WHERE f.type = 'multiselect' AND v.value <> ''"
 	),
-	'BP checkbox -> BN multiselect'
+	'BP checkbox + multiselectbox -> BN multiselect'
 );
 
 // ------------------------------------------------------------------ spaces --
@@ -110,8 +110,12 @@ $cmp(
 // -------------------------------------------------------------------- rest --
 $cmp(
 	'friendships -> connections',
-	$count( "SELECT COUNT(*) FROM {$p}bp_friends WHERE is_confirmed=1" ),
-	$count( "SELECT COUNT(*) FROM {$p}bn_connections" )
+	// Pending requests are migrated as pending connections, not dropped, so the
+	// source side must count them too - filtering to is_confirmed=1 made the
+	// importer look like it had invented connections.
+	$count( "SELECT COUNT(*) FROM {$p}bp_friends" ),
+	$count( "SELECT COUNT(*) FROM {$p}bn_connections" ),
+	'includes pending requests, which migrate as pending'
 );
 $cmp( 'reactions', null, $count( "SELECT COUNT(*) FROM {$p}bn_reactions" ), 'source is usermeta bp_favorite_activities' );
 $cmp( 'member type assignments', null, $count( "SELECT COUNT(*) FROM {$p}bn_member_type_assignments" ) );
@@ -180,6 +184,8 @@ if ( ! empty( $leaked_rows ) ) {
 			(string) $r['content']
 		);
 	}
+} elseif ( 0 === $src_group_activities ) {
+	echo "  n/a   this source has no group activity - the check did not run\n";
 } else {
 	echo "  PASS  no group post landed in the global feed\n";
 }

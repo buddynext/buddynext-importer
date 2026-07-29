@@ -1,7 +1,9 @@
 #!/bin/bash
 # One command: build the source community, migrate it, reconcile the result.
 #
-#   ./run.sh          full cycle from scratch (destroys any previous fixture)
+#   ./run.sh          full cycle from scratch, hand-written adversarial fixture
+#   ./run.sh reign    same, but seeded from the Wbcom Reign BuddyPress demo pack
+#                     (a real community - every domain has data to move)
 #   ./run.sh migrate  re-run the migration + reconcile against the existing fixture
 #   ./run.sh shell    a wp-cli shell inside the container
 #   ./run.sh down     tear everything down
@@ -22,13 +24,21 @@ case "${1:-all}" in
 		;;
 esac
 
+# Which source community to build. The hand-written one is adversarial but
+# small; the Reign demo pack is real and exercises every domain.
+SEED=/scripts/seed-source.sh
+if [ "${1:-all}" = "reign" ]; then
+	SEED=/scripts/seed-source-reign.sh
+	set -- all
+fi
+
 if [ "${1:-all}" = "all" ]; then
 	echo "== tearing down any previous fixture =="
 	$DC down -v >/dev/null 2>&1 || true
 	$DC up -d
 	echo "== waiting for the database =="
 	until $DC exec -T db mysqladmin ping -h 127.0.0.1 -uroot -proot --silent >/dev/null 2>&1; do sleep 2; done
-	$DC exec -T wp bash /scripts/seed-source.sh
+	$DC exec -T wp bash "$SEED"
 fi
 
 echo
