@@ -77,6 +77,9 @@ class BuddyPressAdapter implements SourceAdapter {
 			'friendships'       => $this->table_count( 'bp_friends' ),
 			'follows'           => $this->table_count( 'bp_follow' ),
 			'group_types'       => count( $this->group_types() ),
+			// What CAN migrate, as distinct from what exists: a comment on a root
+			// the posts pass does not import has nowhere to attach.
+			'activity_comments_importable' => $this->importable_comment_count(),
 			'reactions'         => $this->table_exists( 'bb_user_reactions' )
 				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
 				: $this->favorites_count(),
@@ -829,6 +832,70 @@ class BuddyPressAdapter implements SourceAdapter {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Comments grouped by the TYPE of the activity they hang off.
+	 *
+	 * The posts pass imports only `activity_update`, while the comments pass
+	 * reads every `activity_comment`. A comment's item_id points at its root
+	 * activity, and in BuddyPress that root can be any commentable type - a blog
+	 * post activity, a forum activity, whatever an add-on registered. Those
+	 * roots are never imported, so their comments have no post to attach to and
+	 * are dropped.
+	 *
+	 * Nothing measured that, so the loss showed up only as "comments are short"
+	 * long after the migration. Answered here, BEFORE a run, it is a number the
+	 * owner can decide about.
+	 *
+	 * @return array<int,array{type:string,comments:int,importable:bool}>
+	 */
+	public function comment_root_types(): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_activity' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_activity';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			"SELECT COALESCE( r.type, '(missing root)' ) AS root_type, COUNT(*) AS n
+			   FROM `{$table}` c
+			   LEFT JOIN `{$table}` r ON r.id = c.item_id AND r.is_spam = 0
+			  WHERE c.type = 'activity_comment' AND c.is_spam = 0
+			  GROUP BY root_type
+			  ORDER BY n DESC",
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$type = (string) $row['root_type'];
+			$out[] = array(
+				'type'       => $type,
+				'comments'   => (int) $row['n'],
+				// Only a comment on an imported root can itself be imported.
+				'importable' => 'activity_update' === $type,
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * How many comments can actually migrate - those on an imported root.
+	 */
+	public function importable_comment_count(): int {
+		$total = 0;
+		foreach ( $this->comment_root_types() as $row ) {
+			if ( $row['importable'] ) {
+				$total += (int) $row['comments'];
+			}
+		}
+
+		return $total;
 	}
 
 	/**

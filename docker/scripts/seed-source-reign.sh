@@ -42,6 +42,9 @@ done
 echo "== loading the Reign demo community =="
 $WP eval-file /scripts/load-demo-pack.php
 
+echo "== comments on non-importable roots =="
+$WP eval-file /scripts/seed-comment-roots.php
+
 echo "== group types (become space categories) =="
 $WP eval-file /scripts/seed-group-types.php
 

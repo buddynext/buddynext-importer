@@ -325,4 +325,20 @@ interface SourceAdapter {
 	 * @return array<int,array<int,int>>
 	 */
 	public function group_type_map( array $group_ids ): array;
+
+	/**
+	 * Comments grouped by the type of activity they hang off.
+	 *
+	 * A comment whose root is not a type the posts pass imports has no post to
+	 * attach to, so it cannot migrate. Reporting that BEFORE a run turns an
+	 * unexplained shortfall into a number the owner can decide about.
+	 *
+	 * @return array<int,array{type:string,comments:int,importable:bool}>
+	 */
+	public function comment_root_types(): array;
+
+	/**
+	 * How many comments can actually migrate - those on an imported root.
+	 */
+	public function importable_comment_count(): int;
 }

@@ -167,7 +167,10 @@ final class StepRegistry {
 			$activity_available,
 			static fn ( int $c, int $b ): array => ActivityImporter::for_source( $source )->import_comments_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['comments'],
-			'activity_comments'
+			// Measured against the comments that CAN migrate. Comparing with the
+			// raw total would flag a structural gap - comments on roots the posts
+			// pass does not import - as a fresh shortfall on every run.
+			'activity_comments_importable'
 		);
 
 		$steps[] = self::step(

@@ -13,6 +13,7 @@ use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\Checkpoint;
 use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
+use BuddyNextImporter\Pipeline\ImportLedger;
 use BuddyNextImporter\Pipeline\FriendImporter;
 use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\ImageImporter;
@@ -147,6 +148,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['users'] === $batch );
 
+		ImportLedger::add( $source, 'profile_value', (int) $total_values );
 		\WP_CLI::success(
 			sprintf(
 				'Profiles imported: %d groups, %d fields, %d members, %d values.',
@@ -204,6 +206,7 @@ final class MigrateCommand {
 		// Group types become space categories, and a space carries its
 		// category_id at create time - so they have to land first.
 		$categories = $importer->import_categories_batch( 0, $batch );
+		ImportLedger::add( $source, 'space_category', (int) $categories['categories'] );
 		if ( $categories['fetched'] > 0 ) {
 			\WP_CLI::log(
 				sprintf(
@@ -235,6 +238,12 @@ final class MigrateCommand {
 		} while ( $result['fetched'] === $batch );
 
 		$this->settle_checkpoint( $source, 'space', $total_seen, $total_groups + $total_existing );
+
+		// The CLI does not run through StepRegistry - it calls the importers
+		// directly - so it records its own work. Without this the admin page's
+		// summary reads zero after a CLI migration, which is worse than no
+		// summary: the data IS there and the screen says it is not.
+		ImportLedger::add( $source, 'space', $total_groups + $total_members );
 
 		\WP_CLI::success( sprintf( 'Spaces imported: %d spaces, %d members.', $total_groups, $total_members ) );
 
@@ -316,6 +325,9 @@ final class MigrateCommand {
 		} while ( $result['fetched'] === $batch );
 		$this->settle_checkpoint( $source, 'comment', $comments_seen, $comments + $comments_existing );
 
+		ImportLedger::add( $source, 'post', $posts );
+		ImportLedger::add( $source, 'comment', $comments );
+
 		\WP_CLI::success( sprintf( 'Activity imported: %d posts, %d comments.', $posts, $comments ) );
 
 		$this->report_existing( $posts_existing, 'posts' );
@@ -384,6 +396,8 @@ final class MigrateCommand {
 
 		$this->settle_checkpoint( $source, 'connection', $seen, $total + array_sum( $skipped ) );
 
+		ImportLedger::add( $source, 'connection', $total );
+
 		\WP_CLI::success( sprintf( 'Friendships imported: %d of %d connections.', $total, $seen ) );
 
 		$this->report_skips( $skipped, $seen, $total, 'connections' );
@@ -450,6 +464,8 @@ final class MigrateCommand {
 		} while ( $result['fetched'] === $batch );
 
 		$this->settle_checkpoint( $source, 'follow', $seen, $total + array_sum( $skipped ) );
+
+		ImportLedger::add( $source, 'follow', $total );
 
 		\WP_CLI::success( sprintf( 'Follows imported: %d of %d follows.', $total, $seen ) );
 
@@ -522,6 +538,8 @@ final class MigrateCommand {
 		} while ( $result['fetched'] > 0 );
 
 		$this->settle_checkpoint( $source, 'reaction', $seen, $total + array_sum( $skipped ) );
+
+		ImportLedger::add( $source, 'reaction', $total );
 
 		\WP_CLI::success( sprintf( 'Reactions imported: %d of %d likes.', $total, $seen ) );
 
@@ -601,6 +619,7 @@ final class MigrateCommand {
 
 		$this->settle_checkpoint( $source, 'dm_thread', $source_messages, $messages + array_sum( $skipped ) );
 
+		ImportLedger::add( $source, 'dm_thread', (int) $conversations );
 		\WP_CLI::success(
 			sprintf(
 				'Messages imported: %d conversations, %d of %d source messages.',
@@ -755,6 +774,7 @@ final class MigrateCommand {
 
 		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch, $source, 'forum_reply' );
 
+		ImportLedger::add( $source, 'forum_space', (int) $forums );
 		\WP_CLI::success(
 			sprintf(
 				'Forums imported: %d forums, %d topics, %d replies.',
@@ -849,6 +869,7 @@ final class MigrateCommand {
 
 		$this->settle_checkpoint( $source, 'member_type_user', $members, $assignments + array_sum( $skipped ) );
 
+		ImportLedger::add( $source, 'member_type_user', (int) $assignments );
 		\WP_CLI::success(
 			sprintf(
 				'Member types imported: %d types, %d of %d members typed.',
@@ -953,6 +974,7 @@ final class MigrateCommand {
 
 		$this->settle_checkpoint( $source, 'standalone_media', $source_media, $media + array_sum( $skipped ) );
 
+		ImportLedger::add( $source, 'media_album', (int) $albums );
 		\WP_CLI::success(
 			sprintf(
 				'Media imported: %d albums, %d of %d standalone media.',
@@ -1024,6 +1046,7 @@ final class MigrateCommand {
 
 		$spaces = $this->image_loop( fn( $after ) => $importer->import_groups_batch( $after, $batch ), 'spaces', $batch, $source, 'group_image' );
 
+		ImportLedger::add( $source, 'member_image', (int) $members );
 		\WP_CLI::success(
 			sprintf(
 				'Images imported: %d members, %d spaces.',
@@ -1216,6 +1239,12 @@ final class MigrateCommand {
 			);
 		}
 
+		// Comments that cannot migrate, named BEFORE anything moves. The posts
+		// pass imports only activity_update, so a comment on any other root has
+		// no post to attach to. Saying so up front is the difference between an
+		// informed decision and an unexplained shortfall discovered afterwards.
+		$this->report_comment_roots( $source );
+
 		$this->migrate_profiles( $args, $assoc_args );
 
 		// Guarded like every other optional domain. migrate_member_types() opens
@@ -1274,6 +1303,53 @@ final class MigrateCommand {
 		\WP_CLI::log( 'Verify the result, then drop the temporary mapping tables with:' );
 		\WP_CLI::log( sprintf( '  wp buddynext-import cleanup --source=%s', $source ) );
 		\WP_CLI::log( 'After that you can deactivate and delete this importer.' );
+	}
+
+	/**
+	 * Report which activity types the source's comments hang off, and how many
+	 * of those comments therefore cannot be migrated.
+	 *
+	 * @param string $source Source key.
+	 */
+	private function report_comment_roots( string $source ): void {
+		$adapter = AdapterRegistry::get( $source );
+		if ( null === $adapter || ! method_exists( $adapter, 'comment_root_types' ) ) {
+			return;
+		}
+
+		$rows = $adapter->comment_root_types();
+		if ( array() === $rows ) {
+			return;
+		}
+
+		$blocked = 0;
+		foreach ( $rows as $row ) {
+			if ( ! $row['importable'] ) {
+				$blocked += (int) $row['comments'];
+			}
+		}
+
+		if ( 0 === $blocked ) {
+			return;
+		}
+
+		\WP_CLI::warning(
+			sprintf(
+				'%d comment(s) cannot be migrated: their root activity is not an activity_update, so it is never imported and there is no post for them to attach to.',
+				$blocked
+			)
+		);
+
+		foreach ( $rows as $row ) {
+			\WP_CLI::log(
+				sprintf(
+					'  %-24s %6d comment(s) %s',
+					(string) $row['type'],
+					(int) $row['comments'],
+					$row['importable'] ? '' : '  <- will NOT migrate'
+				)
+			);
+		}
 	}
 
 	/**

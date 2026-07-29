@@ -202,10 +202,14 @@ final class ProgressController {
 
 		return new WP_REST_Response(
 			array(
-				'source'    => $adapter->key(),
-				'label'     => $adapter->label(),
-				'available' => true,
-				'stats'     => $adapter->stats(),
+				'source'       => $adapter->key(),
+				'label'        => $adapter->label(),
+				'available'    => true,
+				'stats'        => $adapter->stats(),
+				// Content the migration cannot carry, declared BEFORE it runs.
+				// Discovering it afterwards is how "comments are short" became a
+				// bug report instead of a decision.
+				'comment_roots' => method_exists( $adapter, 'comment_root_types' ) ? $adapter->comment_root_types() : array(),
 			)
 		);
 	}

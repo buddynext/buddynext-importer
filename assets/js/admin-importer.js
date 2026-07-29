@@ -121,10 +121,35 @@
 			grid.hidden = false;
 		}
 
+		renderCommentRoots( data.comment_roots );
+
 		toggleButtons( true );
 		if ( ! cfg.bnActive ) {
 			showNotice( ( cfg.i18n && cfg.i18n.bnInactive ) || '', 'warning' );
 		}
+	}
+
+	// Comments whose root activity is not imported have no post to attach to, so
+	// they cannot migrate. Saying so BEFORE the run is the whole point - after
+	// it, the same fact is just an unexplained shortfall.
+	function renderCommentRoots( roots ) {
+		var note = el( 'bni-comment-roots' );
+		if ( ! note || ! Array.isArray( roots ) ) {
+			return;
+		}
+
+		var blocked = roots.filter( function ( r ) { return ! r.importable; } );
+		if ( ! blocked.length ) {
+			return;
+		}
+
+		var total = blocked.reduce( function ( sum, r ) { return sum + ( r.comments || 0 ); }, 0 );
+		var types = blocked.map( function ( r ) { return r.type + ' (' + r.comments + ')'; } ).join( ', ' );
+
+		note.textContent = ( ( cfg.i18n && cfg.i18n.commentRoots ) || '' )
+			.replace( '%1$d', String( total ) )
+			.replace( '%2$s', types );
+		note.hidden = false;
 	}
 
 	function step( spec, after ) {

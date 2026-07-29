@@ -344,6 +344,21 @@
 	color: var(--bni-wp-ink);
 }
 
+/* ------------------------------------------------------- pre-flight warning */
+
+/* Not an error state: this is content the migration is telling you up front it
+   cannot carry, so it reads as a caution rather than a failure. */
+.bni-warn {
+	margin: 12px 0 0;
+	padding: 10px 12px;
+	border-inline-start: 3px solid #d98d13;
+	border-radius: var(--bni-radius-sm);
+	background: #fdf6e7;
+	color: var(--bni-wp-ink);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
 /* ------------------------------------------------------------------ summary */
 .bni-summary {
 	width: 100%;

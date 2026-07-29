@@ -40,6 +40,8 @@ defined( 'ABSPATH' ) || exit;
 
 		<p class="bni-muted" id="bni-source-empty"><?php esc_html_e( 'Detecting source community...', 'buddynext-importer' ); ?></p>
 		<div class="bni-stats" id="bni-stats-grid" hidden></div>
+		<?php /* Content the migration cannot carry, shown before it is started. */ ?>
+		<p class="bni-warn" id="bni-comment-roots" hidden></p>
 	</div>
 
 	<div class="bni-card">
