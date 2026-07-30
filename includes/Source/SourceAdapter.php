@@ -341,4 +341,26 @@ interface SourceAdapter {
 	 * How many comments can actually migrate - those on an imported root.
 	 */
 	public function importable_comment_count(): int;
+
+	/**
+	 * Referential integrity of this source, as a list of checks.
+	 *
+	 * A count says a domain has data; it says nothing about whether the data
+	 * points at anything. A migration inherits every dangling reference in its
+	 * source, and an orphan there surfaces afterwards as a shortfall that reads
+	 * like an importer fault - so the source can be checked before it is blamed.
+	 *
+	 * The checks are schema-specific, which is why they live on the adapter: only
+	 * it knows how its platform stores a membership or an album.
+	 *
+	 * Each entry is:
+	 *   relation - what must hold, in words
+	 *   total    - rows participating
+	 *   broken   - rows that break it
+	 *   fatal    - true when a broken row loses data, false when it is expected
+	 *   note     - why, when it is expected
+	 *
+	 * @return array<int,array{relation:string,total:int,broken:int,fatal:bool,note:string}>
+	 */
+	public function relationship_report(): array;
 }

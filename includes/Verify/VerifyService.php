@@ -59,6 +59,8 @@ final class VerifyService {
 			'source'    => $source,
 			'available' => true,
 			'coverage'  => $this->coverage( $adapter ),
+			'relations' => method_exists( $adapter, 'relationship_report' ) ? $adapter->relationship_report() : array(),
+			'exposure'  => $this->exposure(),
 			'domains'   => $this->domains( $source, $adapter ),
 			'samples'   => array(
 				'spaces'     => $this->sample_spaces( $source, $samples ),
@@ -100,6 +102,67 @@ final class VerifyService {
 	}
 
 	/**
+	 * Whether migrated content is exposed more widely than its space allows.
+	 *
+	 * A post in a private or secret space must not be publicly searchable. The
+	 * search index carries its own visibility column, derived at index time, so
+	 * it can disagree with the space - and when it does, nothing in a row count
+	 * shows it. BuddyNext 1.1.1 fixed exactly that for natively-created content
+	 * (schema v37); migrated content deserves the same assurance, since the
+	 * importer writes thousands of rows in one pass.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function exposure(): array {
+		global $wpdb;
+
+		$index = $wpdb->prefix . 'bn_search_index';
+		if ( ! $this->table_exists( $index ) ) {
+			return array(
+				'checked' => false,
+				'leaked'  => 0,
+				'rows'    => array(),
+			);
+		}
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $index is $wpdb->prefix . 'bn_search_index', not input.
+		$rows = $wpdb->get_results(
+			"SELECT COALESCE( s.type, '(no space)' ) AS space_type, si.visibility, COUNT(*) AS n
+			   FROM `{$index}` si
+			   LEFT JOIN {$wpdb->prefix}bn_spaces s ON s.id = si.space_id
+			  WHERE si.object_type = 'post'
+			  GROUP BY space_type, si.visibility", // phpcs:ignore WordPress.DB
+			ARRAY_A
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+		$leaked = 0;
+		$out    = array();
+		foreach ( (array) $rows as $row ) {
+			$restricted = in_array( (string) $row['space_type'], array( 'private', 'secret' ), true );
+			$public     = 'public' === (string) $row['visibility'];
+			$bad        = $restricted && $public;
+
+			if ( $bad ) {
+				$leaked += (int) $row['n'];
+			}
+
+			$out[] = array(
+				'space_type' => (string) $row['space_type'],
+				'visibility' => (string) $row['visibility'],
+				'rows'       => (int) $row['n'],
+				'leaked'     => $bad,
+			);
+		}
+
+		return array(
+			'checked' => true,
+			'leaked'  => $leaked,
+			'rows'    => $out,
+		);
+	}
+
+	/**
 	 * Per-domain source count against what was imported.
 	 *
 	 * @param string $source  Source key.
@@ -129,10 +192,67 @@ final class VerifyService {
 				'expected'  => $expected,
 				'imported'  => (int) ( $ledger[ $domain ] ?? 0 ),
 				'available' => (bool) ( $step['available'] )(),
+				// Why a domain is short, when the answer is knowable from the
+				// id-map rather than from guessing.
+				'because'   => $this->shortfall_reason( $source, $domain, $expected, (int) ( $ledger[ $domain ] ?? 0 ) ),
 			);
 		}
 
 		return $rows;
+	}
+
+	/**
+	 * Explain a domain's shortfall where the id-map can prove the cause.
+	 *
+	 * A bare "short by 547" reads as data loss. For anything hung off a parent -
+	 * a reaction, a comment - the id-map already knows whether that parent was
+	 * imported, so the gap can be attributed rather than left to be feared.
+	 *
+	 * @param string   $source   Source key.
+	 * @param string   $domain   Domain key.
+	 * @param int|null $expected Source count, when comparable.
+	 * @param int      $imported Rows written.
+	 */
+	private function shortfall_reason( string $source, string $domain, ?int $expected, int $imported ): string {
+		if ( null === $expected || $imported >= $expected ) {
+			return '';
+		}
+
+		global $wpdb;
+
+		$map = $wpdb->prefix . 'bni_id_map';
+		if ( ! $this->table_exists( $map ) ) {
+			return '';
+		}
+
+		// Reactions hang off an activity. One whose activity was not imported has
+		// nothing to attach to, and that is the whole of the gap on every source
+		// seen so far - system notices people reacted to.
+		if ( 'reaction' === $domain && $this->table_exists( $wpdb->prefix . 'bb_user_reactions' ) ) {
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $map is $wpdb->prefix . 'bni_id_map', not input.
+			$orphaned = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$wpdb->prefix}bb_user_reactions r
+					  WHERE r.item_type = 'activity'
+					    AND NOT EXISTS (
+					        SELECT 1 FROM `{$map}` m
+					         WHERE m.source = %s AND m.domain = 'post' AND m.source_id = r.item_id
+					    )", // phpcs:ignore WordPress.DB
+					$source
+				)
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+			if ( $orphaned > 0 ) {
+				return sprintf(
+					/* translators: %d: number of reactions. */
+					__( '%d were on activity that is not imported, so they have no post to attach to', 'buddynext-importer' ),
+					$orphaned
+				);
+			}
+		}
+
+		return '';
 	}
 
 	/**

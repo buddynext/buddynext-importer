@@ -1472,7 +1472,51 @@ final class MigrateCommand {
 			}
 		}
 
-		// 2. Totals, source counted independently.
+		// 2. Does the source point at what it claims to?
+		$relations = (array) ( $report['relations'] ?? array() );
+		if ( array() !== $relations ) {
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== Source relationships ==' );
+			$intact = 0;
+			foreach ( $relations as $rel ) {
+				$broken = (int) $rel['broken'];
+				if ( 0 === $broken ) {
+					++$intact;
+					continue;
+				}
+
+				// A broken reference in the SOURCE is not this tool's fault, but it
+				// is this tool's problem: it becomes a shortfall here.
+				if ( empty( $rel['fatal'] ) ) {
+					\WP_CLI::log( sprintf( '  note  %-40s %d of %d  %s', (string) $rel['relation'], $broken, (int) $rel['total'], (string) $rel['note'] ) );
+					continue;
+				}
+
+				++$problems;
+				\WP_CLI::log( sprintf( '  BROKEN %-39s %d of %d  in the SOURCE - these cannot migrate', (string) $rel['relation'], $broken, (int) $rel['total'] ) );
+			}
+			\WP_CLI::log( sprintf( '  %d relation(s) intact.', $intact ) );
+		}
+
+		// 3. Is anything exposed more widely than its space allows?
+		$exposure = (array) ( $report['exposure'] ?? array() );
+		if ( ! empty( $exposure['checked'] ) ) {
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== Exposure ==' );
+			if ( (int) $exposure['leaked'] > 0 ) {
+				++$problems;
+				\WP_CLI::log( sprintf( '  LEAK  %d post(s) from a private or secret space are PUBLICLY SEARCHABLE', (int) $exposure['leaked'] ) );
+				foreach ( (array) $exposure['rows'] as $row ) {
+					if ( ! empty( $row['leaked'] ) ) {
+						\WP_CLI::log( sprintf( '          space=%-10s index visibility=%-10s %d row(s)', (string) $row['space_type'], (string) $row['visibility'], (int) $row['rows'] ) );
+					}
+				}
+			} else {
+				\WP_CLI::log( '  ok    no private or secret space content is publicly searchable' );
+			}
+		}
+
+		// 4. Totals, source counted independently.
 		\WP_CLI::log( '' );
 		\WP_CLI::log( '== Domains ==' );
 		\WP_CLI::log( sprintf( '  %-22s %10s %10s', 'DOMAIN', 'IN SOURCE', 'IMPORTED' ) );
@@ -1487,18 +1531,25 @@ final class MigrateCommand {
 				++$problems;
 			}
 
+			$tail = '';
+			if ( $short ) {
+				$tail  = '   short by ' . ( (int) $expected - (int) $row['imported'] );
+				$why   = (string) ( $row['because'] ?? '' );
+				$tail .= '' !== $why ? ' - ' . $why : '';
+			}
+
 			\WP_CLI::log(
 				sprintf(
 					'  %-22s %10s %10d%s',
 					(string) $row['label'],
 					null === $expected ? '-' : (string) $expected,
 					(int) $row['imported'],
-					$short ? '   short by ' . ( (int) $expected - (int) $row['imported'] ) : ''
+					$tail
 				)
 			);
 		}
 
-		// 3. Objects, walked end to end. Totals cannot see placement.
+		// 5. Objects, walked end to end. Totals cannot see placement.
 		foreach ( array( 'spaces' => 'Spaces', 'activities' => 'Activities' ) as $key => $label ) {
 			$rows = (array) ( $report['samples'][ $key ] ?? array() );
 			if ( array() === $rows ) {

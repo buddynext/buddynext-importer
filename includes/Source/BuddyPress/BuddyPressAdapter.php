@@ -928,6 +928,164 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Referential integrity of this source. {@see SourceAdapter::relationship_report()}
+	 *
+	 * @return array<int,array{relation:string,total:int,broken:int,fatal:bool,note:string}>
+	 */
+	public function relationship_report(): array {
+		global $wpdb;
+
+		$p   = $wpdb->prefix;
+		$out = array();
+
+		/**
+		 * Add one check, skipping it when the table is not installed.
+		 *
+		 * @param string $relation Description.
+		 * @param string $table    Table the relation lives on, without prefix.
+		 * @param string $total    COUNT expression for participating rows.
+		 * @param string $broken   COUNT expression for rows that break it.
+		 * @param bool   $fatal    Whether a broken row loses data.
+		 * @param string $note     Why, when expected.
+		 */
+		$add = function ( string $relation, string $table, string $total, string $broken, bool $fatal = true, string $note = '' ) use ( &$out, $wpdb ): void {
+			if ( ! $this->table_exists( $table ) ) {
+				return;
+			}
+
+			$out[] = array(
+				'relation' => $relation,
+				'total'    => (int) $wpdb->get_var( $total ), // phpcs:ignore WordPress.DB
+				'broken'   => (int) $wpdb->get_var( $broken ), // phpcs:ignore WordPress.DB
+				'fatal'    => $fatal,
+				'note'     => $note,
+			);
+		};
+
+		// -- profiles ---------------------------------------------------------- //
+
+		$add(
+			'profile field -> field group',
+			'bp_xprofile_fields',
+			"SELECT COUNT(*) FROM {$p}bp_xprofile_fields WHERE parent_id = 0",
+			"SELECT COUNT(*) FROM {$p}bp_xprofile_fields f WHERE f.parent_id = 0 AND NOT EXISTS ( SELECT 1 FROM {$p}bp_xprofile_groups g WHERE g.id = f.group_id )"
+		);
+		$add(
+			'profile value -> field',
+			'bp_xprofile_data',
+			"SELECT COUNT(*) FROM {$p}bp_xprofile_data",
+			"SELECT COUNT(*) FROM {$p}bp_xprofile_data d WHERE NOT EXISTS ( SELECT 1 FROM {$p}bp_xprofile_fields f WHERE f.id = d.field_id )"
+		);
+		$add(
+			'profile value -> user',
+			'bp_xprofile_data',
+			"SELECT COUNT(*) FROM {$p}bp_xprofile_data",
+			"SELECT COUNT(*) FROM {$p}bp_xprofile_data d WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = d.user_id )"
+		);
+
+		// -- groups ------------------------------------------------------------ //
+
+		$add(
+			'group -> creator',
+			'bp_groups',
+			"SELECT COUNT(*) FROM {$p}bp_groups",
+			"SELECT COUNT(*) FROM {$p}bp_groups g WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = g.creator_id )"
+		);
+		$add(
+			'membership -> group',
+			'bp_groups_members',
+			"SELECT COUNT(*) FROM {$p}bp_groups_members",
+			"SELECT COUNT(*) FROM {$p}bp_groups_members m WHERE NOT EXISTS ( SELECT 1 FROM {$p}bp_groups g WHERE g.id = m.group_id )"
+		);
+		$add(
+			'membership -> user',
+			'bp_groups_members',
+			"SELECT COUNT(*) FROM {$p}bp_groups_members",
+			"SELECT COUNT(*) FROM {$p}bp_groups_members m WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = m.user_id )"
+		);
+
+		// -- activity ---------------------------------------------------------- //
+
+		$add(
+			'activity -> author',
+			'bp_activity',
+			"SELECT COUNT(*) FROM {$p}bp_activity WHERE is_spam = 0",
+			"SELECT COUNT(*) FROM {$p}bp_activity a WHERE a.is_spam = 0 AND NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = a.user_id )"
+		);
+		// A group post with no resolvable group cannot be placed, and is refused
+		// rather than published to the global feed - so it is a real loss.
+		$add(
+			'group activity -> group',
+			'bp_activity',
+			"SELECT COUNT(*) FROM {$p}bp_activity WHERE component = 'groups' AND is_spam = 0",
+			"SELECT COUNT(*) FROM {$p}bp_activity a WHERE a.component = 'groups' AND a.is_spam = 0 AND NOT EXISTS ( SELECT 1 FROM {$p}bp_groups g WHERE g.id = a.item_id )"
+		);
+		$add(
+			'comment -> root activity',
+			'bp_activity',
+			"SELECT COUNT(*) FROM {$p}bp_activity WHERE type = 'activity_comment' AND is_spam = 0",
+			"SELECT COUNT(*) FROM {$p}bp_activity c WHERE c.type = 'activity_comment' AND c.is_spam = 0 AND NOT EXISTS ( SELECT 1 FROM {$p}bp_activity r WHERE r.id = c.item_id )"
+		);
+		$add(
+			'comment root is a type we carry',
+			'bp_activity',
+			"SELECT COUNT(*) FROM {$p}bp_activity WHERE type = 'activity_comment' AND is_spam = 0",
+			"SELECT COUNT(*) FROM {$p}bp_activity c JOIN {$p}bp_activity r ON r.id = c.item_id WHERE c.type = 'activity_comment' AND c.is_spam = 0 AND r.type NOT IN ( '" . implode( "','", self::IMPORTED_ACTIVITY_TYPES ) . "' )",
+			false,
+			'system notices have no BuddyNext equivalent'
+		);
+
+		// -- connections ------------------------------------------------------- //
+
+		$add(
+			'friendship -> both users',
+			'bp_friends',
+			"SELECT COUNT(*) FROM {$p}bp_friends",
+			"SELECT COUNT(*) FROM {$p}bp_friends f WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = f.initiator_user_id ) OR NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u2 WHERE u2.ID = f.friend_user_id )"
+		);
+		$add(
+			'no self-friendship',
+			'bp_friends',
+			"SELECT COUNT(*) FROM {$p}bp_friends",
+			"SELECT COUNT(*) FROM {$p}bp_friends WHERE initiator_user_id = friend_user_id"
+		);
+
+		// -- messages ---------------------------------------------------------- //
+
+		$add(
+			'message -> sender',
+			'bp_messages_messages',
+			"SELECT COUNT(*) FROM {$p}bp_messages_messages",
+			"SELECT COUNT(*) FROM {$p}bp_messages_messages m WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = m.sender_id )"
+		);
+		$add(
+			'thread has two participants',
+			'bp_messages_recipients',
+			"SELECT COUNT(DISTINCT thread_id) FROM {$p}bp_messages_recipients",
+			"SELECT COUNT(*) FROM ( SELECT thread_id FROM {$p}bp_messages_recipients GROUP BY thread_id HAVING COUNT(DISTINCT user_id) < 2 ) x",
+			false,
+			'a one-sided thread is refused by the DM engine'
+		);
+
+		// -- classifications --------------------------------------------------- //
+
+		$add(
+			'member type assignment -> user',
+			'bp_activity',
+			"SELECT COUNT(*) FROM {$wpdb->term_relationships} tr JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = '" . self::MEMBER_TYPE_TAXONOMY . "'",
+			"SELECT COUNT(*) FROM {$wpdb->term_relationships} tr JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = '" . self::MEMBER_TYPE_TAXONOMY . "' WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = tr.object_id )"
+		);
+		$add(
+			'group type assignment -> group',
+			'bp_groups',
+			"SELECT COUNT(*) FROM {$wpdb->term_relationships} tr JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'bp_group_type'",
+			"SELECT COUNT(*) FROM {$wpdb->term_relationships} tr JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'bp_group_type' WHERE NOT EXISTS ( SELECT 1 FROM {$p}bp_groups g WHERE g.id = tr.object_id )"
+		);
+
+		return $out;
+	}
+
+	/**
 	 * Group types, which become BuddyNext space categories.
 	 *
 	 * BuddyPress registers group types as a TAXONOMY (`bp_group_type`), so the

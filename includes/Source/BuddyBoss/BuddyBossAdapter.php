@@ -319,4 +319,58 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 			)
 		);
 	}
+
+	/**
+	 * BuddyPress's relations plus the media ones only BuddyBoss has.
+	 *
+	 * @return array<int,array{relation:string,total:int,broken:int,fatal:bool,note:string}>
+	 */
+	public function relationship_report(): array {
+		global $wpdb;
+
+		$p   = $wpdb->prefix;
+		$out = parent::relationship_report();
+
+		if ( ! $this->table_exists( 'bp_media' ) ) {
+			return $out;
+		}
+
+		$out[] = array(
+			'relation' => 'media -> attachment post',
+			'total'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media" ), // phpcs:ignore WordPress.DB
+			'broken'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media m WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->posts} po WHERE po.ID = m.attachment_id )" ), // phpcs:ignore WordPress.DB
+			'fatal'    => true,
+			'note'     => '',
+		);
+
+		// An attachment row with no file behind it cannot be ingested - the
+		// writer refuses it as file_missing_or_upload_refused, which is correct
+		// but worth knowing BEFORE the run rather than reading as a shortfall.
+		$out[] = array(
+			'relation' => 'media attachment has a file',
+			'total'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media" ), // phpcs:ignore WordPress.DB
+			'broken'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media m WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->postmeta} pm WHERE pm.post_id = m.attachment_id AND pm.meta_key = '_wp_attached_file' )" ), // phpcs:ignore WordPress.DB
+			'fatal'    => false,
+			'note'     => 'ingestion refuses a row with no file',
+		);
+
+		if ( $this->table_exists( 'bp_media_albums' ) ) {
+			$out[] = array(
+				'relation' => 'album media -> album',
+				'total'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media WHERE COALESCE( album_id, 0 ) > 0" ), // phpcs:ignore WordPress.DB
+				'broken'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media m WHERE COALESCE( m.album_id, 0 ) > 0 AND NOT EXISTS ( SELECT 1 FROM {$p}bp_media_albums a WHERE a.id = m.album_id )" ), // phpcs:ignore WordPress.DB
+				'fatal'    => true,
+				'note'     => '',
+			);
+			$out[] = array(
+				'relation' => 'album -> owner',
+				'total'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media_albums" ), // phpcs:ignore WordPress.DB
+				'broken'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bp_media_albums a WHERE NOT EXISTS ( SELECT 1 FROM {$wpdb->users} u WHERE u.ID = a.user_id )" ), // phpcs:ignore WordPress.DB
+				'fatal'    => true,
+				'note'     => '',
+			);
+		}
+
+		return $out;
+	}
 }
