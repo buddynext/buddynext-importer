@@ -330,6 +330,61 @@
 		} );
 	}
 
+	/**
+	 * Show or hide the teardown confirmation, and move focus onto it when opening
+	 * so a keyboard user is not left on a button whose panel appeared elsewhere.
+	 */
+	function toggleCleanupConfirm( open ) {
+		var box = el( 'bni-cleanup-confirm' );
+		var opener = el( 'bni-cleanup' );
+		if ( ! box ) {
+			return;
+		}
+		box.hidden = ! open;
+		if ( opener ) {
+			opener.hidden = !! open;
+		}
+		if ( open ) {
+			var yes = el( 'bni-cleanup-yes' );
+			if ( yes ) {
+				yes.focus();
+			}
+		} else if ( opener ) {
+			opener.focus();
+		}
+	}
+
+	/**
+	 * Drop the importer's working tables. The endpoint requires confirm:true, so
+	 * this cannot fire from a stray POST, and it refuses while a job is running.
+	 */
+	function runCleanup() {
+		var yes = el( 'bni-cleanup-yes' );
+		if ( yes ) {
+			yes.disabled = true;
+		}
+		apiFetch( {
+			path: '/buddynext-importer/v1/cleanup',
+			method: 'POST',
+			headers: { 'X-WP-Nonce': cfg.nonce },
+			data: { confirm: true }
+		} ).then( function ( res ) {
+			toggleCleanupConfirm( false );
+			var teardown = document.querySelector( '.bni-teardown' );
+			if ( teardown ) {
+				teardown.hidden = true;
+			}
+			showNotice( ( res && res.message ) || '', 'success' );
+		} ).catch( function ( err ) {
+			if ( yes ) {
+				yes.disabled = false;
+			}
+			// Surface the server's reason - "an import is still running" is the one
+			// an owner needs to see, and a generic failure line would hide it.
+			showNotice( ( err && err.message ) || ( cfg.i18n && cfg.i18n.runFailed ) || '', 'error' );
+		} );
+	}
+
 	function cancelBackground() {
 		apiFetch( {
 			path: '/buddynext-importer/v1/background/cancel',
@@ -446,6 +501,22 @@
 		var cancel = el( 'bni-cancel-bg' );
 		if ( cancel ) {
 			cancel.addEventListener( 'click', cancelBackground );
+		}
+		var cleanup = el( 'bni-cleanup' );
+		if ( cleanup ) {
+			cleanup.addEventListener( 'click', function () {
+				toggleCleanupConfirm( true );
+			} );
+		}
+		var cleanupNo = el( 'bni-cleanup-no' );
+		if ( cleanupNo ) {
+			cleanupNo.addEventListener( 'click', function () {
+				toggleCleanupConfirm( false );
+			} );
+		}
+		var cleanupYes = el( 'bni-cleanup-yes' );
+		if ( cleanupYes ) {
+			cleanupYes.addEventListener( 'click', runCleanup );
 		}
 	} );
 } )();

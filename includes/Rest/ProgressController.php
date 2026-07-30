@@ -16,6 +16,8 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\Rest;
 
 use BuddyNextImporter\Background\BackgroundImport;
+use BuddyNextImporter\Pipeline\Checkpoint;
+use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\ImportLedger;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
@@ -115,6 +117,26 @@ final class ProgressController {
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'cancel_background' ),
 				'permission_callback' => array( $this, 'require_admin' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/cleanup',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'cleanup' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					// Required, and required to be true: this drops the tables that
+					// make every write idempotent, so it must not be reachable by a
+					// bare POST to the route. The UI asks first; this makes the
+					// intent explicit on the wire too.
+					'confirm' => array(
+						'type'     => 'boolean',
+						'required' => true,
+					),
+				),
 			)
 		);
 
@@ -343,6 +365,58 @@ final class ProgressController {
 		$runner->cancel();
 
 		return new WP_REST_Response( $runner->status() );
+	}
+
+	/**
+	 * POST /cleanup - drop the importer's working tables once the migration is done.
+	 *
+	 * The id-map and resume checkpoint are scaffolding for a one-time migration:
+	 * the map makes every write idempotent and resolves relationships, the
+	 * checkpoint lets a resumed run skip what is finished. Verified, they serve no
+	 * purpose on the live site, so removing them is the ordinary end of an import.
+	 *
+	 * It was CLI-only (`wp buddynext-import cleanup`). An owner who ran the whole
+	 * migration from the dashboard - which is the entire point of the background
+	 * runner - had no way to finish it, and was left with two orphan tables and no
+	 * indication they were removable. Same capability and same guard as the rest of
+	 * this controller, so the dashboard path is not the lenient one.
+	 *
+	 * Refused while a job is running, because the checkpoint it would delete is
+	 * exactly what the next tick reads to know where it got to: dropping it
+	 * mid-flight would make the run restart from zero against an id-map that no
+	 * longer remembers anything, and re-import the entire community.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function cleanup( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		if ( true !== $request->get_param( 'confirm' ) ) {
+			return new WP_Error(
+				'buddynext_importer_cleanup_unconfirmed',
+				__( 'Removing the import data has to be confirmed.', 'buddynext-importer' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$runner = new BackgroundImport();
+		$status = $runner->status();
+
+		if ( 'running' === ( $status['state'] ?? '' ) ) {
+			return new WP_Error(
+				'buddynext_importer_cleanup_while_running',
+				__( 'An import is still running. Cancel it or let it finish before removing the import data.', 'buddynext-importer' ),
+				array( 'status' => 409 )
+			);
+		}
+
+		IdMap::drop();
+		Checkpoint::drop();
+
+		return new WP_REST_Response(
+			array(
+				'removed' => true,
+				'message' => __( 'Removed the importer working tables. You can deactivate and delete this plugin now.', 'buddynext-importer' ),
+			)
+		);
 	}
 
 	/**
