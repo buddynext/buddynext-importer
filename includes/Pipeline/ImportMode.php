@@ -157,6 +157,25 @@ final class ImportMode {
 		// way for the member to ever see it again.
 		add_filter( 'mvs_message_max_length', $unlimited, PHP_INT_MAX );
 
+		// BuddyNext throttles comments to buddynext_comment_rate_limit per user
+		// per two minutes (default 30). A bulk replay trips that by definition -
+		// it is the same "rate limits exist to stop live abuse" case as the DM
+		// limits above - and CommentService reads the option directly rather than
+		// through a filter of its own, so it is lifted through WordPress's option
+		// filters. The value 0 is CommentService's own documented "disabled".
+		//
+		// This one cost real rows before it was found: 49 comments were refused
+		// mid-run as rate_limited, and because a refusal is not written to the
+		// id-map they simply were not there afterwards. A second pass imported
+		// every one of them, which is what proved the loss was the throttle and
+		// not the data.
+		$no_comment_throttle = static function ( $limit ) {
+			return self::$active ? 0 : $limit;
+		};
+
+		add_filter( 'option_buddynext_comment_rate_limit', $no_comment_throttle, PHP_INT_MAX );
+		add_filter( 'default_option_buddynext_comment_rate_limit', $no_comment_throttle, PHP_INT_MAX );
+
 		// Follow + connection privacy lifts, via BuddyNext's OWN public filters.
 		// A follow or friendship EXISTED at the source, so it is historical data
 		// we re-add during the replay; the member's who_can_follow /
