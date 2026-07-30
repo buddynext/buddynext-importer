@@ -28,7 +28,14 @@ $term_ids = array();
 foreach ( $types as $slug => $name ) {
 	$existing = (int) $wpdb->get_var( $wpdb->prepare( "SELECT term_id FROM {$wpdb->terms} WHERE slug = %s", $slug ) );
 	if ( ! $existing ) {
-		$wpdb->insert( $wpdb->terms, array( 'name' => $name, 'slug' => $slug, 'term_group' => 0 ) );
+		$wpdb->insert(
+			$wpdb->terms,
+			array(
+				'name'       => $name,
+				'slug'       => $slug,
+				'term_group' => 0,
+			)
+		);
 		$existing = (int) $wpdb->insert_id;
 		$wpdb->insert(
 			$wpdb->term_taxonomy,
@@ -65,13 +72,27 @@ foreach ( (array) $groups as $i => $group_id ) {
 	}
 
 	$slug = $slugs[ $i % count( $slugs ) ];
-	$wpdb->insert( $wpdb->term_relationships, array( 'object_id' => $group_id, 'term_taxonomy_id' => $tt[ $slug ], 'term_order' => 0 ) );
+	$wpdb->insert(
+		$wpdb->term_relationships,
+		array(
+			'object_id'        => $group_id,
+			'term_taxonomy_id' => $tt[ $slug ],
+			'term_order'       => 0,
+		)
+	);
 	++$assigned;
 
 	// The first group gets a SECOND type, so the many-to-one collapse is
 	// exercised rather than assumed.
 	if ( 0 === $i ) {
-		$wpdb->insert( $wpdb->term_relationships, array( 'object_id' => $group_id, 'term_taxonomy_id' => $tt['projects'], 'term_order' => 1 ) );
+		$wpdb->insert(
+			$wpdb->term_relationships,
+			array(
+				'object_id'        => $group_id,
+				'term_taxonomy_id' => $tt['projects'],
+				'term_order'       => 1,
+			)
+		);
 	}
 }
 

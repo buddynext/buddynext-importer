@@ -15,7 +15,12 @@ global $wpdb;
 $p     = $wpdb->prefix;
 $table = $p . 'bp_activity';
 
-$authors = get_users( array( 'fields' => 'ID', 'number' => 12 ) );
+$authors = get_users(
+	array(
+		'fields' => 'ID',
+		'number' => 12,
+	)
+);
 if ( empty( $authors ) ) {
 	echo "  no users to author posts\n";
 	return;

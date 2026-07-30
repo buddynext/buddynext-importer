@@ -52,7 +52,7 @@ final class ImportLedger {
 			return;
 		}
 
-		$ledger = self::all();
+		$ledger                       = self::all();
 		$ledger[ $source ][ $domain ] = (int) ( $ledger[ $source ][ $domain ] ?? 0 ) + $count;
 
 		update_option( self::OPTION, $ledger, false );

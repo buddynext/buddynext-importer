@@ -78,38 +78,38 @@ class BuddyPressAdapter implements SourceAdapter {
 		global $wpdb;
 
 		return array(
-			'users'             => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->users}" ), // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-			'profile_fields'    => $this->table_count( 'bp_xprofile_fields', 'parent_id = 0' ),
-			'profile_values'    => $this->table_count( 'bp_xprofile_data' ),
-			'groups'            => $this->table_count( 'bp_groups' ),
+			'users'                        => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->users}" ), // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			'profile_fields'               => $this->table_count( 'bp_xprofile_fields', 'parent_id = 0' ),
+			'profile_values'               => $this->table_count( 'bp_xprofile_data' ),
+			'groups'                       => $this->table_count( 'bp_groups' ),
 			// Every row: group_members() reads the whole table, pending memberships
 			// included. Counting only confirmed ones understated the source, so a
 			// genuine shortfall looked like a surplus.
-			'group_members'     => $this->table_count( 'bp_groups_members' ),
-			'activities'        => $this->table_count( 'bp_activity', "type IN ('" . implode( "','", self::IMPORTED_ACTIVITY_TYPES ) . "') AND is_spam = 0" ),
-			'activity_comments' => $this->table_count( 'bp_activity', "type = 'activity_comment'" ),
+			'group_members'                => $this->table_count( 'bp_groups_members' ),
+			'activities'                   => $this->table_count( 'bp_activity', "type IN ('" . implode( "','", self::IMPORTED_ACTIVITY_TYPES ) . "') AND is_spam = 0" ),
+			'activity_comments'            => $this->table_count( 'bp_activity', "type = 'activity_comment'" ),
 			// Every row, not just the confirmed ones: friendships() reads the whole
 			// table and a pending request migrates as a pending connection. Counting
 			// only confirmed rows here reported fewer in the source than the import
 			// wrote, which reads as the importer inventing connections.
-			'friendships'       => $this->table_count( 'bp_friends' ),
-			'follows'           => $this->table_count( 'bp_follow' ),
-			'group_types'       => count( $this->group_types() ),
+			'friendships'                  => $this->table_count( 'bp_friends' ),
+			'follows'                      => $this->table_count( 'bp_follow' ),
+			'group_types'                  => count( $this->group_types() ),
 			// What CAN migrate, as distinct from what exists: a comment on a root
 			// the posts pass does not import has nowhere to attach.
 			'activity_comments_importable' => $this->importable_comment_count(),
-			'reactions'         => $this->table_exists( 'bb_user_reactions' )
+			'reactions'                    => $this->table_exists( 'bb_user_reactions' )
 				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
 				: $this->favorites_count(),
-			'message_threads'   => $this->message_thread_count(),
+			'message_threads'              => $this->message_thread_count(),
 			// rtMedia activity media (photos/videos/audio) on a BuddyPress source.
 			// BuddyBoss overrides activity_media differently (bp_media); this is
 			// the plain-BP path, 0 when rtMedia is absent.
-			'activity_media'    => $this->rtmedia_activity_count(),
-			'member_types'      => count( $this->member_types() ),
-			'member_type_users' => $this->member_type_assignment_count(),
-			'member_images'     => $this->image_owner_count( 'avatars', 'members' ),
-			'group_images'      => $this->image_owner_count( 'group-avatars', 'groups' ),
+			'activity_media'               => $this->rtmedia_activity_count(),
+			'member_types'                 => count( $this->member_types() ),
+			'member_type_users'            => $this->member_type_assignment_count(),
+			'member_images'                => $this->image_owner_count( 'avatars', 'members' ),
+			'group_images'                 => $this->image_owner_count( 'group-avatars', 'groups' ),
 		);
 	}
 
@@ -799,9 +799,14 @@ class BuddyPressAdapter implements SourceAdapter {
 		// BuddyBoss adds a per-activity privacy column; BuddyPress core has none.
 		$privacy_col = $this->column_exists( 'bp_activity', 'privacy' ) ? ', privacy' : '';
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$types        = implode( "','", self::IMPORTED_ACTIVITY_TYPES );
-		$rows         = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, type, item_id, secondary_item_id, primary_link, content, date_recorded, hide_sitewide{$privacy_col} FROM `{$table}` WHERE type IN ('{$types}') AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		$types = implode( "','", self::IMPORTED_ACTIVITY_TYPES );
+
+		// Interpolated: the table name, the optional privacy column and the type
+		// list are all code-controlled (a class constant), not input. Values are
+		// still placeholders.
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, component, type, item_id, secondary_item_id, primary_link, content, date_recorded, hide_sitewide{$privacy_col} FROM `{$table}` WHERE type IN ('{$types}') AND is_spam = 0 AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -888,7 +893,10 @@ class BuddyPressAdapter implements SourceAdapter {
 
 		$table = $wpdb->prefix . 'bp_activity';
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// Interpolated table name only, self-joined; no input in the statement.
+		// A disable/enable pair rather than :ignore because the sniff reports the
+		// line inside the string, which a one-line ignore does not reach.
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			"SELECT COALESCE( r.type, '(missing root)' ) AS root_type, COUNT(*) AS n
 			   FROM `{$table}` c
@@ -898,10 +906,11 @@ class BuddyPressAdapter implements SourceAdapter {
 			  ORDER BY n DESC",
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
-			$type = (string) $row['root_type'];
+			$type  = (string) $row['root_type'];
 			$out[] = array(
 				'type'       => $type,
 				'comments'   => (int) $row['n'],
@@ -1163,7 +1172,11 @@ class BuddyPressAdapter implements SourceAdapter {
 
 		$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// Interpolated: core table properties, plus a placeholder list built from a
+		// count of ints. Every id still goes through prepare() as %d - the sniff
+		// cannot see those placeholders because they arrive interpolated, hence
+		// UnfinishedPrepare here too.
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT tr.object_id, tt.term_id
@@ -1175,6 +1188,7 @@ class BuddyPressAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
 
 		$map = array();
 		foreach ( (array) $rows as $row ) {
@@ -1662,16 +1676,36 @@ class BuddyPressAdapter implements SourceAdapter {
 	/**
 	 * Whether a prefixed table exists.
 	 *
+	 * Memoised for the request. This is a guard on 40-odd read paths, one of them
+	 * inside the per-activity loop in activity_media_for(), so an uncached SHOW
+	 * TABLES here is one query per activity carrying media - a per-row query
+	 * sitting inside the batched lookup that exists to remove per-row queries.
+	 * The cache is static rather than per-instance because AdapterRegistry::all()
+	 * constructs fresh adapters on every call, so an instance cache would almost
+	 * never be reused.
+	 *
+	 * Safe to cache: the source schema is fixed for the life of a migration
+	 * request. Nothing creates or drops a bp_* table mid-run, and the source
+	 * platform is deactivated before the import starts.
+	 *
 	 * @param string $unprefixed Unprefixed table name.
 	 */
 	protected function table_exists( string $unprefixed ): bool {
 		global $wpdb;
 
+		static $cache = array();
+
 		$table = $wpdb->prefix . $unprefixed;
+
+		if ( isset( $cache[ $table ] ) ) {
+			return $cache[ $table ];
+		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
 
-		return $found === $table;
+		$cache[ $table ] = ( $found === $table );
+
+		return $cache[ $table ];
 	}
 }

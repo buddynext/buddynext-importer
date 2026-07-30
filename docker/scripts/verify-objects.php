@@ -149,7 +149,7 @@ foreach ( (array) $sample as $a ) {
 			$src_id
 		)
 	);
-	$bn_comments = (int) $wpdb->get_var(
+	$bn_comments  = (int) $wpdb->get_var(
 		$wpdb->prepare(
 			"SELECT COUNT(*) FROM {$p}bn_comments WHERE object_type = 'post' AND object_id = %d AND is_deleted = 0", // phpcs:ignore WordPress.DB
 			$bn_id

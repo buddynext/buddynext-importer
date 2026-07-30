@@ -13,12 +13,24 @@ global $wpdb;
 $p = $wpdb->prefix;
 
 $tables = array(
-	'bn_profile_values', 'bn_profile_fields', 'bn_profile_groups',
-	'bn_spaces', 'bn_space_members', 'bn_space_categories', 'bn_space_meta',
-	'bn_posts', 'bn_comments', 'bn_reactions', 'bn_connections', 'bn_follows',
-	'bn_member_types', 'bn_member_type_assignments',
-	'mvs_conversations', 'mvs_messages',
-	'bni_id_map', 'bni_checkpoint',
+	'bn_profile_values',
+	'bn_profile_fields',
+	'bn_profile_groups',
+	'bn_spaces',
+	'bn_space_members',
+	'bn_space_categories',
+	'bn_space_meta',
+	'bn_posts',
+	'bn_comments',
+	'bn_reactions',
+	'bn_connections',
+	'bn_follows',
+	'bn_member_types',
+	'bn_member_type_assignments',
+	'mvs_conversations',
+	'mvs_messages',
+	'bni_id_map',
+	'bni_checkpoint',
 );
 
 $cleared = 0;

@@ -39,7 +39,12 @@ require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/media.php';
 require_once ABSPATH . 'wp-admin/includes/image.php';
 
-$members = get_users( array( 'fields' => 'ID', 'number' => 40 ) );
+$members = get_users(
+	array(
+		'fields' => 'ID',
+		'number' => 40,
+	)
+);
 if ( count( $members ) < 5 ) {
 	echo "  need more members first\n";
 	return;
@@ -262,6 +267,9 @@ foreach ( array(
 		printf( "  %-14s %d\n", $label, (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$full}`" ) );
 	}
 }
-printf( "  media WITH a file  %d\n", (int) $wpdb->get_var(
-	"SELECT COUNT(*) FROM {$p}bp_media m JOIN {$wpdb->postmeta} pm ON pm.post_id = m.attachment_id AND pm.meta_key = '_wp_attached_file'"
-) );
+printf(
+	"  media WITH a file  %d\n",
+	(int) $wpdb->get_var(
+		"SELECT COUNT(*) FROM {$p}bp_media m JOIN {$wpdb->postmeta} pm ON pm.post_id = m.attachment_id AND pm.meta_key = '_wp_attached_file'"
+	)
+);

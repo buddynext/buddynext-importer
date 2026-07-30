@@ -1404,6 +1404,9 @@ final class MigrateCommand {
 		// point. The guard stops a runaway if a job keeps rescheduling itself.
 		$guard = 0;
 		while ( $due_now() > 0 && $guard < 500 ) {
+			// Action Scheduler's own hook, fired deliberately to drain the queue in
+			// the foreground; not a hook of ours to prefix.
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
 			do_action( 'action_scheduler_run_queue', 'BuddyNext import' );
 			++$guard;
 		}
@@ -1550,7 +1553,10 @@ final class MigrateCommand {
 		}
 
 		// 5. Objects, walked end to end. Totals cannot see placement.
-		foreach ( array( 'spaces' => 'Spaces', 'activities' => 'Activities' ) as $key => $label ) {
+		foreach ( array(
+			'spaces'     => 'Spaces',
+			'activities' => 'Activities',
+		) as $key => $label ) {
 			$rows = (array) ( $report['samples'][ $key ] ?? array() );
 			if ( array() === $rows ) {
 				continue;

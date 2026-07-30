@@ -21,6 +21,14 @@
  * names, and the failures that matter here were all in the tail - one group
  * whose slug collided, one comment whose root was the wrong type.
  *
+ * Every read here is a direct, uncached query, and phpcs says so ten times over.
+ * Leave it that way: verification has to see what is on disk right now, and
+ * routing a count through a service or an object cache would report the
+ * importer's own view of what it wrote - which is the claim being checked. A
+ * cached "all present" is worthless. The warnings are not annotated away because
+ * a file-level phpcs:disable stops the inline ignores on the interpolated table
+ * names from taking effect, trading ten advisory warnings for three errors.
+ *
  * @package BuddyNextImporter
  */
 
@@ -90,7 +98,7 @@ final class VerifyService {
 						),
 						'rows'   => (int) $row['comments'],
 					);
-					$total += (int) $row['comments'];
+					$total    += (int) $row['comments'];
 				}
 			}
 		}
@@ -309,7 +317,7 @@ final class VerifyService {
 					$src
 				)
 			);
-			$bn_activity  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}bn_posts WHERE space_id = %d", $bn ) ); // phpcs:ignore WordPress.DB
+			$bn_activity = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}bn_posts WHERE space_id = %d", $bn ) ); // phpcs:ignore WordPress.DB
 
 			$problems = array();
 			if ( $stored !== $bn_active ) {

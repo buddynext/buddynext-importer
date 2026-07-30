@@ -31,7 +31,12 @@ if ( ! $has( 'bp_media' ) ) {
 	return;
 }
 
-$users = get_users( array( 'fields' => 'ID', 'number' => 6 ) );
+$users = get_users(
+	array(
+		'fields' => 'ID',
+		'number' => 6,
+	)
+);
 if ( count( $users ) < 2 ) {
 	echo "  need at least two users\n";
 	return;
@@ -76,17 +81,17 @@ foreach ( range( 1, 4 ) as $i ) {
 	$wpdb->insert(
 		$p . 'bp_media',
 		array(
-			'blog_id'      => get_current_blog_id(),
-			'attachment_id'=> (int) $attachment,
-			'user_id'      => $owner,
-			'title'        => 'BB photo ' . $i,
-			'album_id'     => $album_id,
-			'group_id'     => 0,
-			'activity_id'  => 0,
-			'privacy'      => 'public',
-			'menu_order'   => $i,
-			'date_created' => current_time( 'mysql', true ),
-			'status'       => 'published',
+			'blog_id'       => get_current_blog_id(),
+			'attachment_id' => (int) $attachment,
+			'user_id'       => $owner,
+			'title'         => 'BB photo ' . $i,
+			'album_id'      => $album_id,
+			'group_id'      => 0,
+			'activity_id'   => 0,
+			'privacy'       => 'public',
+			'menu_order'    => $i,
+			'date_created'  => current_time( 'mysql', true ),
+			'status'        => 'published',
 		)
 	);
 	++$made_media;

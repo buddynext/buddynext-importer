@@ -35,7 +35,12 @@ if ( array() === (array) $comments ) {
 	return;
 }
 
-$members = get_users( array( 'fields' => 'ID', 'number' => 20 ) );
+$members = get_users(
+	array(
+		'fields' => 'ID',
+		'number' => 20,
+	)
+);
 if ( count( $members ) < 2 ) {
 	echo "  need more members\n";
 	return;

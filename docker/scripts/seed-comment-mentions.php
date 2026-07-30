@@ -17,7 +17,12 @@
 global $wpdb;
 $p = $wpdb->prefix;
 
-$targets = get_users( array( 'fields' => 'ID', 'number' => 8 ) );
+$targets = get_users(
+	array(
+		'fields' => 'ID',
+		'number' => 8,
+	)
+);
 if ( count( $targets ) < 2 ) {
 	echo "  need more members\n";
 	return;

@@ -224,10 +224,10 @@ final class ProgressController {
 
 		return new WP_REST_Response(
 			array(
-				'source'       => $adapter->key(),
-				'label'        => $adapter->label(),
-				'available'    => true,
-				'stats'        => $adapter->stats(),
+				'source'        => $adapter->key(),
+				'label'         => $adapter->label(),
+				'available'     => true,
+				'stats'         => $adapter->stats(),
 				// Content the migration cannot carry, declared BEFORE it runs.
 				// Discovering it afterwards is how "comments are short" became a
 				// bug report instead of a decision.
@@ -298,8 +298,8 @@ final class ProgressController {
 	 * several keys. Returns null when the source offers no comparable count,
 	 * which reads as "no basis for comparison" rather than "none found".
 	 *
-	 * @param string             $stat  Comma-separated /stats keys, possibly empty.
-	 * @param array<string,int>  $stats The source stats.
+	 * @param string            $stat  Comma-separated /stats keys, possibly empty.
+	 * @param array<string,int> $stats The source stats.
 	 */
 	private static function source_total( string $stat, array $stats ): ?int {
 		if ( '' === $stat ) {

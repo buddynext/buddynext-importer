@@ -6,6 +6,23 @@
 	<exclude-pattern>*/vendor/*</exclude-pattern>
 	<exclude-pattern>*/node_modules/*</exclude-pattern>
 	<exclude-pattern>*/build/*</exclude-pattern>
+	<!--
+	docker/ is the disposable migration fixture: seeders that build a BuddyPress or
+	BuddyBoss source, plus measurement scripts. None of it ships in the plugin, and
+	all of it runs as top-level code through `wp eval-file`, which cannot satisfy
+	the product-code sniffs by construction - a script with no function wrapper has
+	only "unprefixed globals", CLI output has nothing to escape, and reading the
+	source schema directly is the entire purpose. Gating it would mean ~300 inline
+	ignores asserting a standard the file cannot hold.
+
+	It also contains a downloaded WordPress core (.playground/) and built zips
+	(.dist/), both gitignored, which buried the plugin's own findings under 28,000
+	from code we do not own.
+
+	Everything that ships - includes/, the bootstrap, templates - stays on the full
+	WordPress standard with no path exclusions.
+	-->
+	<exclude-pattern>*/docker/*</exclude-pattern>
 
 	<arg name="extensions" value="php"/>
 	<arg value="ps"/>

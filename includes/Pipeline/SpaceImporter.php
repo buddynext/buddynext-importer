@@ -94,10 +94,11 @@ final class SpaceImporter {
 	 * can treat this like any other step.
 	 *
 	 * @param int $after Cursor (unused - the set is imported whole).
-	 * @param int $limit Batch size (unused).
+	 * @param int $limit Batch size (unused, but part of the step signature every
+	 *                   StepRegistry run closure is called with).
 	 * @return array{last:int,fetched:int,categories:int,existing:int}
 	 */
-	public function import_categories_batch( int $after, int $limit ): array {
+	public function import_categories_batch( int $after, int $limit ): array { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
 		if ( $after > 0 ) {
 			// Already done in the first call; report an empty page so the step ends.
 			return array(
@@ -130,6 +131,13 @@ final class SpaceImporter {
 		);
 	}
 
+	/**
+	 * Import one page of source groups as spaces, with their members.
+	 *
+	 * @param int $after Keyset cursor: the highest source group id already done.
+	 * @param int $limit Page size.
+	 * @return array{last:int,fetched:int,spaces:int,existing:int,members:int}
+	 */
 	public function import_batch( int $after, int $limit ): array {
 		$groups   = $this->adapter->groups( $after, $limit );
 		$done     = 0;
@@ -144,9 +152,9 @@ final class SpaceImporter {
 		);
 
 		foreach ( $groups as $group ) {
-			$last                = (int) $group['source_id'];
-			$group['type_ids']   = $type_map[ (int) $group['source_id'] ] ?? array();
-			$bn_space            = $this->writer->import_space( $group );
+			$last              = (int) $group['source_id'];
+			$group['type_ids'] = $type_map[ (int) $group['source_id'] ] ?? array();
+			$bn_space          = $this->writer->import_space( $group );
 
 			if ( 0 === $bn_space['id'] ) {
 				continue;

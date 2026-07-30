@@ -126,7 +126,7 @@ printf( "%-30s %10s %10s   %s\n", 'DOMAIN', 'SOURCE', 'BUDDYNEXT', 'NOTE' );
 printf( "%-30s %10s %10s   %s\n", str_repeat( '-', 30 ), '------', '---------', str_repeat( '-', 40 ) );
 foreach ( $rows as $r ) {
 	list( $domain, $src, $dst, $note ) = $r;
-	$flag = '';
+	$flag                              = '';
 	if ( null !== $src && null !== $dst && $src !== $dst ) {
 		$flag = '  <== GAP ' . ( $dst - $src );
 	}
@@ -149,7 +149,7 @@ foreach ( $rows as $r ) {
 $src_group_activities = (int) $wpdb->get_var(
 	"SELECT COUNT(*) FROM {$p}bp_activity WHERE component='groups' AND type='activity_update' AND is_spam=0"
 ); // phpcs:ignore WordPress.DB
-$dst_spaced = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bn_posts WHERE space_id > 0" ); // phpcs:ignore WordPress.DB
+$dst_spaced           = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bn_posts WHERE space_id > 0" ); // phpcs:ignore WordPress.DB
 
 // A group activity that was never created is a refusal, not a leak. Count only
 // those that DID become a post and landed outside their space.

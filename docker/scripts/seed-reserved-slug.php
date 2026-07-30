@@ -24,5 +24,12 @@ if ( null === $group ) {
 	return;
 }
 
-$wpdb->update( $p . 'bp_groups', array( 'slug' => 'joined', 'status' => 'private' ), array( 'id' => (int) $group['id'] ) );
+$wpdb->update(
+	$p . 'bp_groups',
+	array(
+		'slug'   => 'joined',
+		'status' => 'private',
+	),
+	array( 'id' => (int) $group['id'] )
+);
 printf( "  group #%d (%s) -> slug 'joined', private (reserved-slug case)\n", (int) $group['id'], (string) $group['name'] );

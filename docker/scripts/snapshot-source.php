@@ -96,7 +96,10 @@ $baseline['field_types'] = $wpdb->get_results(
 );
 
 // Taxonomy-backed classifications, both of which become BuddyNext concepts.
-foreach ( array( 'bp_group_type' => 'group_types', 'bp_member_type' => 'member_types' ) as $taxonomy => $key ) {
+foreach ( array(
+	'bp_group_type'  => 'group_types',
+	'bp_member_type' => 'member_types',
+) as $taxonomy => $key ) {
 	$baseline[ $key ] = $wpdb->get_results(
 		$wpdb->prepare(
 			"SELECT t.name, t.slug, COUNT(tr.object_id) AS assigned

@@ -80,8 +80,8 @@ if ( ! is_array( $manifest ) || empty( $manifest['database_tables'] ) ) {
 // multi-part table loads in the sequence it was exported.
 $by_table = array();
 foreach ( $manifest['database_tables'] as $url ) {
-	$file = basename( (string) $url );
-	$name = (string) preg_replace( '/_\d+\.json$/', '', $file );
+	$file                = basename( (string) $url );
+	$name                = (string) preg_replace( '/_\d+\.json$/', '', $file );
 	$by_table[ $name ][] = (string) $url;
 }
 foreach ( $by_table as $name => $urls ) {
@@ -113,7 +113,15 @@ foreach ( $wanted as $table ) {
 	$rows_loaded = 0;
 
 	foreach ( $by_table[ $table ] as $url ) {
-		$body = wp_remote_retrieve_body( wp_remote_get( $url, array( 'timeout' => 180, 'sslverify' => false ) ) );
+		$body = wp_remote_retrieve_body(
+			wp_remote_get(
+				$url,
+				array(
+					'timeout'   => 180,
+					'sslverify' => false,
+				)
+			)
+		);
 		$rows = json_decode( (string) $body, true );
 		if ( ! is_array( $rows ) ) {
 			continue;
