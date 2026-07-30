@@ -15,6 +15,12 @@
 	--bni-accent-700: #36418b;
 	--bni-accent-100: #eef0fc;
 	--bni-accent-200: #dfe3f9;
+	/* Destructive actions (teardown confirmation). Mirrors the accent ramp so a
+	   danger surface is built the same way an accent one is. */
+	--bni-danger: #b3261e;
+	--bni-danger-700: #7f1d1d;
+	--bni-danger-100: #fdf0ef;
+	--bni-danger-200: #f7d9d7;
 	--bni-surface: #ffffff;
 	--bni-surface-2: #f7f8fc;
 	--bni-text: #1c2033;
@@ -332,6 +338,25 @@
 	box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85);
 }
 
+/* A destructive confirmation must not wear the informational tint - an owner
+   skimming the page should be able to tell "here is a tip" from "this deletes
+   something" without reading either. Same component, different signal; only the
+   two colours change, so the layout and the marker stay identical.
+
+   Declared AFTER .bni-hint::before, not before it. Both selectors are one
+   class plus a pseudo-element, so they tie on specificity and source order
+   decides - written above, the modifier lost and the marker stayed accent
+   blue on a red panel. Measured: rgb(91,103,208) where #b3261e was intended. */
+.bni-hint--danger {
+	color: var(--bni-danger-700);
+	background: var(--bni-danger-100);
+	border-color: var(--bni-danger-200);
+}
+
+.bni-hint--danger::before {
+	background: var(--bni-danger);
+}
+
 /* ------------------------------------------------------------------- notice */
 
 /* A WP notice is admin chrome with its own palette (a tinted background and a
@@ -451,4 +476,23 @@
 		flex: 1 1 auto;
 		text-align: center;
 	}
+}
+
+/* --------------------------------------------------------------- teardown */
+
+/* Finishing the migration: removing the importer's working tables. Separated
+   from the run controls by a rule, because it is the opposite kind of action to
+   the buttons above it and should not read as one more way to import. */
+.bni-teardown {
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--bni-border);
+}
+
+.bni-teardown .bni-actions {
+	margin: 0;
+}
+
+.bni-teardown__confirm .bni-actions {
+	margin-top: 12px;
 }

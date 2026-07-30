@@ -60,6 +60,28 @@ final class MediaIngest {
 	}
 
 	/**
+	 * The media id a previous pass already ingested this attachment as, or 0.
+	 *
+	 * Ingesting is idempotent through the same id-map, so a caller never needs this
+	 * to avoid a duplicate. It exists so a caller can tell the two cases APART:
+	 * one source row can be reached by two domains (an album photo that also has an
+	 * activity), and the second domain to arrive has not written any media - it has
+	 * only linked what the first one wrote. Counting that as a fresh write would
+	 * inflate the migration report, which this tool treats as a correctness bug in
+	 * its own right.
+	 *
+	 * @param int $attachment_id WP attachment id.
+	 * @return int Existing target media id, or 0 when this attachment is new.
+	 */
+	public function existing( int $attachment_id ): int {
+		if ( $attachment_id <= 0 ) {
+			return 0;
+		}
+
+		return (int) ( IdMap::get( $this->source, self::DOMAIN, $attachment_id ) ?? 0 );
+	}
+
+	/**
 	 * Ingest one WP attachment, returning the resulting media id (0 on failure).
 	 *
 	 * A copy of the file is handed to the upload service so the original

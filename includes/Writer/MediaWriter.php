@@ -169,6 +169,13 @@ final class MediaWriter {
 			return 'user_missing';
 		}
 
+		// Whether the activity pass already brought this attachment in. Read BEFORE
+		// ingesting, because ingest() is idempotent and afterwards the two cases are
+		// indistinguishable. An album photo in BuddyBoss always has an activity too,
+		// so it arrives here having already been written - this pass adds only the
+		// album membership the activity pass had no way to know about.
+		$already = $this->ingest->existing( $attachment_id );
+
 		// The source row points at a WP attachment whose file must still exist -
 		// ingest copies the real file. A pruned uploads directory is a real loss
 		// and is reported rather than counted as written.
@@ -181,7 +188,10 @@ final class MediaWriter {
 
 		$this->place_in_album( (int) $media['album_id'], $media_id );
 
-		return '';
+		// Not a fresh write, so it must not be counted as one - the report would
+		// claim more media migrated than the source holds. It is not a loss either,
+		// so it is a note rather than a shortfall {@see MigrateCommand::report_skips}.
+		return $already > 0 ? 'linked_from_activity' : '';
 	}
 
 	/**

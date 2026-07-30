@@ -69,6 +69,52 @@ defined( 'ABSPATH' ) || exit;
 		<p class="bni-hint" id="bni-bg-hint" hidden>
 			<?php esc_html_e( 'The import is running on the server. You can leave this page - it will keep going, and reopening this screen will show its progress.', 'buddynext-importer' ); ?>
 		</p>
+
+		<?php
+		/*
+		 * Finishing the migration. The id-map and checkpoint are scaffolding, and
+		 * this is the step that clears them away - previously only reachable as
+		 * `wp buddynext-import cleanup`, which an owner who ran everything from this
+		 * page could not use.
+		 *
+		 * Two-step rather than a native confirm(): a browser dialog cannot say what
+		 * is lost, is unstyleable, and is banned by the BuddyNext UX standard. The
+		 * consequence is spelled out in the page, where the owner is already reading.
+		 */
+		?>
+		<div class="bni-teardown">
+			<p class="bni-actions">
+				<button type="button" class="button-link bni-teardown__open" id="bni-cleanup">
+					<?php esc_html_e( 'Remove import data', 'buddynext-importer' ); ?>
+				</button>
+			</p>
+			<div class="bni-teardown__confirm" id="bni-cleanup-confirm" hidden>
+				<?php
+				/*
+				 * The whole warning is ONE child of .bni-hint. That class is
+				 * display:flex with a marker ::before, so a bare <strong> + text
+				 * become two flex items - the heading collapsed into a ~110px
+				 * column and wrapped over four lines, and the <br> did nothing.
+				 * Wrapping keeps it a single item, which is what the component
+				 * expects.
+				 */
+				?>
+				<p class="bni-hint bni-hint--danger">
+					<span>
+						<strong><?php esc_html_e( 'Remove the importer working tables?', 'buddynext-importer' ); ?></strong><br />
+						<?php esc_html_e( 'This drops the id-map and resume checkpoint. Your migrated community is untouched, but the record of what was already imported is gone - so running the import again afterwards would re-create everything from scratch, with no duplicate protection. Do this once the migration is complete and checked.', 'buddynext-importer' ); ?>
+					</span>
+				</p>
+				<p class="bni-actions">
+					<button type="button" class="button" id="bni-cleanup-yes">
+						<?php esc_html_e( 'Remove import data', 'buddynext-importer' ); ?>
+					</button>
+					<button type="button" class="button-link" id="bni-cleanup-no">
+						<?php esc_html_e( 'Keep it', 'buddynext-importer' ); ?>
+					</button>
+				</p>
+			</div>
+		</div>
 	</div>
 
 	<?php

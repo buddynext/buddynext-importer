@@ -669,6 +669,11 @@ final class MigrateCommand {
 			// A like whose activity was spam/skipped goes with it - a correct,
 			// expected reduction, not a shortfall to warn about.
 			'activity_not_imported' => '%1$d %2$s were on activities that did not migrate (spam/skipped), so they were dropped with them.',
+			// An album photo in BuddyBoss also has an activity, so it arrived with
+			// that activity and this pass only added it to its album. Nothing was
+			// lost and nothing was written twice - counting it as a write would
+			// report more media than the source holds.
+			'linked_from_activity'  => '%1$d %2$s already arrived with their activity and were added to their album here.',
 			// A relationship one party has BLOCKED is not re-created - the block is
 			// a current safety decision ImportMode deliberately leaves in force.
 			// With the privacy preference lifted for the run, these "not allowed"

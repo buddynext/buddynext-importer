@@ -63,9 +63,13 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		$stats['activity_media'] = $this->table_count( 'bp_media', 'COALESCE( activity_id, 0 ) <> 0' )
 			+ ( $this->table_exists( 'bp_video' ) ? $this->table_count( 'bp_video' ) : 0 );
 
-		// Standalone library/album media - never posted to an activity.
+		// Library + album media. The predicate MUST stay in step with
+		// standalone_media()'s WHERE clause: this is the "source" side of the
+		// source-vs-written comparison, so a mismatch reports a phantom shortfall (or
+		// hides a real one) on a migration that is actually fine. Album photos are
+		// included even though they carry an activity_id - see standalone_media().
 		$stats['media_albums']     = $this->table_count( 'bp_media_albums' );
-		$stats['standalone_media'] = $this->table_count( 'bp_media', "COALESCE( activity_id, 0 ) = 0 AND COALESCE( message_id, 0 ) = 0 AND status = 'published'" );
+		$stats['standalone_media'] = $this->table_count( 'bp_media', "COALESCE( message_id, 0 ) = 0 AND ( COALESCE( activity_id, 0 ) = 0 OR COALESCE( album_id, 0 ) > 0 ) AND status = 'published'" );
 
 		// Forums (bbPress) -> Jetonomy, only meaningful when forums exist.
 		$stats['forum_topics']  = $this->post_type_count( 'topic' );
@@ -210,10 +214,27 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 	}
 
 	/**
-	 * Standalone media: bp_media rows that are not attached to an activity and
-	 * are not a DM attachment. Activity-attached media rides its post instead
-	 * (activity_media()), and DM attachments belong to the messages domain, so
-	 * both are excluded here rather than imported twice.
+	 * Media this pass is responsible for: bp_media rows that are not a DM
+	 * attachment, and either have no activity OR belong to an album.
+	 *
+	 * DM attachments belong to the messages domain and are excluded outright.
+	 * Activity-attached media rides its post instead (activity_media()) and used to
+	 * be excluded here on the same "don't import twice" reasoning - correct for a
+	 * loose photo, wrong for one in an album.
+	 *
+	 * In BuddyBoss, putting a photo in an album ALSO creates an activity for it, so
+	 * every album photo carries an activity_id. The old `activity_id = 0` filter
+	 * therefore excluded the entire contents of every album. The album itself was
+	 * created (media_albums() has no such filter) and arrived empty, while its
+	 * photos came in through the activity path - which attaches them to the activity
+	 * post and never calls place_in_album(), because that only runs from
+	 * import_media(). Album shells with the photos scattered outside them.
+	 *
+	 * Including album rows does NOT re-import the file: MediaIngest keys on the
+	 * source attachment id through the id-map and returns the media id the activity
+	 * pass already created, so this pass only adds the album membership that pass
+	 * could not know about. import_media() reports those as `linked_from_activity`
+	 * rather than counting them as fresh writes.
 	 *
 	 * @param int $after Exclusive lower-bound media id.
 	 * @param int $limit Batch size.
@@ -234,8 +255,8 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 				"SELECT id, attachment_id, user_id, title, description, album_id, group_id, privacy, type, date_created
 				FROM `{$table}`
 				WHERE id > %d
-					AND COALESCE( activity_id, 0 ) = 0
 					AND COALESCE( message_id, 0 ) = 0
+					AND ( COALESCE( activity_id, 0 ) = 0 OR COALESCE( album_id, 0 ) > 0 )
 					AND status = 'published'
 				ORDER BY id ASC
 				LIMIT %d",

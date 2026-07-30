@@ -223,7 +223,16 @@ final class ActivityWriter {
 			);
 		}
 
-		$content = trim( (string) $comment['content'] );
+		// clean_content(), the same as import_post() - not a bare trim().
+		//
+		// BuddyNext renders stored content as escaped text, so raw source HTML does
+		// not render as markup, it renders AS ITSELF: an imported comment showed the
+		// member `<span class="atwho-inserted"><a class="bp-suggestions-mention" ...>`
+		// as literal visible text. That applied to every HTML comment in the source,
+		// not only ones containing a mention - links, bold and emoji-image spans all
+		// arrived as tag soup. Posts were never affected because they always went
+		// through clean_content(); comments were the one writer that did not.
+		$content = $this->clean_content( (string) $comment['content'] );
 		if ( '' === $content ) {
 			return array(
 				'id'      => 0,
@@ -379,6 +388,10 @@ final class ActivityWriter {
 			return '';
 		}
 
+		// Before the tags go: a mention only survives stripping as its anchor TEXT,
+		// and that text is the source platform's handle, not this site's.
+		$html = $this->rewrite_mentions( $html );
+
 		$text = preg_replace( '#</(p|div|h[1-6]|li|tr|blockquote)>#i', "\n", $html );
 		$text = preg_replace( '#<br\s*/?>#i', "\n", (string) $text );
 		$text = wp_strip_all_tags( (string) $text );
@@ -386,6 +399,92 @@ final class ActivityWriter {
 		$text = preg_replace( "/\n{3,}/", "\n\n", (string) $text );
 
 		return trim( (string) $text );
+	}
+
+	/**
+	 * Rewrite a source mention so it points at the right member on THIS site.
+	 *
+	 * BuddyNext stores a mention as plain text `@handle` and linkifies it at render
+	 * time ({@see buddynext_format_content()}), resolving the handle through
+	 * `PageRouter::member_handle()`. So an imported mention has to arrive as the
+	 * handle THIS site knows the member by.
+	 *
+	 * BuddyBoss stores the target as a template tag in the href, with its own
+	 * display handle as the anchor text:
+	 *
+	 *   <span class="atwho-inserted"><a class="bp-suggestions-mention"
+	 *     href="{{mention_user_id_7}}">@bb-luna</a></span>
+	 *
+	 * The `{{mention_user_id_7}}` is substituted by BuddyBoss's JS on the frontend;
+	 * nothing outside BuddyBoss knows the convention. Two separate failures came
+	 * from that, and the second is the one worth understanding:
+	 *
+	 * 1. Comments kept the raw HTML (import_comment() skipped this method), and
+	 *    BuddyNext escapes stored content on render - so the member saw the literal
+	 *    `<span class="atwho-inserted"><a ... href="{{mention_user_id_7}}">` as
+	 *    visible text, not a broken link.
+	 *
+	 * 2. Posts looked FINE and were not. Stripping the tags leaves `@bb-luna`, which
+	 *    BuddyNext happily linkifies - to `/members/bb-luna/`. But `bb-luna` is the
+	 *    handle the SOURCE displayed; this site resolves the member by
+	 *    `bn_profile_slug ?: user_nicename`, which is frequently something else.
+	 *    Verified on buddynext.local: source text `@admin-guy`, actual handle for
+	 *    that user id `varundubey`. The mention rendered as a confident link to a
+	 *    profile that does not exist. A wrong link that looks right survives review
+	 *    far longer than tag soup does.
+	 *
+	 * So the user id in the tag is the authority, never the anchor text. The anchor
+	 * text is kept only as a fallback for a member who no longer exists, because
+	 * dropping it would leave a hole mid-sentence.
+	 *
+	 * BuddyPress needs nothing here: it stores a real profile URL or bare `@handle`,
+	 * both of which strip to the correct plain text. The early return means this
+	 * costs one strpos() for those sources.
+	 *
+	 * @param string $html Source content (HTML), before tags are stripped.
+	 * @return string Content with every mention rewritten to this site's handle.
+	 */
+	private function rewrite_mentions( string $html ): string {
+		if ( false === strpos( $html, 'mention_user_id_' ) ) {
+			return $html;
+		}
+
+		// The whole anchor collapses to the mention text, so the wrapper markup
+		// cannot leave a stray `@` or an empty link behind once tags are stripped.
+		$html = (string) preg_replace_callback(
+			'#<a\b[^>]*href=(["\'])\s*\{\{mention_user_id_(\d+)\}\}\s*\1[^>]*>(.*?)</a>#is',
+			fn( array $m ): string => $this->mention_text( (int) $m[2], (string) $m[3] ),
+			$html
+		);
+
+		// A tag that was not inside an anchor (BuddyBoss also writes them bare in
+		// some stored bodies). Nothing sensible can be recovered as a fallback here,
+		// so an unresolvable id leaves no text rather than a raw template tag.
+		return (string) preg_replace_callback(
+			'/\{\{mention_user_id_(\d+)\}\}/',
+			fn( array $m ): string => $this->mention_text( (int) $m[1], '' ),
+			$html
+		);
+	}
+
+	/**
+	 * The plain-text mention for a source user id, as this site writes handles.
+	 *
+	 * @param int    $user_id  User id taken from the source's mention tag.
+	 * @param string $fallback Source anchor text, used only when the member is gone.
+	 * @return string `@handle`, the fallback text, or '' when neither is usable.
+	 */
+	private function mention_text( int $user_id, string $fallback ): string {
+		if ( class_exists( '\BuddyNext\Core\PageRouter' ) ) {
+			$handle = \BuddyNext\Core\PageRouter::member_handle( $user_id );
+			if ( '' !== $handle ) {
+				return '@' . $handle;
+			}
+		}
+
+		// Deleted member, or Free somehow absent. Keep whatever the source showed so
+		// the sentence still reads; it just will not resolve to a profile.
+		return trim( wp_strip_all_tags( $fallback ) );
 	}
 
 	/**
