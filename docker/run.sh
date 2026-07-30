@@ -12,6 +12,7 @@
 #   ./run.sh large    5000-user community, for scale
 #   ./run.sh fresh    a CLEAN site - WordPress + BuddyPress + BuddyNext, no
 #                     content at all, for seeding by hand at localhost:8080
+#   ./run.sh target-on  deactivate the source platform, activate BuddyNext + BI
 #   ./run.sh verify   wp buddynext-import verify against the current fixture
 #   ./run.sh reign-ui seed the Reign source but do NOT migrate, so the import can
 #                     be run from the admin page at http://localhost:8080 - that
@@ -39,6 +40,12 @@ case "${1:-all}" in
 		$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html buddynext-import verify --samples="${2:-5}"
 		exit 0
 		;;
+	target-on)
+		echo "Deactivating the source platform and activating BuddyNext + the importer."
+		$DC exec -T wp php -d memory_limit=1024M /usr/local/bin/wp --allow-root --path=/var/www/html plugin deactivate buddyboss-platform buddypress 2>/dev/null || true
+		$DC exec -T wp php -d memory_limit=1024M /usr/local/bin/wp --allow-root --path=/var/www/html plugin activate buddynext buddynext-pro wpmediaverse jetonomy buddynext-importer
+		exit 0
+		;;
 	migrate)
 		$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html buddynext-import migrate-all --source=buddypress
 		exit 0
@@ -53,11 +60,12 @@ esac
 # small; the Reign demo pack is real and exercises every domain.
 SEED=/scripts/seed-source.sh
 MIGRATE=yes
+SOURCE_ONLY=no
 case "${1:-all}" in
 	reign)    SEED=/scripts/seed-source-reign.sh; set -- all ;;
 	fresh)    SEED=/scripts/seed-fresh.sh; MIGRATE=no; set -- all ;;
-	bp)       SEED=/scripts/seed-bp-only.sh; MIGRATE=no; set -- all ;;
-	bb)       SEED=/scripts/seed-bb-only.sh; MIGRATE=no; set -- all ;;
+	bp)       SEED=/scripts/seed-bp-only.sh; MIGRATE=no; SOURCE_ONLY=yes; set -- all ;;
+	bb)       SEED=/scripts/seed-bb-only.sh; MIGRATE=no; SOURCE_ONLY=yes; set -- all ;;
 	small)    SEED=/scripts/seed-playground.sh; export SCENARIO=small_community; set -- all ;;
 	large)    SEED=/scripts/seed-playground.sh; export SCENARIO=large_community; set -- all ;;
 	reign-ui) SEED=/scripts/seed-source-reign.sh; MIGRATE=no; set -- all ;;
@@ -70,6 +78,16 @@ if [ "${1:-all}" = "all" ]; then
 	echo "== waiting for the database =="
 	until $DC exec -T db mysqladmin ping -h 127.0.0.1 -uroot -proot --silent >/dev/null 2>&1; do sleep 2; done
 	$DC exec -T -e SCENARIO="${SCENARIO:-small_community}" -e USERS="${USERS:-}" -e GROUPS="${GROUPS:-}" -e ACTIVITIES="${ACTIVITIES:-}" -e MESSAGES="${MESSAGES:-}" wp bash "$SEED"
+fi
+
+# A source-only fixture leaves the target stack OFF, so the site is what a
+# customer hands over: their community, with nothing of ours running in it. The
+# migration is a separate, deliberate step (./run.sh target-on).
+if [ "$SOURCE_ONLY" = "yes" ]; then
+	echo
+	echo "== source-only: BuddyNext and the importer are NOT active =="
+	echo "  when you are ready:  ./run.sh target-on   then   ./run.sh migrate"
+	exit 0
 fi
 
 echo
