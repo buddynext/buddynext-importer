@@ -4,6 +4,8 @@
 #   ./run.sh          full cycle from scratch, hand-written adversarial fixture
 #   ./run.sh reign    same, but seeded from the Wbcom Reign BuddyPress demo pack
 #                     (a real community - every domain has data to move)
+#   ./run.sh bb       BLANK site + a BUDDYBOSS community (Reign theme). Needs
+#                     docker/.dist/bb-platform-free-3.2.0.zip on the host.
 #   ./run.sh bp       BLANK site + a BuddyPress community only (no BuddyNext),
 #                     sized with USERS/GROUPS/ACTIVITIES env vars
 #   ./run.sh small    50-user community via buddypress-playground-cli
@@ -55,6 +57,7 @@ case "${1:-all}" in
 	reign)    SEED=/scripts/seed-source-reign.sh; set -- all ;;
 	fresh)    SEED=/scripts/seed-fresh.sh; MIGRATE=no; set -- all ;;
 	bp)       SEED=/scripts/seed-bp-only.sh; MIGRATE=no; set -- all ;;
+	bb)       SEED=/scripts/seed-bb-only.sh; MIGRATE=no; set -- all ;;
 	small)    SEED=/scripts/seed-playground.sh; export SCENARIO=small_community; set -- all ;;
 	large)    SEED=/scripts/seed-playground.sh; export SCENARIO=large_community; set -- all ;;
 	reign-ui) SEED=/scripts/seed-source-reign.sh; MIGRATE=no; set -- all ;;

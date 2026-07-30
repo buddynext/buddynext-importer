@@ -55,6 +55,8 @@ services:
       - ../../jetonomy:/var/www/html/wp-content/plugins/jetonomy:ro
       - ..:/var/www/html/wp-content/plugins/buddynext-importer:ro
       - ./.playground:/var/www/html/wp-content/plugins/buddypress-playground-cli:ro
+      # Plugin zips fetched on the host (BuddyBoss is not on wp.org).
+      - ./.dist:/dist:ro
       # Fixture + reconciliation scripts.
       - ./scripts:/scripts:ro
     working_dir: /var/www/html

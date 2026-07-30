@@ -154,6 +154,7 @@ final class VerifyService {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$pairs = $wpdb->get_results(
 			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $map is $wpdb->prefix . 'bni_id_map', not input.
 				"SELECT source_id, bn_id FROM `{$map}` WHERE source = %s AND domain = 'space' ORDER BY RAND() LIMIT %d",
 				$source,
 				max( 1, $limit )
@@ -259,6 +260,7 @@ final class VerifyService {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$pairs = $wpdb->get_results(
 			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $map is $wpdb->prefix . 'bni_id_map', not input.
 				"SELECT source_id, bn_id FROM `{$map}` WHERE source = %s AND domain = 'post' ORDER BY RAND() LIMIT %d",
 				$source,
 				max( 1, $limit )

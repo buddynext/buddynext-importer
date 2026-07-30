@@ -122,14 +122,33 @@ foreach ( (array) $baseline['groups_by_status'] as $row ) {
 	printf( "    %-10s %d\n", (string) $row['status'], (int) $row['n'] );
 }
 
+// Which roots are importable is the ADAPTER's answer, not a copy of it. This
+// script hardcoded 'activity_update' and so reported new_blog_post as
+// un-migratable after the importer had started carrying it - the same drift the
+// step lists had, reproduced in the tool meant to catch drift.
+$importable = array();
+if ( class_exists( '\BuddyNextImporter\Source\AdapterRegistry' ) ) {
+	$key     = \BuddyNextImporter\Source\AdapterRegistry::detect_active_key();
+	$adapter = null === $key ? null : \BuddyNextImporter\Source\AdapterRegistry::get( $key );
+	if ( null !== $adapter && method_exists( $adapter, 'comment_root_types' ) ) {
+		foreach ( $adapter->comment_root_types() as $r ) {
+			if ( ! empty( $r['importable'] ) ) {
+				$importable[] = (string) $r['type'];
+			}
+		}
+	}
+}
+
 echo "\n  comments by root activity type:\n";
 foreach ( (array) $baseline['comment_roots'] as $row ) {
-	printf(
-		"    %-24s %6d %s\n",
-		(string) $row['root_type'],
-		(int) $row['n'],
-		'activity_update' === (string) $row['root_type'] ? '' : '  <- cannot migrate'
-	);
+	$type = (string) $row['root_type'];
+	$note = '';
+	if ( array() === $importable ) {
+		$note = '  (importer inactive - cannot say)';
+	} elseif ( ! in_array( $type, $importable, true ) ) {
+		$note = '  <- cannot migrate';
+	}
+	printf( "    %-24s %6d %s\n", $type, (int) $row['n'], $note );
 }
 
 echo "\n  profile field types:\n";
