@@ -45,17 +45,22 @@ if [ ! -f "$BB_ZIP" ]; then
 fi
 $WP plugin install "$BB_ZIP" --activate
 
-# BuddyBoss keeps its own component switches. Turn on everything the importer
-# reads, including the two BuddyPress does not have: media and forums.
+# BuddyBoss resets bp-active-components during its own activation bootstrap, so
+# these must go on AFTER it has settled - and the state is read back from the
+# OPTION rather than parsed from `bp component list`, because BuddyBoss reports
+# "Active" capitalised where BuddyPress reports "active" and a case-sensitive
+# parse silently found nothing.
+sleep 3
 for c in xprofile groups activity friends messages notifications settings media forums; do
-	for attempt in 1 2 3; do
-		if $WP bp component activate "$c" 2>&1 | grep -qiE 'success|already active'; then
-			break
-		fi
-		sleep 2
-	done
+	$WP bp component activate "$c" >/dev/null 2>&1 || true
 done
-echo "  active components: $($WP bp component list 2>/dev/null | awk -F'\t' '$3=="active"{printf "%s ", $2}')"
+
+ACTIVE=$($WP option get bp-active-components --format=json 2>/dev/null || echo '{}')
+echo "  active components: $ACTIVE"
+case "$ACTIVE" in
+	*groups*) ;;
+	*) echo "  WARNING: groups is still inactive - the generators below will produce nothing" ;;
+esac
 
 $WP rewrite structure '/%postname%/' --hard >/dev/null 2>&1 || true
 $WP rewrite flush --hard >/dev/null 2>&1 || true
@@ -64,7 +69,7 @@ echo "== community =="
 # The playground CLI targets BuddyPress APIs, most of which BuddyBoss keeps
 # compatible - so try it, and fall back to BuddyBoss's own generator.
 if $WP plugin activate buddypress-playground-cli 2>/dev/null; then
-	$WP bp playground users      --count="$USERS" --member-types 2>/dev/null || echo "  (users generator unavailable)"
+	$WP bp playground users      --count="$USERS" --member-types || echo "  users generator FAILED (see above)"
 	$WP eval '
 		if ( function_exists( "bp_playground_create_xprofile_structure" ) ) {
 			$s = bp_playground_create_xprofile_structure();
@@ -72,10 +77,10 @@ if $WP plugin activate buddypress-playground-cli 2>/dev/null; then
 			$r = bp_playground_populate_xprofile( get_users( array( "fields" => "ID", "number" => 0 ) ), true );
 			printf( "  xprofile: %d value(s)" . PHP_EOL, (int) $r["fields_populated"] );
 		}' 2>/dev/null || true
-	$WP bp playground groups     --count="$GROUPS" --types=mixed --membership-patterns 2>/dev/null || echo "  (groups generator unavailable)"
-	$WP bp playground friends    --density=0.05 2>/dev/null || echo "  (friends generator unavailable)"
-	$WP bp playground activities --count=600 --with-comments --with-mentions --comment-rate=0.4 2>/dev/null || echo "  (activity generator unavailable)"
-	$WP bp playground messages   --count=100 2>/dev/null || echo "  (messages generator unavailable)"
+	$WP bp playground groups     --count="$GROUPS" --types=mixed --membership-patterns || echo "  groups generator FAILED (see above)"
+	$WP bp playground friends    --density=0.05 || echo "  friends generator FAILED (see above)"
+	$WP bp playground activities --count=600 --with-comments --with-mentions --comment-rate=0.4 || echo "  activity generator FAILED (see above)"
+	$WP bp playground messages   --count=100 || echo "  messages generator FAILED (see above)"
 fi
 
 # The BuddyBoss-only shapes: album media, and a mention stored as an id

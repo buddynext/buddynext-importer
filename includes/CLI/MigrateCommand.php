@@ -781,6 +781,8 @@ final class MigrateCommand {
 		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch, $source, 'forum_reply' );
 
 		ImportLedger::add( $source, 'forum_space', (int) $forums );
+		ImportLedger::add( $source, 'forum_post', (int) $topics );
+		ImportLedger::add( $source, 'forum_reply', (int) $replies );
 		\WP_CLI::success(
 			sprintf(
 				'Forums imported: %d forums, %d topics, %d replies.',
@@ -981,6 +983,7 @@ final class MigrateCommand {
 		$this->settle_checkpoint( $source, 'standalone_media', $source_media, $media + array_sum( $skipped ) );
 
 		ImportLedger::add( $source, 'media_album', (int) $albums );
+		ImportLedger::add( $source, 'standalone_media', (int) $media );
 		\WP_CLI::success(
 			sprintf(
 				'Media imported: %d albums, %d of %d standalone media.',
@@ -1053,6 +1056,7 @@ final class MigrateCommand {
 		$spaces = $this->image_loop( fn( $after ) => $importer->import_groups_batch( $after, $batch ), 'spaces', $batch, $source, 'group_image' );
 
 		ImportLedger::add( $source, 'member_image', (int) $members );
+		ImportLedger::add( $source, 'group_image', (int) $spaces );
 		\WP_CLI::success(
 			sprintf(
 				'Images imported: %d members, %d spaces.',
