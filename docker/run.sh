@@ -12,6 +12,8 @@
 #   ./run.sh large    5000-user community, for scale
 #   ./run.sh fresh    a CLEAN site - WordPress + BuddyPress + BuddyNext, no
 #                     content at all, for seeding by hand at localhost:8080
+#   ./run.sh save     snapshot the source DB (target reset first) to .dist/
+#   ./run.sh restore  put that snapshot back, so a run starts from identical data
 #   ./run.sh target-on  deactivate the source platform, activate BuddyNext + BI
 #   ./run.sh verify   wp buddynext-import verify against the current fixture
 #   ./run.sh reign-ui seed the Reign source but do NOT migrate, so the import can
@@ -38,6 +40,26 @@ case "${1:-all}" in
 		;;
 	verify)
 		$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html buddynext-import verify --samples="${2:-5}"
+		exit 0
+		;;
+	save)
+		# Snapshot the SOURCE, so every later run starts from identical data.
+		# Reset the target first: a dump taken after a migration carries the
+		# result as well, and restoring it would silently skip the work.
+		$DC exec -T wp php -d memory_limit=1024M /usr/local/bin/wp --allow-root --path=/var/www/html eval-file /scripts/reset-target.php
+		mkdir -p .dist
+		$DC exec -T db mysqldump -uroot -proot --single-transaction --quick --default-character-set=utf8mb4 wordpress > .dist/source-snapshot.sql
+		echo "saved $(wc -c < .dist/source-snapshot.sql | tr -d ' ') bytes to docker/.dist/source-snapshot.sql"
+		exit 0
+		;;
+	restore)
+		if [ ! -f .dist/source-snapshot.sql ]; then
+			echo "No snapshot. Take one first: ./run.sh save"
+			exit 1
+		fi
+		$DC exec -T db mysql -uroot -proot --default-character-set=utf8mb4 wordpress < .dist/source-snapshot.sql
+		$DC exec -T wp php -d memory_limit=1024M /usr/local/bin/wp --allow-root --path=/var/www/html cache flush >/dev/null 2>&1 || true
+		echo "restored the source snapshot - the target is empty, ready to import"
 		exit 0
 		;;
 	target-on)

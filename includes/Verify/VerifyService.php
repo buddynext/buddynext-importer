@@ -236,7 +236,7 @@ final class VerifyService {
 					  WHERE r.item_type = 'activity'
 					    AND NOT EXISTS (
 					        SELECT 1 FROM `{$map}` m
-					         WHERE m.source = %s AND m.domain = 'post' AND m.source_id = r.item_id
+					         WHERE m.source = %s AND m.domain IN ( 'post', 'comment' ) AND m.source_id = r.item_id
 					    )", // phpcs:ignore WordPress.DB
 					$source
 				)
@@ -300,8 +300,12 @@ final class VerifyService {
 			// is a fact about THIS space and is only explicable next to it.
 			$src_activity = (int) $wpdb->get_var(
 				$wpdb->prepare(
+					// hide_sitewide is NOT excluded: content the source kept out of its
+					// sitewide feed still imports into its space, where the space's own
+					// privacy protects it. Filtering it out here made a space with
+					// withheld activity read as 0 source posts against 6 imported.
 					"SELECT COUNT(*) FROM {$wpdb->prefix}bp_activity
-					  WHERE component = 'groups' AND type = 'activity_update' AND is_spam = 0 AND hide_sitewide = 0 AND item_id = %d", // phpcs:ignore WordPress.DB
+					  WHERE component = 'groups' AND type = 'activity_update' AND is_spam = 0 AND item_id = %d", // phpcs:ignore WordPress.DB
 					$src
 				)
 			);
