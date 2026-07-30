@@ -164,7 +164,21 @@ final class BackgroundImport {
 		$total  = count( $steps );
 		$index  = (int) ( $job['step'] ?? 0 );
 
-		$deadline = microtime( true ) + self::TIME_BUDGET;
+		/**
+		 * Filter the wall-clock budget for a single background tick, in seconds.
+		 *
+		 * The default keeps a tick well inside any sane max_execution_time, but a
+		 * constrained host may need it lower - and a lower budget is also the only
+		 * way to exercise the hand-off between ticks on a community small enough
+		 * to finish in one, which is how a stalled reschedule went unnoticed.
+		 *
+		 * @since 1.0.0
+		 *
+		 * @param float  $budget Seconds. Clamped to at least 1.
+		 * @param string $source Source key.
+		 */
+		$budget   = (float) apply_filters( 'buddynext_importer_tick_budget', self::TIME_BUDGET, $source );
+		$deadline = microtime( true ) + max( 1.0, $budget );
 
 		while ( $index < $total ) {
 			$step = $steps[ $index ];
@@ -251,8 +265,28 @@ final class BackgroundImport {
 	 * Whether a tick is already queued (either scheduler).
 	 */
 	private function is_scheduled(): bool {
-		if ( function_exists( 'as_has_scheduled_action' ) ) {
-			return as_has_scheduled_action( self::HOOK, array(), self::GROUP );
+		// PENDING only, deliberately. as_has_scheduled_action() also counts
+		// IN-PROGRESS actions, and the caller that matters most is tick() itself
+		// asking "is another tick queued?" while it IS the in-progress action - so
+		// it saw itself, decided one was already scheduled, and queued nothing.
+		//
+		// The import then stalled at whatever step the time budget ran out on:
+		// one tick's worth of work, then silence, with the job left saying
+		// "running" forever. On a community small enough to finish inside a single
+		// tick it looked like it worked; on anything larger it stopped partway,
+		// which is precisely the case the background runner exists for.
+		if ( function_exists( 'as_get_scheduled_actions' ) ) {
+			$pending = as_get_scheduled_actions(
+				array(
+					'hook'     => self::HOOK,
+					'group'    => self::GROUP,
+					'status'   => \ActionScheduler_Store::STATUS_PENDING,
+					'per_page' => 1,
+				),
+				'ids'
+			);
+
+			return is_array( $pending ) && array() !== $pending;
 		}
 
 		return (bool) wp_next_scheduled( self::HOOK );
