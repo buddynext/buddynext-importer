@@ -46,9 +46,11 @@ First stable release. Every domain now reports what moved and why anything did n
 * Fix      - "Start import" ran 5 of 16 domains and reported success. It now runs all of them.
 * Fix      - Checkbox and file profile fields were mapped to types BuddyNext does not have, so their values were dropped on write.
 * Fix      - Comments were lost mid-run to the comment rate limit. A bulk replay trips it by definition, so it is lifted for the duration of an import.
+* Fix      - The background import stopped after its first tick, leaving the job reporting "running" and the last domains unimported. It only affected communities too large to finish inside one tick, which is the case the background runner exists for.
 * Fix      - migrate-all halted partway when the member-type service was unavailable, skipping every later domain.
 * Fix      - The admin page honoured the operating system's dark mode while WordPress stayed light, making the completion notice unreadable.
 * Security - A group whose space failed to import had its posts republished to the global feed as public. A post that cannot be placed is now skipped, not published.
 * Security - Activity the source kept out of its own feed is no longer republished. It keeps its space when it has one, and is refused when it would land in the global feed with nothing to protect it.
 * Security - A blog post that is private or password protected no longer produces a link card exposing its title, excerpt and image.
 * Dev      - Source adapters expose a relationship report, so referential integrity is checked before the source is blamed for a shortfall.
+* Dev      - New filter buddynext_importer_tick_budget sets the per-tick wall-clock budget for the background runner, for hosts with a short max_execution_time.
