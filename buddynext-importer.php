@@ -3,7 +3,7 @@
  * Plugin Name:       BuddyNext Importer
  * Plugin URI:        https://github.com/buddynext/buddynext-importer
  * Description:       Migrate a BuddyPress, BuddyBoss, FluentCommunity, PeepSo or Ultimate Member community into BuddyNext - members, profile fields, groups/spaces and activity - through the BuddyNext service layer.
- * Version:           0.2.0-dev
+ * Version:           1.0.0
  * Requires at least: 6.6
  * Requires PHP:      8.1
  * Author:            Wbcom Designs
@@ -27,7 +27,7 @@ defined( 'ABSPATH' ) || exit;
  * progress monitor for site owners. See README.md + docs/build-plan.md.
  */
 
-const BUDDYNEXT_IMPORTER_VERSION = '0.2.0-dev';
+const BUDDYNEXT_IMPORTER_VERSION = '1.0.0';
 
 define( 'BUDDYNEXT_IMPORTER_FILE', __FILE__ );
 define( 'BUDDYNEXT_IMPORTER_DIR', plugin_dir_path( __FILE__ ) );
