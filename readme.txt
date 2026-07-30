@@ -101,6 +101,7 @@ First stable release. Every domain now reports what moved and why anything did n
 * New      - Reactions on comments, not only on posts.
 * New      - Exposure check: confirms no private or secret space content is publicly searchable after a migration.
 * New      - Disposable Docker fixture for BuddyPress and BuddyBoss sources, with save and restore so a run starts from identical data.
+* Improve  - Source table-existence checks are memoised for the request. The check guards 41 read paths, one of them inside the per-activity media loop, where it cost a SHOW TABLES per activity.
 * Improve  - One shared step registry drives the CLI, the background runner, the REST endpoint and the admin page, so they cannot disagree about what a migration contains.
 * Improve  - Every shortfall is attributed. A reaction on unimported activity, a post refused because its author is not a member of the space, and media with no file behind it each report their own reason.
 * Fix      - "Start import" ran 5 of 16 domains and reported success. It now runs all of them.
