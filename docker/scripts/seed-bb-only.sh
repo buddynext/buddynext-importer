@@ -127,6 +127,9 @@ $WP eval-file /scripts/fix-orphan-group-activity.php
 echo "== blog posts, and comments on non-importable roots =="
 $WP eval-file /scripts/seed-blog-posts.php
 $WP eval-file /scripts/seed-comment-roots.php
+# Reactions on COMMENTS: indistinguishable from a post reaction in the source,
+# and the generators never produce them.
+$WP eval-file /scripts/seed-comment-reactions.php
 $WP eval-file /scripts/seed-locked-content.php
 $WP eval-file /scripts/seed-reserved-slug.php
 
