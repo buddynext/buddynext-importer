@@ -83,10 +83,11 @@ final class ImageWriter {
 		if ( '' !== $cover['reason'] ) {
 			$skipped[ 'cover_' . $cover['reason'] ] = 1;
 		} elseif ( '' !== $cover['url'] ) {
-			// BuddyNext has no cover-URL setter of its own; its admin profile
-			// screen writes this same user meta after calling the storage
-			// service, so the importer follows that path exactly.
-			update_user_meta( $user_id, 'buddynext_cover_url', esc_url_raw( $cover['url'] ) );
+			ImportMode::run(
+				function () use ( $user_id, $cover ): void {
+					buddynext_service( 'avatars' )->save_cover_url( $user_id, $cover['url'] );
+				}
+			);
 		}
 
 		return $skipped;
