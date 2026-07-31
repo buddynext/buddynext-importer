@@ -12,7 +12,11 @@ set -euo pipefail
 
 USERS="${USERS:-200}"
 GROUPS="${GROUPS:-20}"
-BB_ZIP="/dist/bb-platform-free-3.2.0.zip"
+# Which BuddyBoss build to install. Overridable because the release filename
+# changes between versions (bb-platform-free-X.zip vs buddyboss-platform-X.zip)
+# and because only some builds carry the media component - albums and bp_media
+# exist there, and they are the whole point of the BuddyBoss-only paths.
+BB_ZIP="${BB_ZIP:-/dist/buddyboss-platform-3.3.0.zip}"
 
 WP="php -d memory_limit=1024M /usr/local/bin/wp --allow-root --path=/var/www/html"
 
