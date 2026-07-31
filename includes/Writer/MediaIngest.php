@@ -105,6 +105,19 @@ final class MediaIngest {
 			return 0;
 		}
 
+		// wp_tempnam() lives in wp-admin/includes/file.php, which WordPress loads
+		// only for admin requests. Every surface that actually runs a migration is
+		// somewhere else: the REST /step endpoint the admin page drives, and the
+		// Action Scheduler tick behind "Run in background". WP-CLI loads the admin
+		// includes itself, which is why `wp buddynext-import migrate-all` never hit
+		// this and the browser import died with a 500 on the first avatar.
+		//
+		// Required at point of use rather than at file load, so a request that
+		// merely autoloads this class does not drag the admin file helpers in.
+		if ( ! function_exists( 'wp_tempnam' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
 		$copy = wp_tempnam( wp_basename( $path ) );
 		if ( ! $copy || ! copy( $path, $copy ) ) {
 			return 0;
