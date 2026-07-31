@@ -1392,6 +1392,7 @@ final class MigrateCommand {
 		// no post to attach to. Saying so up front is the difference between an
 		// informed decision and an unexplained shortfall discovered afterwards.
 		$this->report_comment_roots( $source );
+		$this->report_unsupported( $source );
 
 		if ( in_array( 'profiles', $selected, true ) ) {
 			$this->migrate_profiles( $args, $assoc_args );
@@ -1474,6 +1475,26 @@ final class MigrateCommand {
 		\WP_CLI::log( 'Verify the result, then drop the temporary mapping tables with:' );
 		\WP_CLI::log( sprintf( '  wp buddynext-import cleanup --source=%s', $source ) );
 		\WP_CLI::log( 'After that you can deactivate and delete this importer.' );
+	}
+
+	/**
+	 * Name content the source holds that no step will even look at.
+	 *
+	 * Printed BEFORE anything moves, next to the comment-roots warning, because
+	 * this is the one category that can never show up as a shortfall: nothing
+	 * counts it, so nothing can report it missing.
+	 *
+	 * @param string $source Source key.
+	 */
+	private function report_unsupported( string $source ): void {
+		$adapter = AdapterRegistry::get( $source );
+		if ( null === $adapter || ! method_exists( $adapter, 'unsupported_content' ) ) {
+			return;
+		}
+
+		foreach ( (array) $adapter->unsupported_content() as $row ) {
+			\WP_CLI::warning( sprintf( '%d %s.', (int) $row['rows'], (string) $row['reason'] ) );
+		}
 	}
 
 	/**

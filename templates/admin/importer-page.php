@@ -42,6 +42,8 @@ defined( 'ABSPATH' ) || exit;
 		<div class="bni-stats" id="bni-stats-grid" hidden></div>
 		<?php /* Content the migration cannot carry, shown before it is started. */ ?>
 		<p class="bni-warn" id="bni-comment-roots" hidden></p>
+		<?php /* Content this importer does not read at all - named before a run, because it cannot surface as a shortfall after one. */ ?>
+		<p class="bni-warn" id="bni-unsupported" hidden></p>
 	</div>
 
 	<?php

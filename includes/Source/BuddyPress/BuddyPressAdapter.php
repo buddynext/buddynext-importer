@@ -958,6 +958,48 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Content this source holds that the importer cannot carry.
+	 *
+	 * Rule 3 says a silent shortfall is the worst bug this tool can have, and
+	 * the worst version of it is content that never appears in a shortfall at
+	 * all: rtMedia photos and albums are not counted by any step, so nothing
+	 * compared them against anything and the migration reported success while
+	 * leaving a member's whole gallery behind.
+	 *
+	 * Declared rather than imported. Saying "your source has 14 photos this
+	 * importer does not carry" before a run is a decision the owner can act on;
+	 * discovering it afterwards, with the old site already deleted, is not.
+	 *
+	 * @return array<int,array{reason:string,rows:int}>
+	 */
+	public function unsupported_content(): array {
+		$out = array();
+
+		if ( ! $this->table_exists( 'rt_rtm_media' ) ) {
+			return $out;
+		}
+
+		$albums = $this->table_count( 'rt_rtm_media', "media_type = 'album'" );
+		$media  = $this->table_count( 'rt_rtm_media', "media_type <> 'album'" );
+
+		if ( $media > 0 ) {
+			$out[] = array(
+				'reason' => __( 'rtMedia photos and videos - this importer reads BuddyBoss media, not rtMedia, so they stay on the source site', 'buddynext-importer' ),
+				'rows'   => $media,
+			);
+		}
+
+		if ( $albums > 0 ) {
+			$out[] = array(
+				'reason' => __( 'rtMedia albums - the albums themselves are not carried, so their contents have nowhere to land', 'buddynext-importer' ),
+				'rows'   => $albums,
+			);
+		}
+
+		return $out;
+	}
+
+	/**
 	 * Comments that COULD have migrated but whose own root post did not.
 	 *
 	 * The precise size of the comment shortfall, and the only number that

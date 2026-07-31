@@ -305,6 +305,10 @@ final class ProgressController {
 				// Discovering it afterwards is how "comments are short" became a
 				// bug report instead of a decision.
 				'comment_roots' => method_exists( $adapter, 'comment_root_types' ) ? $adapter->comment_root_types() : array(),
+				// Content the source holds that no step reads. Surfaced BEFORE a
+				// run because it can never appear as a shortfall afterwards -
+				// nothing counts it, so nothing can report it missing.
+				'unsupported'   => method_exists( $adapter, 'unsupported_content' ) ? $adapter->unsupported_content() : array(),
 			)
 		);
 	}

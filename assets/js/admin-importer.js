@@ -122,6 +122,7 @@
 		}
 
 		renderCommentRoots( data.comment_roots );
+		renderUnsupported( data.unsupported );
 
 		toggleButtons( true );
 		if ( ! cfg.bnActive ) {
@@ -149,6 +150,24 @@
 		note.textContent = ( ( cfg.i18n && cfg.i18n.commentRoots ) || '' )
 			.replace( '%1$d', String( total ) )
 			.replace( '%2$s', types );
+		note.hidden = false;
+	}
+
+	// Content the source holds that this importer does not read at all. It can
+	// never turn up as a shortfall afterwards - nothing counts it - so the only
+	// honest moment to say so is before the owner starts.
+	function renderUnsupported( rows ) {
+		var note = el( 'bni-unsupported' );
+		if ( ! note || ! Array.isArray( rows ) || ! rows.length ) {
+			return;
+		}
+
+		note.textContent = '';
+		rows.forEach( function ( row ) {
+			var line = document.createElement( 'div' );
+			line.textContent = row.rows + ' ' + row.reason + '.';
+			note.appendChild( line );
+		} );
 		note.hidden = false;
 	}
 

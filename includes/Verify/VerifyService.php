@@ -104,6 +104,19 @@ final class VerifyService {
 			}
 		}
 
+		// Content the source holds that no step even looks at. Without this it
+		// never reaches a shortfall, because there is nothing to compare it
+		// against - the quietest way for a migration to lose something.
+		if ( method_exists( $adapter, 'unsupported_content' ) ) {
+			foreach ( (array) $adapter->unsupported_content() as $row ) {
+				$blocked[] = array(
+					'reason' => (string) $row['reason'],
+					'rows'   => (int) $row['rows'],
+				);
+				$total    += (int) $row['rows'];
+			}
+		}
+
 		return array(
 			'blocked_rows' => $total,
 			'reasons'      => $blocked,
