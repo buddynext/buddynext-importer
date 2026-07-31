@@ -76,12 +76,13 @@ final class ActivityImporter {
 	 * `posts` counts posts created this run; `existing` counts those an earlier
 	 * run already wrote.
 	 *
-	 * @return array{last:int,fetched:int,posts:int,existing:int}
+	 * @return array{last:int,fetched:int,posts:int,existing:int,skipped:array<string,int>}
 	 */
 	public function import_posts_batch( int $after, int $limit ): array {
 		$rows     = $this->adapter->activities( $after, $limit );
 		$posts    = 0;
 		$existing = 0;
+		$skipped  = array();
 		$last     = $after;
 
 		// Resolve every activity's media in one query set for the whole page,
@@ -101,6 +102,12 @@ final class ActivityImporter {
 				++$posts;
 			} elseif ( $result['id'] > 0 ) {
 				++$existing;
+			} else {
+				// Carry the writer's reason up. Without this the batch result had
+				// no `skipped` key at all, so every refusal in the biggest domain
+				// was invisible to the ledger, the CLI and the admin screen alike.
+				$reason             = (string) ( $result['reason'] ?? 'unknown' );
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + 1;
 			}
 		}
 
@@ -109,6 +116,7 @@ final class ActivityImporter {
 			'fetched'  => count( $rows ),
 			'posts'    => $posts,
 			'existing' => $existing,
+			'skipped'  => $skipped,
 		);
 	}
 
@@ -117,12 +125,13 @@ final class ActivityImporter {
 	 *
 	 * @param int $after Exclusive lower-bound activity id.
 	 * @param int $limit Batch size.
-	 * @return array{last:int,fetched:int,comments:int,existing:int}
+	 * @return array{last:int,fetched:int,comments:int,existing:int,skipped:array<string,int>}
 	 */
 	public function import_comments_batch( int $after, int $limit ): array {
 		$rows     = $this->adapter->activity_comments( $after, $limit );
 		$comments = 0;
 		$existing = 0;
+		$skipped  = array();
 		$last     = $after;
 
 		foreach ( $rows as $row ) {
@@ -133,6 +142,9 @@ final class ActivityImporter {
 				++$comments;
 			} elseif ( $result['id'] > 0 ) {
 				++$existing;
+			} else {
+				$reason             = (string) ( $result['reason'] ?? 'unknown' );
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + 1;
 			}
 		}
 
@@ -141,6 +153,7 @@ final class ActivityImporter {
 			'fetched'  => count( $rows ),
 			'comments' => $comments,
 			'existing' => $existing,
+			'skipped'  => $skipped,
 		);
 	}
 }

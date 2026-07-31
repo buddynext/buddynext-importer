@@ -57,6 +57,28 @@ final class ActivityWriter {
 	}
 
 	/**
+	 * A row this pass deliberately did not write, and why.
+	 *
+	 * Every non-write exit in this class goes through here. They used to return
+	 * an identical id-0 array, so five very different outcomes - an empty source
+	 * row, a group that never became a space, content the source itself withheld,
+	 * a blog post that is no longer public, and an outright write failure - were
+	 * indistinguishable by the time they reached a report. The largest domain in
+	 * the migration could only say "N imported" and nothing about the rest.
+	 *
+	 * @param string $reason Reason code, matched against the note list in
+	 *                       MigrateCommand::report_skips().
+	 * @return array{id:int,created:bool,reason:string}
+	 */
+	private static function refused( string $reason ): array {
+		return array(
+			'id'      => 0,
+			'created' => false,
+			'reason'  => $reason,
+		);
+	}
+
+	/**
 	 * Import one activity_update as a BuddyNext post. Idempotent via the id-map.
 	 * Group activity (component=groups, item_id=group id) is posted into the
 	 * mapped space; everything else is a sitewide post. The original timestamp is
@@ -67,7 +89,7 @@ final class ActivityWriter {
 	 *
 	 * @param array<string,mixed> $activity   Source activity record.
 	 * @param array<int,int>      $media_atts WP attachment ids attached to the activity.
-	 * @return array{id:int,created:bool} BuddyNext post id (0 on failure/skip).
+	 * @return array{id:int,created:bool,reason?:string} BuddyNext post id (0 on failure/skip).
 	 */
 	public function import_post( array $activity, array $media_atts = array() ): array {
 		$source_id = (int) $activity['source_id'];
@@ -86,10 +108,7 @@ final class ActivityWriter {
 
 		// A post needs either content or media.
 		if ( '' === $content && empty( $media_ids ) ) {
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			return self::refused( 'empty_source_row' );
 		}
 
 		$space_id = 0;
@@ -110,10 +129,7 @@ final class ActivityWriter {
 			// null let that 0 through to the global-feed fallback above, which is
 			// the precise disclosure this guard exists to prevent.
 			if ( null === $mapped || $mapped <= 0 ) {
-				return array(
-					'id'      => 0,
-					'created' => false,
-				);
+				return self::refused( 'space_not_imported' );
 			}
 
 			$space_id = $mapped;
@@ -130,10 +146,7 @@ final class ActivityWriter {
 		// content keeps its place when it has one, and is only dropped when it
 		// would otherwise land in the global feed with nothing to protect it.
 		if ( ! empty( $activity['hide_sitewide'] ) && $space_id <= 0 ) {
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			return self::refused( 'withheld_at_source' );
 		}
 
 		// A blog-post announcement is an article, not a status update: it has a
@@ -162,10 +175,7 @@ final class ActivityWriter {
 			// SINCE then still carries a public flag, so the live post decides.
 			// The card would otherwise expose its title, excerpt and image.
 			if ( ! $this->blog_post_is_public( $activity ) ) {
-				return array(
-					'id'      => 0,
-					'created' => false,
-				);
+				return self::refused( 'blog_post_not_public' );
 			}
 
 			$data['link_url'] = $this->blog_post_url( $activity );
@@ -193,10 +203,7 @@ final class ActivityWriter {
 		// early return at the top of this method would skip it on every later
 		// run, and no count would ever show it missing.
 		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			return self::refused( is_wp_error( $result ) ? sanitize_key( (string) $result->get_error_code() ) : 'write_failed' );
 		}
 
 		$bn_id = (int) $result;
@@ -222,7 +229,7 @@ final class ActivityWriter {
 	 * root activity) is nested under that comment. Idempotent via the id-map.
 	 *
 	 * @param array<string,mixed> $comment Source comment record.
-	 * @return array{id:int,created:bool} BuddyNext comment id (0 on failure/skip).
+	 * @return array{id:int,created:bool,reason?:string} BuddyNext comment id (0 on failure/skip).
 	 */
 	public function import_comment( array $comment ): array {
 		$source_id = (int) $comment['source_id'];
@@ -236,12 +243,9 @@ final class ActivityWriter {
 		}
 
 		$post_id = IdMap::get( $this->source, 'post', (int) $comment['root_id'] );
-		if ( null === $post_id ) {
+		if ( null === $post_id || $post_id <= 0 ) {
 			// Root post was not imported (skipped/system) - drop the comment.
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			return self::refused( 'post_not_imported' );
 		}
 
 		// clean_content(), the same as import_post() - not a bare trim().
@@ -255,10 +259,7 @@ final class ActivityWriter {
 		// through clean_content(); comments were the one writer that did not.
 		$content = $this->clean_content( (string) $comment['content'] );
 		if ( '' === $content ) {
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			return self::refused( 'empty_source_row' );
 		}
 
 		// A reply targets another comment; a top-level comment targets the root.
@@ -280,10 +281,7 @@ final class ActivityWriter {
 		// CommentService::create() returns (int) $wpdb->insert_id - 0 on a failed
 		// INSERT, not a WP_Error - so a falsy id must be refused before mapping.
 		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
-			return array(
-				'id'      => 0,
-				'created' => false,
-			);
+			return self::refused( is_wp_error( $result ) ? sanitize_key( (string) $result->get_error_code() ) : 'write_failed' );
 		}
 
 		$bn_id = (int) $result;

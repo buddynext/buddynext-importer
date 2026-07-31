@@ -302,30 +302,42 @@ final class MigrateCommand {
 		$posts          = 0;
 		$posts_existing = 0;
 		$posts_seen     = 0;
+		$posts_skipped  = array();
 		do {
 			$result          = $importer->import_posts_batch( $after, $batch );
 			$posts          += $result['posts'];
 			$posts_existing += $result['existing'];
 			$posts_seen     += $result['fetched'];
 			$after           = $result['last'];
+			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
+				$posts_skipped[ $reason ] = ( $posts_skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 			Checkpoint::set( $source, 'post', $after );
 		} while ( $result['fetched'] === $batch );
-		$this->settle_checkpoint( $source, 'post', $posts_seen, $posts + $posts_existing );
+		// Deterministic refusals are ACCOUNTED FOR, so they belong in the settle
+		// comparison. Leaving them out made every run look like it had left a gap
+		// behind the cursor, which cleared the checkpoint and re-scanned the whole
+		// activity domain from row 0 on each run.
+		$this->settle_checkpoint( $source, 'post', $posts_seen, $posts + $posts_existing + array_sum( $posts_skipped ) );
 		\WP_CLI::log( sprintf( '%d posts imported.', $posts ) );
 
 		$after             = Checkpoint::get( $source, 'comment' );
 		$comments          = 0;
 		$comments_existing = 0;
 		$comments_seen     = 0;
+		$comments_skipped  = array();
 		do {
 			$result             = $importer->import_comments_batch( $after, $batch );
 			$comments          += $result['comments'];
 			$comments_existing += $result['existing'];
 			$comments_seen     += $result['fetched'];
 			$after              = $result['last'];
+			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
+				$comments_skipped[ $reason ] = ( $comments_skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
 			Checkpoint::set( $source, 'comment', $after );
 		} while ( $result['fetched'] === $batch );
-		$this->settle_checkpoint( $source, 'comment', $comments_seen, $comments + $comments_existing );
+		$this->settle_checkpoint( $source, 'comment', $comments_seen, $comments + $comments_existing + array_sum( $comments_skipped ) );
 
 		ImportLedger::add( $source, 'post', $posts );
 		ImportLedger::add( $source, 'comment', $comments );
@@ -334,6 +346,11 @@ final class MigrateCommand {
 
 		$this->report_existing( $posts_existing, 'posts' );
 		$this->report_existing( $comments_existing, 'comments' );
+
+		// The account of everything the activity domain did NOT write. Every
+		// other domain has always done this; the biggest one never did.
+		$this->report_skips( $posts_skipped, $posts_seen, $posts, 'posts' );
+		$this->report_skips( $comments_skipped, $comments_seen, $comments, 'comments' );
 	}
 
 	/**
@@ -690,6 +707,36 @@ final class MigrateCommand {
 			// cannot follow or connect to themselves. Reported, not alarmed.
 			'self_follow'           => '%1$d self-referential %2$s in the source were skipped (a member cannot follow themselves).',
 			'self_connection'       => '%1$d self-referential %2$s in the source were skipped (a member cannot connect to themselves).',
+			// A source row with neither text nor media is not content; there is
+			// nothing to create from it.
+			'empty_source_row'      => '%1$d %2$s in the source had no text and no media, so there was nothing to create.',
+			// CONTENT WAS DROPPED here, and the wording says so. The group did not
+			// become a space, so its posts have nowhere to go - and the one thing
+			// they must NOT do is fall through to the global feed, which is how a
+			// private group gets republished publicly. Named rather than silent
+			// precisely because the owner has to know before deleting the source.
+			'space_not_imported'    => '%1$d %2$s belonged to a group that did not become a space, so they were dropped rather than published to the global feed.',
+			// The SOURCE withheld this from its own sitewide feed and there is no
+			// space to protect it here. Importing it would publish what the source
+			// deliberately kept back.
+			'withheld_at_source'    => '%1$d %2$s were hidden from the sitewide feed at the source and had no space to land in, so they were not republished.',
+			// The linked post is no longer publicly readable, so a card carrying
+			// its title, excerpt and image would expose it.
+			'blog_post_not_public'  => '%1$d %2$s pointed at a post that is no longer public, so no card was created.',
+			// The parent went, so its replies go with it - the same expected
+			// reduction as activity_not_imported above.
+			'post_not_imported'     => '%1$d %2$s were on a post that did not migrate, so they were dropped with it.',
+			// PostService's "You do not have permission to post in this space":
+			// the author is not a member of the space this content belongs to,
+			// usually because they left the group before the migration. That is
+			// BuddyNext enforcing the space's own rule, and VerifyService already
+			// attributes it the same way per space, so warning about it would cry
+			// wolf on every clean migration.
+			//
+			// Safe to read this narrowly: the only OTHER 'forbidden' PostService
+			// returns is on announcements, and this importer never creates one
+			// (it writes text, media and article types only).
+			'forbidden'             => '%1$d %2$s were refused because their author is not a member of the space they belong to.',
 		);
 
 		foreach ( $notes as $reason => $wording ) {
