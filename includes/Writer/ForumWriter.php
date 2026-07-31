@@ -184,9 +184,57 @@ final class ForumWriter {
 		$id = $result->is_success() ? $this->result_id( $result ) : 0;
 		if ( $id > 0 ) {
 			IdMap::set( $this->source, 'forum_post', $source_id, $id );
+			$this->apply_tags( $id, (array) ( $topic['tags'] ?? array() ) );
 		}
 
 		return $this->outcome( $id, $id > 0, $this->failure_reason( $result ) );
+	}
+
+	/**
+	 * Carry a topic's bbPress tags onto the Jetonomy topic just created.
+	 *
+	 * Applied HERE rather than as a domain of its own. Tags are not content in
+	 * their own right - they are an attribute of the topic - and a separate
+	 * step would need its own reader, writer, checkpoint, ledger domain and
+	 * source stat to move a handful of strings that the topic already carries.
+	 * The topic is in front of us and Jetonomy's taxonomy journey is already
+	 * how this plugin creates forum categories, so this is the cheap moment.
+	 *
+	 * Both calls are idempotent: create_or_get_tag() resolves an existing tag
+	 * by slug, and the post-tag link has a composite primary key, so a re-run
+	 * neither duplicates a tag nor double-links one.
+	 *
+	 * A tag that fails to create is skipped rather than failing the topic - a
+	 * migrated discussion with one tag missing is a far better outcome than no
+	 * discussion at all.
+	 *
+	 * @param int      $post_id Jetonomy post id.
+	 * @param string[] $tags    Source tag names.
+	 * @return void
+	 */
+	private function apply_tags( int $post_id, array $tags ): void {
+		if ( $post_id <= 0 || array() === $tags || ! class_exists( '\Jetonomy\CLI\Journeys\Taxonomy_Journey' ) ) {
+			return;
+		}
+
+		$taxonomy = new \Jetonomy\CLI\Journeys\Taxonomy_Journey();
+
+		foreach ( $tags as $name ) {
+			$name = trim( (string) $name );
+			if ( '' === $name ) {
+				continue;
+			}
+
+			$tag = ImportMode::run( fn() => $taxonomy->create_or_get_tag( $name ) );
+			if ( ! $tag->is_success() ) {
+				continue;
+			}
+
+			$tag_id = $this->result_id( $tag );
+			if ( $tag_id > 0 ) {
+				ImportMode::run( fn() => $taxonomy->attach_tag_to_post( $post_id, $tag_id ) );
+			}
+		}
 	}
 
 	/**

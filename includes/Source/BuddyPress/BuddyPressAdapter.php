@@ -1491,7 +1491,53 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function forum_topics( int $after, int $limit ): array {
-		return $this->forum_posts( 'topic', self::FORUM_STATUSES['topic'], $after, $limit );
+		$rows = $this->forum_posts( 'topic', self::FORUM_STATUSES['topic'], $after, $limit );
+
+		return $this->with_topic_tags( $rows );
+	}
+
+	/**
+	 * Attach each topic's bbPress tags to its row.
+	 *
+	 * ONE query for the whole page, not one per topic. A per-row lookup here
+	 * would be the same N+1 that already costs this adapter a postmeta round
+	 * trip per reply, and topics are the domain where that hurts: a large
+	 * bbPress install has tens of thousands.
+	 *
+	 * bbPress keeps topic tags in the core taxonomy tables under `topic-tag`,
+	 * so this is plain WordPress - no bbPress table and nothing to guard beyond
+	 * the terms tables themselves.
+	 *
+	 * @param array<int,array<string,mixed>> $rows Topic rows.
+	 * @return array<int,array<string,mixed>> The same rows, each with `tags`.
+	 */
+	private function with_topic_tags( array $rows ): array {
+		global $wpdb;
+
+		if ( array() === $rows ) {
+			return $rows;
+		}
+
+		$ids = array_values( array_filter( array_map( static fn ( $r ): int => (int) $r['source_id'], $rows ) ) );
+		if ( array() === $ids ) {
+			return $rows;
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+		$terms = $wpdb->get_results( $wpdb->prepare( "SELECT tr.object_id, t.name FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id WHERE tt.taxonomy = 'topic-tag' AND tr.object_id IN ( {$placeholders} ) ORDER BY t.name ASC", $ids ), ARRAY_A );
+
+		$by_topic = array();
+		foreach ( (array) $terms as $term ) {
+			$by_topic[ (int) $term['object_id'] ][] = (string) $term['name'];
+		}
+
+		foreach ( $rows as $i => $row ) {
+			$rows[ $i ]['tags'] = $by_topic[ (int) $row['source_id'] ] ?? array();
+		}
+
+		return $rows;
 	}
 
 	/**
