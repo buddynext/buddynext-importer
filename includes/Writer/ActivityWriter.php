@@ -191,6 +191,14 @@ final class ActivityWriter {
 		$bn_id = (int) $result;
 		IdMap::set( $this->source, 'post', $source_id, $bn_id );
 
+		// Bring the article's own thread with it. The comments are already in
+		// wp_comments - this is an in-place migration - but the card has none of
+		// them, so without this the community sees an article nobody replied to
+		// while the post itself shows a full discussion.
+		if ( $is_blog_post ) {
+			$this->import_blog_comments( (int) ( $activity['secondary_item_id'] ?? 0 ), $bn_id );
+		}
+
 		return array(
 			'id'      => $bn_id,
 			'created' => true,
@@ -565,5 +573,113 @@ final class ActivityWriter {
 		}
 
 		return ( new MediaIngest( $this->source ) )->ingest_many( $attachment_ids, $user_id );
+	}
+
+	/**
+	 * Import the WordPress comments on a migrated blog post onto its card.
+	 *
+	 * A migrated article arrives with its thread stranded: the comments are in
+	 * wp_comments, where they always were, but the article's feed card has none
+	 * of them - so the community sees an article nobody appears to have replied
+	 * to, while the post itself shows a full discussion. BuddyNext keeps the two
+	 * in step for comments made from now on; this brings the existing ones over.
+	 *
+	 * Only comments by real members are eligible: BuddyNext attributes a comment
+	 * to a member account, and a logged-out commenter has none. Pingbacks and
+	 * unapproved comments stay out, matching what the live sync does.
+	 *
+	 * Idempotent through the id-map under its own `blog_comment` domain, keyed on
+	 * the WordPress comment id, so a resumed or repeated run writes each comment
+	 * once.
+	 *
+	 * @param int $post_id WordPress post id whose comments should be mirrored.
+	 * @param int $card_id BuddyNext article card for that post.
+	 * @return array{created:int,skipped:array<string,int>}
+	 */
+	public function import_blog_comments( int $post_id, int $card_id ): array {
+		$created = 0;
+		$skipped = array();
+
+		if ( $post_id <= 0 || $card_id <= 0 ) {
+			return array(
+				'created' => $created,
+				'skipped' => $skipped,
+			);
+		}
+
+		$comments = get_comments(
+			array(
+				'post_id' => $post_id,
+				'status'  => 'approve',
+				'type'    => 'comment',
+				'orderby' => 'comment_ID',
+				'order'   => 'ASC',
+			)
+		);
+
+		$service = $this->comments();
+
+		foreach ( (array) $comments as $comment ) {
+			if ( ! $comment instanceof \WP_Comment ) {
+				continue;
+			}
+
+			$wp_comment_id = (int) $comment->comment_ID;
+
+			if ( null !== IdMap::get( $this->source, 'blog_comment', $wp_comment_id ) ) {
+				$skipped['already_imported'] = ( $skipped['already_imported'] ?? 0 ) + 1;
+				continue;
+			}
+
+			$author = (int) $comment->user_id;
+			if ( $author <= 0 ) {
+				// A guest comment. BuddyNext has no member to attribute it to,
+				// and inventing one would put words in a real member's mouth.
+				$skipped['guest_author'] = ( $skipped['guest_author'] ?? 0 ) + 1;
+				continue;
+			}
+
+			$content = $this->clean_content( (string) $comment->comment_content );
+			if ( '' === $content ) {
+				$skipped['empty_content'] = ( $skipped['empty_content'] ?? 0 ) + 1;
+				continue;
+			}
+
+			// Threading: a reply maps onto its parent's imported comment when
+			// that parent came across, and otherwise flattens to the card rather
+			// than being dropped - a reply with no visible parent still reads,
+			// a missing reply does not.
+			$parent_id = null;
+			if ( (int) $comment->comment_parent > 0 ) {
+				$mapped_parent = IdMap::get( $this->source, 'blog_comment', (int) $comment->comment_parent );
+				$parent_id     = null === $mapped_parent ? null : $mapped_parent;
+			}
+
+			$result = ImportMode::run(
+				fn() => $service->create( $author, 'post', $card_id, $content, $parent_id, $this->utc( (string) $comment->comment_date_gmt ) )
+			);
+
+			if ( is_wp_error( $result ) || (int) $result <= 0 ) {
+				$reason             = is_wp_error( $result ) ? sanitize_key( (string) $result->get_error_code() ) : 'write_failed';
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + 1;
+				continue;
+			}
+
+			$bn_comment_id = (int) $result;
+			IdMap::set( $this->source, 'blog_comment', $wp_comment_id, $bn_comment_id );
+
+			// Pair the two the way BuddyNext's own sync does, so a later edit or
+			// delete on either side can find its twin.
+			if ( method_exists( $service, 'set_sync_reply_id' ) ) {
+				$service->set_sync_reply_id( $bn_comment_id, $wp_comment_id );
+			}
+
+			++$created;
+		}
+
+		return array(
+			'created' => $created,
+			'skipped' => $skipped,
+		);
 	}
 }

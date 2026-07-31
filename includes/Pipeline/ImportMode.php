@@ -120,6 +120,14 @@ final class ImportMode {
 		add_filter( 'buddynext_notification_should_send', $veto );
 		add_filter( 'jetonomy_notification_should_send', $veto );
 
+		// Blog comment mirroring off, through BuddyNext's own filter. BuddyNext
+		// keeps a post's comments and its article card's comments in step, which
+		// is right for a live conversation and wrong for a replay of one: the
+		// importer writes a post's EXISTING comments onto its card, and with
+		// mirroring live every one of them would be written straight back onto
+		// the post that already has them, doubling the thread.
+		add_filter( 'buddynext_sync_blog_comments', $veto );
+
 		// WPMediaVerse DM gate lifts, via MVS's OWN public filters (no MVS code
 		// change). A source thread already existed - today's rate limits, DM
 		// access levels, and cross-plugin can-send vetoes (BuddyNext hooks
