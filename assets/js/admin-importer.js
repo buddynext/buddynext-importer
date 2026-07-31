@@ -469,6 +469,13 @@
 		} );
 
 		card.hidden = false;
+
+		// The checks are only meaningful after something has been imported, so
+		// the card appears with the summary rather than sitting there inert.
+		var verifyCard = el( 'bni-verify-card' );
+		if ( verifyCard ) {
+			verifyCard.hidden = false;
+		}
 	}
 
 	function loadSummary() {
@@ -493,6 +500,164 @@
 			.catch( function () {
 				showNotice( ( cfg.i18n && cfg.i18n.loadFailed ) || '', 'error' );
 			} );
+	}
+
+	/*
+	 * Verification.
+	 *
+	 * Everything rendered here comes from VerifyService, which until now had a
+	 * single caller: the CLI. An owner migrating from this screen could see
+	 * per-domain totals and nothing else - not the coverage report, not the
+	 * placement spot-checks, and not the privacy check on whether migrated
+	 * private-space content ended up publicly searchable.
+	 */
+	function verifySection( title ) {
+		var wrap = document.createElement( 'div' );
+		wrap.className = 'bni-verify__section';
+		var h = document.createElement( 'h3' );
+		h.className = 'bni-verify__title';
+		h.textContent = title;
+		wrap.appendChild( h );
+		return wrap;
+	}
+
+	function verifyLine( state, text ) {
+		var p = document.createElement( 'p' );
+		p.className = 'bni-verify__line is-' + state;
+		p.textContent = text;
+		return p;
+	}
+
+	function t( key, fallback ) {
+		return ( cfg.i18n && cfg.i18n[ key ] ) || fallback;
+	}
+
+	function renderVerify( report ) {
+		var out = el( 'bni-verify-out' );
+		if ( ! out ) {
+			return;
+		}
+
+		out.textContent = '';
+		var problems = 0;
+
+		// Content that cannot migrate at all. Saying so here means a shortfall
+		// below reads as a known limit rather than an unexplained loss.
+		var coverage = report.coverage || {};
+		if ( coverage.blocked_rows ) {
+			var cov = verifySection( t( 'verifyCoverage', 'Cannot migrate' ) );
+			( coverage.reasons || [] ).forEach( function ( r ) {
+				cov.appendChild( verifyLine( 'note', r.rows + ' - ' + r.reason ) );
+			} );
+			out.appendChild( cov );
+		}
+
+		// Broken references in the SOURCE. Not this tool's fault, but it becomes
+		// this tool's shortfall, so the owner should see it named.
+		var relations = ( report.relations || [] ).filter( function ( r ) {
+			return r.broken > 0;
+		} );
+		if ( relations.length ) {
+			var rel = verifySection( t( 'verifyRelations', 'Source relationships' ) );
+			relations.forEach( function ( r ) {
+				var fatal = !! r.fatal;
+				if ( fatal ) {
+					problems++;
+				}
+				rel.appendChild( verifyLine(
+					fatal ? 'bad' : 'note',
+					r.relation + ': ' + r.broken + ' of ' + r.total + ' - ' + ( fatal ? t( 'verifyBrokenSource', 'broken in the source, these cannot migrate' ) : ( r.note || '' ) )
+				) );
+			} );
+			out.appendChild( rel );
+		}
+
+		// The privacy check. This is the one that had no way of reaching the
+		// owner before, and the one with the worst consequence if it fails.
+		var exposure = report.exposure || {};
+		if ( exposure.checked ) {
+			var exp = verifySection( t( 'verifyExposure', 'Privacy' ) );
+			if ( exposure.leaked > 0 ) {
+				problems++;
+				exp.appendChild( verifyLine( 'bad', exposure.leaked + ' ' + t( 'verifyLeak', 'post(s) from a private or secret space are PUBLICLY SEARCHABLE' ) ) );
+				( exposure.rows || [] ).forEach( function ( row ) {
+					if ( row.leaked ) {
+						exp.appendChild( verifyLine( 'detail', row.space_type + ' space, indexed as ' + row.visibility + ' - ' + row.rows + ' row(s)' ) );
+					}
+				} );
+			} else {
+				exp.appendChild( verifyLine( 'ok', t( 'verifyNoLeak', 'No private or secret space content is publicly searchable.' ) ) );
+			}
+			out.appendChild( exp );
+		}
+
+		// Objects walked end to end. Totals cannot see placement; this can.
+		[
+			[ 'spaces', t( 'verifySpaces', 'Spot-check: spaces' ) ],
+			[ 'activities', t( 'verifyActivities', 'Spot-check: posts' ) ]
+		].forEach( function ( pair ) {
+			var rows = ( report.samples && report.samples[ pair[ 0 ] ] ) || [];
+			if ( ! rows.length ) {
+				return;
+			}
+
+			var sec = verifySection( pair[ 1 ] + ' (' + rows.length + ')' );
+			rows.forEach( function ( row ) {
+				var name = row.name || row.content || ( '#' + row.source_id );
+				var bad = row.problems && row.problems.length;
+				if ( bad ) {
+					problems++;
+				}
+				sec.appendChild( verifyLine( bad ? 'bad' : 'ok', name + ' - ' + ( row.detail || '' ) ) );
+				( row.problems || [] ).forEach( function ( p ) {
+					sec.appendChild( verifyLine( 'detail', p ) );
+				} );
+			} );
+			out.appendChild( sec );
+		} );
+
+		// The verdict, first thing the eye lands on after a run.
+		var verdict = problems === 0
+			? verifyLine( 'ok', t( 'verifyPass', 'Every domain accounted for and every sampled object correct.' ) )
+			: verifyLine( 'bad', problems + ' ' + t( 'verifyFindings', 'finding(s) to read. A shortfall is not automatically a fault - check it against the coverage note above.' ) );
+		verdict.className += ' bni-verify__verdict';
+		out.insertBefore( verdict, out.firstChild );
+
+		out.hidden = false;
+	}
+
+	function runVerify() {
+		var btn = el( 'bni-verify-run' );
+		var out = el( 'bni-verify-out' );
+		if ( ! apiFetch || ! btn ) {
+			return;
+		}
+
+		btn.disabled = true;
+		if ( out ) {
+			out.textContent = '';
+			out.appendChild( verifyLine( 'note', t( 'verifyRunning', 'Checking...' ) ) );
+			out.hidden = false;
+		}
+
+		apiFetch( {
+			path: '/buddynext-importer/v1/verify',
+			headers: { 'X-WP-Nonce': cfg.nonce }
+		} ).then( function ( report ) {
+			if ( report && report.available ) {
+				renderVerify( report );
+			} else if ( out ) {
+				out.textContent = '';
+				out.appendChild( verifyLine( 'note', t( 'noSource', '' ) ) );
+			}
+		} ).catch( function () {
+			if ( out ) {
+				out.textContent = '';
+				out.appendChild( verifyLine( 'bad', t( 'verifyFailed', 'The checks could not be run.' ) ) );
+			}
+		} ).then( function () {
+			btn.disabled = false;
+		} );
 	}
 
 	/*
@@ -684,6 +849,10 @@
 		var selectAll = el( 'bni-domains-all' );
 		if ( selectAll ) {
 			selectAll.addEventListener( 'click', selectAllDomains );
+		}
+		var verifyBtn = el( 'bni-verify-run' );
+		if ( verifyBtn ) {
+			verifyBtn.addEventListener( 'click', runVerify );
 		}
 		var start = el( 'bni-start' );
 		if ( start ) {

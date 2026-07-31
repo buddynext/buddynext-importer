@@ -1563,6 +1563,16 @@ class BuddyPressAdapter implements SourceAdapter {
 	 *                is absent (classic bp_follow holds member follows only).
 	 */
 	private function follow_type_where(): string {
+		// Guard the TABLE before asking about the column. follows() has its own
+		// table_exists() check above this, but stats() calls this to build a
+		// count argument, which is evaluated before table_count() gets a chance
+		// to guard - so on the many BuddyPress sites with no Follow plugin at
+		// all, SHOW COLUMNS ran against a table that does not exist and logged a
+		// database error on every stats() call.
+		if ( ! $this->table_exists( 'bp_follow' ) ) {
+			return '';
+		}
+
 		return $this->column_exists( 'bp_follow', 'follow_type' )
 			? "( follow_type = '' OR follow_type = 'user' )"
 			: '';

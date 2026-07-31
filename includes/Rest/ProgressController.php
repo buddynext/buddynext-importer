@@ -23,6 +23,7 @@ use BuddyNextImporter\Pipeline\ImportLedger;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
+use BuddyNextImporter\Verify\VerifyService;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -115,6 +116,29 @@ final class ProgressController {
 						'type'              => 'string',
 						'required'          => false,
 						'sanitize_callback' => 'sanitize_key',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/verify',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'get_verify' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'source'  => array(
+						'type'              => 'string',
+						'required'          => false,
+						'sanitize_callback' => 'sanitize_key',
+					),
+					'samples' => array(
+						'type'              => 'integer',
+						'required'          => false,
+						'default'           => 5,
+						'sanitize_callback' => 'absint',
 					),
 				),
 			)
@@ -283,6 +307,43 @@ final class ProgressController {
 				'comment_roots' => method_exists( $adapter, 'comment_root_types' ) ? $adapter->comment_root_types() : array(),
 			)
 		);
+	}
+
+	/**
+	 * GET /verify - the full post-migration check, for the admin screen.
+	 *
+	 * This exists because the owner is the only person who will ever run it.
+	 * VerifyService had exactly one caller, the CLI, so everything it knows was
+	 * reachable only over SSH - while the screen the owner actually uses showed
+	 * per-domain totals and nothing else. Its own header says why that is not
+	 * enough: a migration can reconcile perfectly on every total while each post
+	 * sits in the wrong space, in front of the wrong people. The privacy check
+	 * in particular - migrated private-space content that ended up publicly
+	 * searchable - had no way of reaching the one person who needs it.
+	 *
+	 * On demand rather than on page load: it counts the source independently,
+	 * samples objects at random and walks each one, which is real work on a large
+	 * community and pointless before a run has happened.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function get_verify( WP_REST_Request $request ): WP_REST_Response {
+		$source = $this->resolve_source( $request );
+
+		if ( null === $source ) {
+			return new WP_REST_Response(
+				array(
+					'source'    => null,
+					'available' => false,
+				)
+			);
+		}
+
+		// Clamped: the sample size drives per-object walks, and this is reachable
+		// from a browser where the CLI's own bound does not apply.
+		$samples = max( 1, min( 25, (int) $request->get_param( 'samples' ) ) );
+
+		return new WP_REST_Response( ( new VerifyService() )->report( $source, $samples ) );
 	}
 
 	/**

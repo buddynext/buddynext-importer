@@ -184,4 +184,34 @@ defined( 'ABSPATH' ) || exit;
 			<?php esc_html_e( 'A domain can be legitimately short - private content its author cannot post into, or content whose parent was not migrated. A domain marked unavailable needs the plugin that owns it (Jetonomy for forums, WPMediaVerse for media and messages).', 'buddynext-importer' ); ?>
 		</p>
 	</div>
+
+	<?php
+	/*
+	 * The deeper check, and the last thing an owner should read before deleting
+	 * their old community.
+	 *
+	 * Totals cannot see placement or privacy: a migration can reconcile
+	 * perfectly on every domain while a post sits in the wrong space, in front
+	 * of the wrong people. All of this already existed in VerifyService and was
+	 * reachable only through WP-CLI, which the owner running this screen does
+	 * not have - so the one person who needs the privacy check could not see it.
+	 *
+	 * On demand, because it counts the source independently and walks sampled
+	 * objects one by one.
+	 */
+	?>
+	<div class="bni-card" id="bni-verify-card" hidden>
+		<div class="bni-card__head">
+			<h2 class="bni-card__title"><?php esc_html_e( 'Check the migration', 'buddynext-importer' ); ?></h2>
+			<button type="button" class="button" id="bni-verify-run">
+				<?php esc_html_e( 'Run checks', 'buddynext-importer' ); ?>
+			</button>
+		</div>
+
+		<p class="bni-muted" id="bni-verify-intro">
+			<?php esc_html_e( 'Counts your source community again, independently, and walks a random sample of migrated spaces and posts end to end - checking that each one landed in the right place and is visible to the right people. Worth running before you delete anything.', 'buddynext-importer' ); ?>
+		</p>
+
+		<div id="bni-verify-out" hidden></div>
+	</div>
 </div>

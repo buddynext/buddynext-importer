@@ -567,3 +567,85 @@
 		grid-template-columns: 1fr;
 	}
 }
+
+/* ------------------------------------------------------------ verification */
+
+/* The deeper check. Read once, before deleting a community - so findings have
+   to be scannable at a glance, not buried in prose. */
+.bni-verify__section {
+	margin-top: 16px;
+}
+
+.bni-verify__title {
+	margin: 0 0 6px;
+	font-size: 13px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--bni-text-muted);
+}
+
+.bni-verify__line {
+	margin: 0 0 4px;
+	padding-inline-start: 22px;
+	position: relative;
+	line-height: 1.5;
+}
+
+/* Status marker, so pass and fail are distinguishable without reading. Colour
+   is never the only signal - the glyph differs too. */
+.bni-verify__line::before {
+	position: absolute;
+	inset-inline-start: 0;
+	font-weight: 700;
+}
+
+.bni-verify__line.is-ok::before {
+	content: "\2713";
+	color: #1a7f37;
+}
+
+.bni-verify__line.is-bad::before {
+	content: "\21";
+	color: var(--bni-danger);
+}
+
+.bni-verify__line.is-note::before {
+	content: "\2013";
+	color: var(--bni-text-muted);
+}
+
+.bni-verify__line.is-bad {
+	color: var(--bni-danger-700);
+}
+
+/* Sub-detail under a finding: the specific rows that failed. */
+.bni-verify__line.is-detail {
+	padding-inline-start: 40px;
+	font-size: 12px;
+	color: var(--bni-text-muted);
+}
+
+.bni-verify__line.is-detail::before {
+	content: "";
+}
+
+/* The verdict leads, so the answer to "is it safe to delete?" is the first
+   thing read rather than the last. */
+.bni-verify__verdict {
+	margin-bottom: 12px;
+	padding: 10px 12px 10px 34px;
+	border-radius: 6px;
+	font-weight: 600;
+	background: var(--bni-surface-2);
+}
+
+.bni-verify__verdict::before {
+	inset-inline-start: 12px;
+}
+
+@media (max-width: 640px) {
+	.bni-verify__line.is-detail {
+		padding-inline-start: 22px;
+	}
+}
