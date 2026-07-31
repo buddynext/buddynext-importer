@@ -95,13 +95,26 @@ class BuddyPressAdapter implements SourceAdapter {
 			// genuine shortfall looked like a surplus.
 			'group_members'                => $this->table_count( 'bp_groups_members' ),
 			'activities'                   => $this->table_count( 'bp_activity', "type IN ('" . implode( "','", self::IMPORTED_ACTIVITY_TYPES ) . "') AND is_spam = 0" ),
-			'activity_comments'            => $this->table_count( 'bp_activity', "type = 'activity_comment'" ),
+			// is_spam = 0 to match activity_comments() and the orphan-comment
+			// health check, both of which exclude spam. The 'activities' line
+			// above always did; this one did not, so every spam comment on the
+			// source was counted as an expected import that could never arrive.
+			'activity_comments'            => $this->table_count( 'bp_activity', "type = 'activity_comment' AND is_spam = 0" ),
 			// Every row, not just the confirmed ones: friendships() reads the whole
 			// table and a pending request migrates as a pending connection. Counting
 			// only confirmed rows here reported fewer in the source than the import
 			// wrote, which reads as the importer inventing connections.
 			'friendships'                  => $this->table_count( 'bp_friends' ),
-			'follows'                      => $this->table_count( 'bp_follow' ),
+			'follows'                      => $this->table_count( 'bp_follow', $this->follow_type_where() ),
+			// bbPress forums on a plain BuddyPress source. These readers and the
+			// ForumImporter have always existed here, but stats() carried no
+			// forum key at all - so on BP + bbPress the coverage banner and the
+			// verify screen showed nothing for content that was actively being
+			// written, and no shortfall in it could ever surface. 0 when bbPress
+			// is absent, which is the honest answer there.
+			'forums'                       => $this->forum_post_count( 'forum' ),
+			'forum_topics'                 => $this->forum_post_count( 'topic' ),
+			'forum_replies'                => $this->forum_post_count( 'reply' ),
 			'group_types'                  => count( $this->group_types() ),
 			// What CAN migrate, as distinct from what exists: a comment on a root
 			// the posts pass does not import has nowhere to attach.
@@ -1332,7 +1345,7 @@ class BuddyPressAdapter implements SourceAdapter {
 	 */
 	public function forums( int $after, int $limit ): array {
 		// bbPress forums carry their visibility in post_status.
-		$rows = $this->forum_posts( 'forum', array( 'publish', 'private', 'hidden', 'public' ), $after, $limit );
+		$rows = $this->forum_posts( 'forum', self::FORUM_STATUSES['forum'], $after, $limit );
 
 		global $wpdb;
 		foreach ( $rows as &$row ) {
@@ -1382,7 +1395,7 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function forum_topics( int $after, int $limit ): array {
-		return $this->forum_posts( 'topic', array( 'publish', 'closed' ), $after, $limit );
+		return $this->forum_posts( 'topic', self::FORUM_STATUSES['topic'], $after, $limit );
 	}
 
 	/**
@@ -1393,7 +1406,7 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function forum_replies( int $after, int $limit ): array {
-		$rows = $this->forum_posts( 'reply', array( 'publish' ), $after, $limit );
+		$rows = $this->forum_posts( 'reply', self::FORUM_STATUSES['reply'], $after, $limit );
 
 		global $wpdb;
 		foreach ( $rows as &$row ) {
@@ -1405,6 +1418,41 @@ class BuddyPressAdapter implements SourceAdapter {
 		unset( $row );
 
 		return $rows;
+	}
+
+	/**
+	 * Which post statuses each bbPress type is imported from.
+	 *
+	 * The readers below and the forum source stats both derive from this map, so
+	 * the count and the fetch cannot drift. They already had: the topic count
+	 * looked only at 'publish' while the reader also imports 'closed', so every
+	 * closed topic was imported without ever being expected - imported exceeded
+	 * expected, and a real topic shortfall could hide underneath it.
+	 *
+	 * bbPress encodes forum visibility in post_status, which is why the forum row
+	 * carries four.
+	 */
+	protected const FORUM_STATUSES = array(
+		'forum' => array( 'publish', 'private', 'hidden', 'public' ),
+		'topic' => array( 'publish', 'closed' ),
+		'reply' => array( 'publish' ),
+	);
+
+	/**
+	 * Count bbPress posts of a type, over exactly the statuses its reader imports.
+	 *
+	 * @param string $post_type bbPress post type (forum|topic|reply).
+	 */
+	protected function forum_post_count( string $post_type ): int {
+		global $wpdb;
+
+		$statuses = self::FORUM_STATUSES[ $post_type ] ?? array( 'publish' );
+
+		$status_ph = implode( ', ', array_fill( 0, count( $statuses ), '%s' ) );
+		$params    = array_merge( array( $post_type ), $statuses );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND post_status IN ( {$status_ph} )", $params ) );
 	}
 
 	/**
@@ -1502,6 +1550,25 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * The WHERE condition that decides which bp_follow rows are member follows.
+	 *
+	 * Shared by follows() and by the 'follows' source stat so the two can never
+	 * disagree. They used to: the count read every row in bp_follow while the
+	 * fetch excluded non-member follow types, so on BuddyBoss - where the same
+	 * table also holds forum and blog subscriptions - every subscription was
+	 * counted as an expected follow that could never arrive, inventing a
+	 * permanent shortfall on a migration that had lost nothing.
+	 *
+	 * @return string Bare condition with no leading AND, or '' when the column
+	 *                is absent (classic bp_follow holds member follows only).
+	 */
+	private function follow_type_where(): string {
+		return $this->column_exists( 'bp_follow', 'follow_type' )
+			? "( follow_type = '' OR follow_type = 'user' )"
+			: '';
+	}
+
+	/**
 	 * User follows from bp_follow (BuddyBoss / the classic BuddyPress Follow
 	 * plugin - same table name in both).
 	 *
@@ -1521,9 +1588,10 @@ class BuddyPressAdapter implements SourceAdapter {
 			return array();
 		}
 
-		$table    = $wpdb->prefix . 'bp_follow';
-		$date_col = $this->column_exists( 'bp_follow', 'date_recorded' ) ? ', date_recorded' : '';
-		$type_sql = $this->column_exists( 'bp_follow', 'follow_type' ) ? " AND ( follow_type = '' OR follow_type = 'user' )" : '';
+		$table        = $wpdb->prefix . 'bp_follow';
+		$date_col     = $this->column_exists( 'bp_follow', 'date_recorded' ) ? ', date_recorded' : '';
+		$follow_where = $this->follow_type_where();
+		$type_sql     = '' !== $follow_where ? ' AND ' . $follow_where : '';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, leader_id, follower_id{$date_col} FROM `{$table}` WHERE id > %d{$type_sql} ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );

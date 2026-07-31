@@ -225,7 +225,7 @@ final class StepRegistry {
 			$forums_available,
 			static fn ( int $c, int $b ): array => ForumImporter::for_source( $source )->import_forums_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['forums'],
-			''
+			'forums'
 		);
 
 		$steps[] = self::step(
@@ -237,7 +237,7 @@ final class StepRegistry {
 			$forums_available,
 			static fn ( int $c, int $b ): array => ForumImporter::for_source( $source )->import_topics_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['topics'],
-			''
+			'forum_topics'
 		);
 
 		$steps[] = self::step(
@@ -249,7 +249,7 @@ final class StepRegistry {
 			$forums_available,
 			static fn ( int $c, int $b ): array => ForumImporter::for_source( $source )->import_replies_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['replies'],
-			''
+			'forum_replies'
 		);
 
 		$images_available = static fn (): bool => ImageImporter::target_available()
@@ -291,7 +291,11 @@ final class StepRegistry {
 			$media_available,
 			static fn ( int $c, int $b ): array => MediaImporter::for_source( $source )->import_albums_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['albums'],
-			''
+			// media_albums counts every row in bp_media_albums and the reader
+			// fetches every row, so the two sides agree. Absent on plain
+			// BuddyPress, which has no albums - the comparison then stays blank
+			// rather than claiming a shortfall of content that cannot exist.
+			'media_albums'
 		);
 
 		$steps[] = self::step(

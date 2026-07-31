@@ -71,9 +71,9 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		$stats['media_albums']     = $this->table_count( 'bp_media_albums' );
 		$stats['standalone_media'] = $this->table_count( 'bp_media', "COALESCE( message_id, 0 ) = 0 AND ( COALESCE( activity_id, 0 ) = 0 OR COALESCE( album_id, 0 ) > 0 ) AND status = 'published'" );
 
-		// Forums (bbPress) -> Jetonomy, only meaningful when forums exist.
-		$stats['forum_topics']  = $this->post_type_count( 'topic' );
-		$stats['forum_replies'] = $this->post_type_count( 'reply' );
+		// Forums (bbPress) -> Jetonomy. Inherited from the parent now, which
+		// counts over exactly the statuses each reader imports; the local copy
+		// counted 'publish' only and so missed every closed topic.
 
 		return $stats;
 	}
@@ -301,23 +301,6 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		$list    = is_array( $decoded ) ? $decoded : explode( ',', $raw );
 
 		return array_values( array_filter( array_map( 'intval', $list ) ) );
-	}
-
-	/**
-	 * Count published posts of a bbPress post type.
-	 *
-	 * @param string $post_type Post type slug (topic|reply|forum).
-	 */
-	protected function post_type_count( string $post_type ): int {
-		global $wpdb;
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		return (int) $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND post_status = 'publish'",
-				$post_type
-			)
-		);
 	}
 
 	/**
