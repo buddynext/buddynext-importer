@@ -466,6 +466,22 @@
 			tr.appendChild( got );
 
 			body.appendChild( tr );
+
+			// Why anything was left out, on its own row under the domain. The CLI
+			// has always printed this; without it the admin screen reported a bare
+			// "412 of 500" and left the owner to guess at the other 88.
+			var reasons = row.reasons && Object.keys( row.reasons );
+			if ( ! row.skipped && reasons && reasons.length ) {
+				var note = document.createElement( 'tr' );
+				note.className = 'bni-summary__reasons';
+				var cell = document.createElement( 'td' );
+				cell.colSpan = 3;
+				cell.textContent = reasons.map( function ( key ) {
+					return row.reasons[ key ] + ' ' + key.replace( /_/g, ' ' );
+				} ).join( ', ' );
+				note.appendChild( cell );
+				body.appendChild( note );
+			}
 		} );
 
 		card.hidden = false;

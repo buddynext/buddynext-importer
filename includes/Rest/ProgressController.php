@@ -447,6 +447,7 @@ final class ProgressController {
 
 		$rows     = array();
 		$selected = DomainSelection::last_run( $source );
+		$skips    = ImportLedger::skips_for_source( $source );
 		foreach ( StepRegistry::steps( $source ) as $step ) {
 			$domain = (string) $step['domain'];
 			$stat   = (string) ( $step['stat'] ?? '' );
@@ -463,6 +464,9 @@ final class ProgressController {
 				// domain that tried and came up short, or a selective import reads
 				// as a failed one.
 				'skipped'   => ! in_array( (string) $step['phase'], $selected, true ),
+				// Reason-coded account of everything this domain did NOT write.
+				// A bare "412 of 500" is the failure this plugin exists to avoid.
+				'reasons'   => (array) ( $skips[ $domain ] ?? array() ),
 			);
 		}
 

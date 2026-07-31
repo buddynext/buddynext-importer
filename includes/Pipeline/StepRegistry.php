@@ -465,6 +465,11 @@ final class StepRegistry {
 				$rows   = $count( $result );
 
 				ImportLedger::add( $source, $domain, $rows );
+				// And WHY anything was left out. The CLI printed these and the
+				// admin screen did not, so the owner running the migration from
+				// the page this plugin ships with got a bare total. Recorded
+				// beside the total, in the wrapper every surface goes through.
+				ImportLedger::add_skips( $source, $domain, (array) ( $result['skipped'] ?? array() ) );
 
 				// Did this batch account for everything it read? The cursor may
 				// only ever skip rows that are already handled, so a batch that

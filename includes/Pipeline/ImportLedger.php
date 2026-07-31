@@ -37,6 +37,14 @@ final class ImportLedger {
 	private const OPTION = 'buddynext_importer_ledger';
 
 	/**
+	 * Option holding the reason-coded tally of rows NOT written.
+	 *
+	 * Separate from the totals option so the domain => int shape every existing
+	 * consumer relies on is untouched.
+	 */
+	private const SKIPS_OPTION = 'buddynext_importer_skips';
+
+	/**
 	 * Add rows to a domain's total.
 	 *
 	 * Idempotent in the sense that matters: a resumed or repeated run only adds
@@ -56,6 +64,61 @@ final class ImportLedger {
 		$ledger[ $source ][ $domain ] = (int) ( $ledger[ $source ][ $domain ] ?? 0 ) + $count;
 
 		update_option( self::OPTION, $ledger, false );
+	}
+
+	/**
+	 * Record why rows were NOT written.
+	 *
+	 * The CLI has always printed this (report_skips) and the admin screen never
+	 * did, so an owner running the migration from the page it ships with saw
+	 * "412 of 500" and no account of the other 88 - the exact "N imported alone"
+	 * the reason codes exist to prevent. Recorded in the same run wrapper as the
+	 * totals above, so every surface contributes without remembering to.
+	 *
+	 * @param string            $source  Source key.
+	 * @param string            $domain  Domain key.
+	 * @param array<string,int> $reasons reason => rows.
+	 */
+	public static function add_skips( string $source, string $domain, array $reasons ): void {
+		if ( array() === $reasons ) {
+			return;
+		}
+
+		$skips = self::all_skips();
+		foreach ( $reasons as $reason => $count ) {
+			$count = (int) $count;
+			if ( $count <= 0 ) {
+				continue;
+			}
+
+			$key                                 = sanitize_key( (string) $reason );
+			$skips[ $source ][ $domain ][ $key ] = (int) ( $skips[ $source ][ $domain ][ $key ] ?? 0 ) + $count;
+		}
+
+		update_option( self::SKIPS_OPTION, $skips, false );
+	}
+
+	/**
+	 * The whole skip tally.
+	 *
+	 * @return array<string,array<string,array<string,int>>> source => domain => reason => rows.
+	 */
+	public static function all_skips(): array {
+		$skips = get_option( self::SKIPS_OPTION );
+
+		return is_array( $skips ) ? $skips : array();
+	}
+
+	/**
+	 * One source's skips.
+	 *
+	 * @param string $source Source key.
+	 * @return array<string,array<string,int>> domain => reason => rows.
+	 */
+	public static function skips_for_source( string $source ): array {
+		$skips = self::all_skips();
+
+		return isset( $skips[ $source ] ) && is_array( $skips[ $source ] ) ? $skips[ $source ] : array();
 	}
 
 	/**
@@ -108,6 +171,11 @@ final class ImportLedger {
 		unset( $ledger[ $source ] );
 
 		update_option( self::OPTION, $ledger, false );
+
+		$skips = self::all_skips();
+		unset( $skips[ $source ] );
+
+		update_option( self::SKIPS_OPTION, $skips, false );
 	}
 
 	/**
@@ -115,5 +183,6 @@ final class ImportLedger {
 	 */
 	public static function drop(): void {
 		delete_option( self::OPTION );
+		delete_option( self::SKIPS_OPTION );
 	}
 }

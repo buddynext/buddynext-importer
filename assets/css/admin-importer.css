@@ -649,3 +649,11 @@
 		padding-inline-start: 22px;
 	}
 }
+
+/* Reason-coded account of rows a domain did not write, under its own row. Muted
+   because it is an explanation, not a failure - most reasons are expected. */
+.bni-summary__reasons td {
+	padding-top: 0;
+	font-size: 12px;
+	color: var(--bni-text-muted);
+}
