@@ -262,10 +262,16 @@
 		}
 		setBar( res.percent || 0 );
 		if ( res.state === 'running' ) {
+			// A stalled tick is restarted by the server-side supervisor. Say that,
+			// rather than leaving a bar that has silently stopped moving.
 			setLabel(
-				( ( cfg.i18n && cfg.i18n.importing ) || 'Importing' ) +
-				( res.phase ? ' ' + res.phase : '' ) +
-				'... (' + res.done + '/' + res.total + ')'
+				res.stalled
+					? ( ( cfg.i18n && cfg.i18n.resuming ) || 'The import stopped unexpectedly and is being resumed...' )
+					: (
+						( ( cfg.i18n && cfg.i18n.importing ) || 'Importing' ) +
+						( res.phase ? ' ' + res.phase : '' ) +
+						'... (' + res.done + '/' + res.total + ')'
+					)
 			);
 			return true;
 		}

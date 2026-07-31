@@ -162,6 +162,7 @@ final class ImporterPage {
 					'verifyFindings'     => __( 'finding(s) to read. A shortfall is not automatically a fault - check it against the coverage note above.', 'buddynext-importer' ),
 					'verifyRunning'      => __( 'Checking...', 'buddynext-importer' ),
 					'verifyFailed'       => __( 'The checks could not be run.', 'buddynext-importer' ),
+					'resuming'           => __( 'The import stopped unexpectedly and is being resumed automatically...', 'buddynext-importer' ),
 				),
 			)
 		);

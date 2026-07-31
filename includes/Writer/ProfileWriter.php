@@ -75,10 +75,21 @@ final class ProfileWriter {
 			)
 		);
 
-		// create_group() returns (int) $wpdb->insert_id, so a refused insert (a
-		// duplicate group_key, most likely) comes back as 0. Mapping that made
-		// every field in the group import with group_id 0 - orphaned, invisible
-		// in the UI, and counted as a success.
+		// create_group() returns (int) $wpdb->insert_id, so a refused insert comes
+		// back as 0. Mapping that made every field in the group import with
+		// group_id 0 - orphaned, invisible in the UI, and counted as a success.
+		//
+		// By far the likeliest refusal is a duplicate group_key, which means the
+		// group is ALREADY THERE: an earlier run created it and the id-map was
+		// dropped (cleanup does exactly that), or the owner made it by hand. So
+		// adopt it rather than give up - the mapping is what matters, and simply
+		// refusing left the whole profile domain silently importing nothing after
+		// a cleanup. Same reasoning, and the same shape, as SpaceWriter's
+		// category adoption.
+		if ( $bn_id <= 0 ) {
+			$bn_id = $this->find_group_by_key( 'bp_' . $source_id . '_' . sanitize_key( (string) $group['name'] ) );
+		}
+
 		if ( $bn_id <= 0 ) {
 			return 0;
 		}
@@ -125,9 +136,14 @@ final class ProfileWriter {
 
 		$bn_id = (int) $this->service()->create_field( $data );
 
-		// Same failed-insert shape as create_group() above. An unmapped field is
-		// recoverable on a re-run; a field mapped to 0 makes import_user_values()
-		// below write member values under a field_key with no field row.
+		// Same failed-insert shape as create_group() above, and the same remedy:
+		// a duplicate field_key means the field already exists, so adopt it. A
+		// field mapped to 0 would make import_user_values() below write member
+		// values under a field_key that has no field row.
+		if ( $bn_id <= 0 ) {
+			$bn_id = $this->find_field_by_key( (string) $data['field_key'] );
+		}
+
 		if ( $bn_id <= 0 ) {
 			return 0;
 		}
@@ -135,6 +151,39 @@ final class ProfileWriter {
 		IdMap::set( $this->source, 'profile_field', $source_id, $bn_id );
 
 		return $bn_id;
+	}
+
+	/**
+	 * An existing profile group's id, by its group_key.
+	 *
+	 * @param string $group_key Group key.
+	 */
+	private function find_group_by_key( string $group_key ): int {
+		foreach ( (array) $this->service()->get_groups() as $group ) {
+			if ( is_array( $group ) && (string) ( $group['group_key'] ?? '' ) === $group_key ) {
+				return (int) ( $group['id'] ?? 0 );
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * An existing profile field's id, by its field_key.
+	 *
+	 * ProfileService::get_fields() returns one row per field joined to its group,
+	 * so field_key and field_id both come straight off it.
+	 *
+	 * @param string $field_key Field key.
+	 */
+	private function find_field_by_key( string $field_key ): int {
+		foreach ( (array) $this->service()->get_fields() as $field ) {
+			if ( is_array( $field ) && (string) ( $field['field_key'] ?? '' ) === $field_key ) {
+				return (int) ( $field['field_id'] ?? 0 );
+			}
+		}
+
+		return 0;
 	}
 
 	/**

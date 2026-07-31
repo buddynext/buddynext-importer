@@ -40,6 +40,32 @@ final class BackgroundImport {
 	private const HOOK = 'buddynext_importer_bg_tick';
 
 	/**
+	 * Supervisor hook. Runs on its own recurring schedule while a job is live.
+	 */
+	private const WATCHDOG_HOOK = 'buddynext_importer_bg_watchdog';
+
+	/**
+	 * How often the supervisor looks in, in seconds.
+	 */
+	private const WATCHDOG_INTERVAL = 300;
+
+	/**
+	 * How quiet a running job has to be before it counts as stalled.
+	 *
+	 * Generous on purpose: a tick that is legitimately mid-batch on a slow host
+	 * has not written updated_at yet, and reviving underneath it would run two
+	 * ticks over the same domain. The id-map makes that harmless but wasteful.
+	 */
+	private const STALL_AFTER = 600;
+
+	/**
+	 * How many times to revive a job that is making no progress before calling it
+	 * failed. A tick killed by a transient OOM succeeds on retry; one that dies on
+	 * the same row every time never will, and saying "running" forever is a lie.
+	 */
+	private const MAX_REVIVALS = 3;
+
+	/**
 	 * Action Scheduler group, so the actions are easy to find and cancel.
 	 */
 	private const GROUP = 'buddynext-importer';
@@ -67,6 +93,7 @@ final class BackgroundImport {
 	 */
 	public function register(): void {
 		add_action( self::HOOK, array( $this, 'tick' ) );
+		add_action( self::WATCHDOG_HOOK, array( $this, 'watchdog' ) );
 	}
 
 	/**
@@ -99,6 +126,7 @@ final class BackgroundImport {
 		DomainSelection::record_run( DomainSelection::get( $source ) );
 
 		$this->schedule();
+		$this->schedule_watchdog();
 	}
 
 	/**
@@ -113,6 +141,7 @@ final class BackgroundImport {
 		}
 
 		$this->unschedule();
+		$this->unschedule_watchdog();
 	}
 
 	/**
@@ -139,13 +168,22 @@ final class BackgroundImport {
 		$step  = min( (int) ( $job['step'] ?? 0 ), $total );
 		$state = (string) ( $job['state'] ?? 'idle' );
 
+		$scheduled = $this->is_scheduled();
+
 		return array(
 			'state'     => $state,
 			'phase'     => $step < $total ? $steps[ $step ]['label'] : null,
 			'done'      => $step,
 			'total'     => $total,
 			'percent'   => 'complete' === $state ? 100 : ( $total > 0 ? (int) round( $step / $total * 100 ) : 0 ),
-			'scheduled' => $this->is_scheduled(),
+			'scheduled' => $scheduled,
+			// Running, but with no tick queued and no heartbeat for a while. The
+			// supervisor will restart it; saying so beats a progress bar that
+			// simply stops moving with no explanation.
+			'stalled'   => 'running' === $state
+				&& ! $scheduled
+				&& ( time() - (int) ( $job['updated_at'] ?? 0 ) ) >= self::STALL_AFTER,
+			'revivals'  => (int) ( $job['revivals'] ?? 0 ),
 		);
 	}
 
@@ -166,6 +204,7 @@ final class BackgroundImport {
 			$job['state']      = 'error';
 			$job['updated_at'] = time();
 			update_option( self::JOB_OPTION, $job, false );
+			$this->unschedule_watchdog();
 			return;
 		}
 
@@ -193,6 +232,25 @@ final class BackgroundImport {
 		$budget   = (float) apply_filters( 'buddynext_importer_tick_budget', self::TIME_BUDGET, $source );
 		$deadline = microtime( true ) + max( 1.0, $budget );
 
+		/**
+		 * Filter the rows processed per keyset batch in a background tick.
+		 *
+		 * The time budget above bounds how many BATCHES a tick runs, not how much
+		 * work one batch is, and a batch is not uniformly cheap: an images batch
+		 * re-encodes up to two pictures per member, a media batch copies and
+		 * sideloads files. On a constrained host the default can outlast
+		 * max_execution_time inside a single batch, which the budget cannot
+		 * prevent because it is only checked between them. This is the knob that
+		 * can, and it had no filter at all.
+		 *
+		 * @since 1.0.0
+		 *
+		 * @param int    $batch  Rows per batch. Clamped to 1-500.
+		 * @param string $source Source key.
+		 */
+		$batch = (int) apply_filters( 'buddynext_importer_tick_batch', self::BATCH, $source );
+		$batch = max( 1, min( 500, $batch ) );
+
 		while ( $index < $total ) {
 			$step = $steps[ $index ];
 
@@ -204,7 +262,7 @@ final class BackgroundImport {
 			}
 
 			$cursor = Checkpoint::get( $source, $step['domain'] );
-			$result = ( $step['run'] )( $cursor, self::BATCH );
+			$result = ( $step['run'] )( $cursor, $batch );
 			Checkpoint::set( $source, $step['domain'], (int) $result['last'] );
 
 			// Remember that this domain left rows behind, but do NOT act on it
@@ -218,7 +276,7 @@ final class BackgroundImport {
 			}
 
 			$fetched   = (int) $result['fetched'];
-			$step_done = $step['empty_done'] ? ( 0 === $fetched ) : ( $fetched < self::BATCH );
+			$step_done = $step['empty_done'] ? ( 0 === $fetched ) : ( $fetched < $batch );
 			if ( $step_done ) {
 				// Domain finished. If anything went unaccounted for along the way,
 				// clear the cursor so the NEXT run re-scans from the start and the
@@ -242,6 +300,7 @@ final class BackgroundImport {
 		if ( $index >= $total ) {
 			$job['state'] = 'complete';
 			update_option( self::JOB_OPTION, $job, false );
+			$this->unschedule_watchdog();
 			return;
 		}
 
@@ -274,6 +333,132 @@ final class BackgroundImport {
 	 */
 	private static function job_domains( array $job ): ?array {
 		return is_array( $job['domains'] ?? null ) ? array_map( 'strval', $job['domains'] ) : null;
+	}
+
+	/**
+	 * Supervisor: notice a job that has stopped, and restart it.
+	 *
+	 * A tick that dies mid-flight - OOM, max_execution_time, a fatal in a
+	 * partner plugin - never reaches the schedule() call at the end of tick(),
+	 * so nothing queues a replacement. Action Scheduler records the action as
+	 * failed and moves on. The job option keeps saying "running" forever, and
+	 * the admin screen keeps showing a progress bar that will never move.
+	 *
+	 * That is the worst shape a large migration can fail in, because the
+	 * background runner exists precisely so the owner can close the tab: nobody
+	 * is watching when it happens. status() already returned `scheduled` and
+	 * tick() already wrote `updated_at`; neither was read by anything. This
+	 * reads both.
+	 *
+	 * Reviving is safe by construction - the checkpoint says where to resume and
+	 * the id-map makes every write idempotent, so a re-tick can only redo work,
+	 * never duplicate it.
+	 */
+	public function watchdog(): void {
+		$job = get_option( self::JOB_OPTION );
+
+		if ( ! is_array( $job ) || 'running' !== ( $job['state'] ?? '' ) ) {
+			$this->unschedule_watchdog();
+			return;
+		}
+
+		// A tick is queued: the job is fine, whatever its last heartbeat says.
+		if ( $this->is_scheduled() ) {
+			return;
+		}
+
+		// Recently alive, so a tick is probably in progress right now. Reviving
+		// underneath it would put two ticks on the same domain.
+		if ( time() - (int) ( $job['updated_at'] ?? 0 ) < self::STALL_AFTER ) {
+			return;
+		}
+
+		// Stalled. Decide between "retry" and "this is not going to work", by
+		// asking whether the last revival actually bought us any progress.
+		$progress = $this->progress_fingerprint( $job );
+		$revivals = (int) ( $job['revivals'] ?? 0 );
+
+		if ( (string) ( $job['revived_at_progress'] ?? '' ) !== $progress ) {
+			// It moved since we last stepped in, so whatever killed the tick was
+			// transient. Start the count again.
+			$revivals = 0;
+		} elseif ( $revivals >= self::MAX_REVIVALS ) {
+			// Same position, repeatedly. Something kills this tick every time and
+			// another restart will not change that. Say so rather than leave a
+			// progress bar turning forever.
+			$job['state']      = 'error';
+			$job['updated_at'] = time();
+			update_option( self::JOB_OPTION, $job, false );
+			$this->unschedule_watchdog();
+			return;
+		}
+
+		$job['revivals']            = $revivals + 1;
+		$job['revived_at_progress'] = $progress;
+		$job['updated_at']          = time();
+		update_option( self::JOB_OPTION, $job, false );
+
+		$this->schedule();
+	}
+
+	/**
+	 * Where the job currently stands, as a comparable string.
+	 *
+	 * Step index alone is not enough: a domain with a million rows sits on one
+	 * index for a long time while its cursor climbs steadily, and that is
+	 * healthy progress. The cursor is what proves work is happening.
+	 *
+	 * @param array<string,mixed> $job Stored job.
+	 */
+	private function progress_fingerprint( array $job ): string {
+		$source = (string) ( $job['source'] ?? '' );
+		$index  = (int) ( $job['step'] ?? 0 );
+		$steps  = $this->steps( $source, self::job_domains( $job ) );
+		$cursor = isset( $steps[ $index ] )
+			? Checkpoint::get( $source, (string) $steps[ $index ]['domain'] )
+			: 0;
+
+		return $index . ':' . $cursor;
+	}
+
+	/**
+	 * Start the supervisor, if it is not already running.
+	 */
+	private function schedule_watchdog(): void {
+		if ( function_exists( 'as_has_scheduled_action' )
+			&& as_has_scheduled_action( self::WATCHDOG_HOOK, array(), self::GROUP ) ) {
+			return;
+		}
+
+		if ( function_exists( 'as_schedule_recurring_action' ) ) {
+			as_schedule_recurring_action(
+				time() + self::WATCHDOG_INTERVAL,
+				self::WATCHDOG_INTERVAL,
+				self::WATCHDOG_HOOK,
+				array(),
+				self::GROUP
+			);
+			return;
+		}
+
+		if ( ! wp_next_scheduled( self::WATCHDOG_HOOK ) ) {
+			wp_schedule_event( time() + self::WATCHDOG_INTERVAL, 'hourly', self::WATCHDOG_HOOK );
+		}
+	}
+
+	/**
+	 * Stop the supervisor. Called whenever a job stops being live, so a finished
+	 * migration leaves no recurring action behind.
+	 */
+	private function unschedule_watchdog(): void {
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::WATCHDOG_HOOK, array(), self::GROUP );
+		}
+
+		$next = wp_next_scheduled( self::WATCHDOG_HOOK );
+		if ( $next ) {
+			wp_unschedule_event( $next, self::WATCHDOG_HOOK );
+		}
 	}
 
 	/**
