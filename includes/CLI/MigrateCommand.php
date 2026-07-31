@@ -1267,6 +1267,67 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Drive one registry step to completion, and report what it did.
+	 *
+	 * The reporting is uniform because the step results are: every importer
+	 * returns `fetched` and a counted total, and most return `existing` and a
+	 * reason-coded `skipped` map. Domains that used to report skips and domains
+	 * that did not now do the same thing, because there is one place that
+	 * decides rather than eleven.
+	 *
+	 * @param string              $source Source key.
+	 * @param array<string,mixed> $step   Registry step.
+	 * @param int                 $batch  Rows per batch.
+	 * @return void
+	 */
+	private function run_step( string $source, array $step, int $batch ): void {
+		$label  = (string) $step['label'];
+		$domain = (string) $step['domain'];
+
+		if ( ! ( $step['available'] )() ) {
+			// The target engine or the source reader is missing. Named rather
+			// than skipped in silence: an owner who never installed WPMediaVerse
+			// should not have to work out why their DMs are absent.
+			\WP_CLI::log( sprintf( 'Skipping %s - not available on this site, so it will NOT be migrated.', $label ) );
+			return;
+		}
+
+		$cursor   = Checkpoint::get( $source, $domain );
+		$written  = 0;
+		$existing = 0;
+		$seen     = 0;
+		$skipped  = array();
+
+		do {
+			$result    = ( $step['run'] )( $cursor, $batch );
+			$cursor    = (int) $result['last'];
+			$fetched   = (int) ( $result['fetched'] ?? 0 );
+			$written  += (int) ( $result['count'] ?? 0 );
+			$existing += (int) ( $result['existing'] ?? 0 );
+			$seen     += $fetched;
+
+			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
+
+			Checkpoint::set( $source, $domain, $cursor );
+
+			// A non-uniform keyset only proves it is finished on an empty batch;
+			// a uniform one is done on a short page.
+			$done = $step['empty_done'] ? 0 === $fetched : $fetched < $batch;
+		} while ( ! $done );
+
+		// Deterministic refusals are accounted for, so they belong in the settle
+		// comparison - otherwise the gap check fires on every run and re-scans
+		// the domain from row 0 each time.
+		$this->settle_checkpoint( $source, $domain, $seen, $written + $existing + array_sum( $skipped ) );
+
+		\WP_CLI::log( sprintf( '%d %s imported.', $written, $label ) );
+		$this->report_existing( $existing, $label );
+		$this->report_skips( $skipped, $seen, $written, $label );
+	}
+
+	/**
 	 * Note a domain the operator deliberately left out of this run.
 	 *
 	 * Worded as a decision, never as a failure. The whole point of the flag is
@@ -1423,73 +1484,14 @@ final class MigrateCommand {
 		$this->report_comment_roots( $source );
 		$this->report_unsupported( $source );
 
-		if ( in_array( 'profiles', $selected, true ) ) {
-			$this->migrate_profiles( $args, $assoc_args );
-		}
-
-		// Guarded like every other optional domain. migrate_member_types() opens
-		// with WP_CLI::error() when the member-type service is unavailable, and
-		// error() HALTS the command — so calling it unguarded meant an
-		// unavailable service aborted migrate-all right after profiles and every
-		// later domain (spaces, activity, friends, follows, reactions, forums,
-		// images, media, messages) was never attempted. The operator saw one
-		// error line rather than nine skips.
-		if ( ! in_array( 'member_types', $selected, true ) ) {
-			$this->skipped_by_choice( 'member types' );
-		} elseif ( MemberTypeImporter::target_available() ) {
-			$this->migrate_member_types( $args, $assoc_args );
-		} else {
-			\WP_CLI::log( 'Skipping member types (BuddyNext member-type service is unavailable) - source member types will NOT be migrated.' );
-		}
-		// One gate per domain, with the phase name written at the call site so the
-		// mapping is visible rather than inferred. migrate_spaces() covers the
-		// space_categories phase too - categories are created inside it.
-		foreach ( array(
-			'spaces'    => 'migrate_spaces',
-			'activity'  => 'migrate_activity',
-			'friends'   => 'migrate_friends',
-			'follows'   => 'migrate_follows',
-			'reactions' => 'migrate_reactions',
-		) as $phase => $method ) {
-			if ( in_array( $phase, $selected, true ) ) {
-				$this->{$method}( $args, $assoc_args );
-			} else {
-				$this->skipped_by_choice( $phase );
-			}
-		}
-
-		if ( ! in_array( 'forums', $selected, true ) ) {
-			$this->skipped_by_choice( 'forums' );
-		} elseif ( ForumImporter::target_available() ) {
-			$this->migrate_forums( $args, $assoc_args );
-		} else {
-			\WP_CLI::log( 'Skipping forums (Jetonomy is not active) - source forum content will NOT be migrated.' );
-		}
-
-		// After spaces (group images need their space) and before the media
-		// domains, so a member's avatar is in place when their content lands.
-		if ( ! in_array( 'images', $selected, true ) ) {
-			$this->skipped_by_choice( 'avatars and cover images' );
-		} elseif ( ImageImporter::target_available() ) {
-			$this->migrate_images( $args, $assoc_args );
-		} else {
-			\WP_CLI::log( 'Skipping avatars and cover images (BuddyNext image storage is unavailable) - source avatars/covers will NOT be migrated.' );
-		}
-
-		if ( ! in_array( 'media', $selected, true ) ) {
-			$this->skipped_by_choice( 'albums and standalone media' );
-		} elseif ( MediaImporter::target_available() ) {
-			$this->migrate_media( $args, $assoc_args );
-		} else {
-			\WP_CLI::log( 'Skipping albums and standalone media (WPMediaVerse is not active) - source album photos will NOT be migrated.' );
-		}
-
-		if ( ! in_array( 'messages', $selected, true ) ) {
-			$this->skipped_by_choice( 'private messages' );
-		} elseif ( MessageImporter::target_available() ) {
-			$this->migrate_messages( $args, $assoc_args );
-		} else {
-			\WP_CLI::log( 'Skipping private messages (WPMediaVerse is not active) - source message threads will NOT be migrated.' );
+		// Every domain, driven by the SAME registry the browser loop, the
+		// background runner and REST /step read. This command used to carry its
+		// own ordered call list, which is how it came to know fewer domains than
+		// the browser did: a step added to the registry ran everywhere except
+		// here, silently. It cost real content twice in one day - the skip
+		// reasons it never recorded, and album photos it never filed.
+		foreach ( DomainSelection::steps( $source, $selected ) as $step ) {
+			$this->run_step( $source, $step, $batch );
 		}
 
 		// Creating posts schedules BuddyNext's async indexing (hashtags + search)
