@@ -448,11 +448,20 @@
 
 			var got = document.createElement( 'td' );
 			got.className = 'bni-summary__num';
-			got.textContent = String( row.imported );
-			// Flag only a real shortfall against a comparable source count.
-			if ( 'number' === typeof row.source && row.imported < row.source ) {
-				got.className += ' is-short';
-				got.title = ( cfg.i18n && cfg.i18n.shortfall ) || '';
+
+			if ( row.skipped ) {
+				// Chosen to be left behind. Not a number, and emphatically not a
+				// shortfall: showing "0" against a source count of 4,812 would read
+				// as a failed migration of the messages the owner declined.
+				got.className += ' is-skipped';
+				got.textContent = ( cfg.i18n && cfg.i18n.skippedByChoice ) || 'skipped by choice';
+			} else {
+				got.textContent = String( row.imported );
+				// Flag only a real shortfall against a comparable source count.
+				if ( 'number' === typeof row.source && row.imported < row.source ) {
+					got.className += ' is-short';
+					got.title = ( cfg.i18n && cfg.i18n.shortfall ) || '';
+				}
 			}
 			tr.appendChild( got );
 
@@ -486,10 +495,196 @@
 			} );
 	}
 
+	/*
+	 * Domain selection.
+	 *
+	 * The phases, their contents and their dependencies all come from
+	 * /domains, which derives them from StepRegistry - nothing about the
+	 * pipeline is described twice in this file. That is the same rule that keeps
+	 * PHASES above server-owned, and for the same reason.
+	 */
+	var DOMAINS = [];
+
+	function selectedDomains() {
+		return DOMAINS.filter( function ( phase ) {
+			var box = el( 'bni-domain-' + phase.key );
+			return box && box.checked;
+		} ).map( function ( phase ) {
+			return phase.key;
+		} );
+	}
+
+	/**
+	 * Tick a phase and everything it needs, transitively.
+	 *
+	 * Doing this in the UI rather than only on save is the point: the owner sees
+	 * that choosing reactions also brought activity, instead of discovering it
+	 * in the report afterwards. The server closes the same graph again on save,
+	 * so a stale tab can never store a selection that strands content.
+	 */
+	function pullInDependencies( key, seen ) {
+		seen = seen || {};
+		if ( seen[ key ] ) {
+			return;
+		}
+		seen[ key ] = true;
+
+		var phase = DOMAINS.filter( function ( item ) {
+			return item.key === key;
+		} )[ 0 ];
+		if ( ! phase ) {
+			return;
+		}
+
+		var box = el( 'bni-domain-' + key );
+		if ( box && ! box.disabled ) {
+			box.checked = true;
+		}
+
+		( phase.depends || [] ).forEach( function ( needs ) {
+			pullInDependencies( needs, seen );
+		} );
+	}
+
+	/**
+	 * Untick everything that depends on a phase being turned off.
+	 *
+	 * The alternative - leaving the children ticked - is the trap the whole
+	 * dependency graph exists to close: the run would import comments whose
+	 * posts were never brought across and report success.
+	 */
+	function dropDependents( key ) {
+		DOMAINS.forEach( function ( phase ) {
+			if ( ( phase.depends || [] ).indexOf( key ) === -1 ) {
+				return;
+			}
+			var box = el( 'bni-domain-' + phase.key );
+			if ( box && box.checked ) {
+				box.checked = false;
+				dropDependents( phase.key );
+			}
+		} );
+	}
+
+	function saveDomains() {
+		if ( ! apiFetch ) {
+			return Promise.resolve();
+		}
+
+		return apiFetch( {
+			path: '/buddynext-importer/v1/domains',
+			method: 'POST',
+			headers: { 'X-WP-Nonce': cfg.nonce },
+			data: { domains: selectedDomains() }
+		} ).then( function ( res ) {
+			// Re-tick from the RESOLVED list, so anything the server pulled in is
+			// visible rather than silently applied.
+			( res && res.selected ? res.selected : [] ).forEach( function ( key ) {
+				var box = el( 'bni-domain-' + key );
+				if ( box ) {
+					box.checked = true;
+				}
+			} );
+			// And re-point the run loop at the new order. PHASES was localised at
+			// page load; without this, changing the selection and pressing Start
+			// would run the domains chosen BEFORE the change.
+			if ( res && Array.isArray( res.steps ) ) {
+				PHASES = res.steps;
+			}
+		} ).catch( function () {} );
+	}
+
+	function renderDomains( phases, selected ) {
+		var list = el( 'bni-domains-list' );
+		var card = el( 'bni-domains-card' );
+		if ( ! list || ! card || ! phases.length ) {
+			return;
+		}
+
+		DOMAINS = phases;
+		list.textContent = '';
+
+		phases.forEach( function ( phase ) {
+			var row = document.createElement( 'label' );
+			row.className = 'bni-domain';
+
+			var box = document.createElement( 'input' );
+			box.type = 'checkbox';
+			box.id = 'bni-domain-' + phase.key;
+			box.checked = selected.indexOf( phase.key ) !== -1;
+			// A domain this site cannot import stays off and unclickable, as it
+			// already did in the run loop - the reason is spelled out beside it.
+			box.disabled = ! phase.available;
+
+			var name = document.createElement( 'span' );
+			name.className = 'bni-domain__name';
+			name.textContent = phase.label;
+
+			// The contents line earns its place only when it says something the
+			// name does not. "Follows / follows" is noise, and twelve rows of it
+			// buries the two that matter - "Activity / posts, comments" is the
+			// whole reason an owner can decide about this phase at all.
+			var contents = ( phase.steps || [] );
+			var detailText = phase.available
+				? ( contents.length > 1 ? contents.join( ', ' ) : '' )
+				: ( ( cfg.i18n && cfg.i18n.domainUnavailable ) || 'not available on this site' );
+
+			var detail = document.createElement( 'span' );
+			detail.className = 'bni-domain__detail';
+			detail.textContent = detailText;
+
+			box.addEventListener( 'change', function () {
+				if ( box.checked ) {
+					pullInDependencies( phase.key );
+				} else {
+					dropDependents( phase.key );
+				}
+				saveDomains();
+			} );
+
+			row.appendChild( box );
+			row.appendChild( name );
+			row.appendChild( detail );
+			list.appendChild( row );
+		} );
+
+		card.hidden = false;
+	}
+
+	function loadDomains() {
+		if ( ! apiFetch ) {
+			return;
+		}
+
+		apiFetch( { path: '/buddynext-importer/v1/domains' } ).then( function ( res ) {
+			if ( res && Array.isArray( res.phases ) ) {
+				renderDomains( res.phases, Array.isArray( res.selected ) ? res.selected : [] );
+			}
+			if ( res && Array.isArray( res.steps ) ) {
+				PHASES = res.steps;
+			}
+		} ).catch( function () {} );
+	}
+
+	function selectAllDomains() {
+		DOMAINS.forEach( function ( phase ) {
+			var box = el( 'bni-domain-' + phase.key );
+			if ( box && ! box.disabled ) {
+				box.checked = true;
+			}
+		} );
+		saveDomains();
+	}
+
 	document.addEventListener( 'DOMContentLoaded', function () {
 		loadStats();
+		loadDomains();
 		loadSummary();
 		resumeIfRunning();
+		var selectAll = el( 'bni-domains-all' );
+		if ( selectAll ) {
+			selectAll.addEventListener( 'click', selectAllDomains );
+		}
 		var start = el( 'bni-start' );
 		if ( start ) {
 			start.addEventListener( 'click', runImport );

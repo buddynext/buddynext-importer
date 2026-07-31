@@ -11,6 +11,7 @@ namespace BuddyNextImporter\CLI;
 
 use BuddyNextImporter\Pipeline\ActivityImporter;
 use BuddyNextImporter\Pipeline\Checkpoint;
+use BuddyNextImporter\Pipeline\DomainSelection;
 use BuddyNextImporter\Pipeline\FollowImporter;
 use BuddyNextImporter\Pipeline\ForumImporter;
 use BuddyNextImporter\Pipeline\ImportLedger;
@@ -1190,6 +1191,68 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Note a domain the operator deliberately left out of this run.
+	 *
+	 * Worded as a decision, never as a failure. The whole point of the flag is
+	 * that this is not a loss, and the run's own output has to say so or the
+	 * operator ends up auditing their own choice.
+	 *
+	 * @param string $label Human domain name.
+	 */
+	private function skipped_by_choice( string $label ): void {
+		\WP_CLI::log( sprintf( 'Skipping %s (not selected for this run).', $label ) );
+	}
+
+	/**
+	 * Resolve which domains this invocation should carry.
+	 *
+	 * --only replaces the stored selection; --skip subtracts from whatever is
+	 * left. Both are validated against the registry, because the failure mode of
+	 * a silently-ignored typo here is the worst one this tool has: the operator
+	 * believes they excluded five years of private messages, the run carries them
+	 * anyway, and nothing in the output contradicts them. An unknown name is an
+	 * error, not a no-op.
+	 *
+	 * Dependencies are closed over afterwards, so --only=reactions still brings
+	 * the activity (and spaces) that reactions resolve through, rather than
+	 * importing reactions onto nothing.
+	 *
+	 * @param string               $source     Source key.
+	 * @param array<string,string> $assoc_args Associative args.
+	 * @return string[]
+	 */
+	private function selected_domains( string $source, array $assoc_args ): array {
+		$known = DomainSelection::all_keys( $source );
+
+		$parse = static function ( string $raw ) use ( $known ): array {
+			$names = array_filter( array_map( 'trim', explode( ',', $raw ) ) );
+			$bad   = array_diff( $names, $known );
+
+			if ( array() !== $bad ) {
+				\WP_CLI::error(
+					sprintf(
+						'Unknown domain(s): %s. Available: %s.',
+						implode( ', ', $bad ),
+						implode( ', ', $known )
+					)
+				);
+			}
+
+			return array_values( $names );
+		};
+
+		$selected = isset( $assoc_args['only'] )
+			? $parse( (string) $assoc_args['only'] )
+			: DomainSelection::get( $source );
+
+		if ( isset( $assoc_args['skip'] ) ) {
+			$selected = array_values( array_diff( $selected, $parse( (string) $assoc_args['skip'] ) ) );
+		}
+
+		return DomainSelection::resolve( $selected, $source );
+	}
+
+	/**
 	 * Run the full migration in dependency order: profiles, spaces, activity,
 	 * friends. Each phase is idempotent, so re-running resumes safely.
 	 *
@@ -1201,9 +1264,17 @@ final class MigrateCommand {
 	 * [--batch=<batch>]
 	 * : Rows per batch. Default 100.
 	 *
+	 * [--only=<domains>]
+	 * : Comma-separated domains to import, instead of all of them.
+	 *
+	 * [--skip=<domains>]
+	 * : Comma-separated domains to leave behind. Applied after --only.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp buddynext-import migrate-all
+	 *     wp buddynext-import migrate-all --skip=messages,media
+	 *     wp buddynext-import migrate-all --only=profiles,spaces,activity
 	 *
 	 * @subcommand migrate-all
 	 *
@@ -1225,7 +1296,23 @@ final class MigrateCommand {
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
 
+		// Which domains this run carries. --only/--skip override the choice stored
+		// by the admin screen for this invocation only; with neither flag, the CLI
+		// honours whatever the owner picked there, so the two surfaces agree.
+		$selected = $this->selected_domains( $source, $assoc_args );
+		$skipped  = array_diff( DomainSelection::all_keys( $source ), $selected );
+
 		\WP_CLI::log( sprintf( 'Migrating %s -> BuddyNext (batch %d).', $source, $batch ) );
+
+		if ( array() !== $skipped ) {
+			\WP_CLI::log( sprintf( 'Leaving behind by choice: %s.', implode( ', ', $skipped ) ) );
+		}
+
+		// So `verify` can tell "you chose not to bring this" apart from "this
+		// came up short". --only/--skip are per-invocation and do not rewrite the
+		// owner's stored choice, so without this the report would measure the run
+		// against a selection it never used.
+		DomainSelection::record_run( $selected );
 
 		// Coverage report up front: what the source HOLDS, so nothing can be
 		// skipped silently - an operator sees the counts this run is expected
@@ -1259,7 +1346,9 @@ final class MigrateCommand {
 		// informed decision and an unexplained shortfall discovered afterwards.
 		$this->report_comment_roots( $source );
 
-		$this->migrate_profiles( $args, $assoc_args );
+		if ( in_array( 'profiles', $selected, true ) ) {
+			$this->migrate_profiles( $args, $assoc_args );
+		}
 
 		// Guarded like every other optional domain. migrate_member_types() opens
 		// with WP_CLI::error() when the member-type service is unavailable, and
@@ -1268,18 +1357,33 @@ final class MigrateCommand {
 		// later domain (spaces, activity, friends, follows, reactions, forums,
 		// images, media, messages) was never attempted. The operator saw one
 		// error line rather than nine skips.
-		if ( MemberTypeImporter::target_available() ) {
+		if ( ! in_array( 'member_types', $selected, true ) ) {
+			$this->skipped_by_choice( 'member types' );
+		} elseif ( MemberTypeImporter::target_available() ) {
 			$this->migrate_member_types( $args, $assoc_args );
 		} else {
 			\WP_CLI::log( 'Skipping member types (BuddyNext member-type service is unavailable) - source member types will NOT be migrated.' );
 		}
-		$this->migrate_spaces( $args, $assoc_args );
-		$this->migrate_activity( $args, $assoc_args );
-		$this->migrate_friends( $args, $assoc_args );
-		$this->migrate_follows( $args, $assoc_args );
-		$this->migrate_reactions( $args, $assoc_args );
+		// One gate per domain, with the phase name written at the call site so the
+		// mapping is visible rather than inferred. migrate_spaces() covers the
+		// space_categories phase too - categories are created inside it.
+		foreach ( array(
+			'spaces'    => 'migrate_spaces',
+			'activity'  => 'migrate_activity',
+			'friends'   => 'migrate_friends',
+			'follows'   => 'migrate_follows',
+			'reactions' => 'migrate_reactions',
+		) as $phase => $method ) {
+			if ( in_array( $phase, $selected, true ) ) {
+				$this->{$method}( $args, $assoc_args );
+			} else {
+				$this->skipped_by_choice( $phase );
+			}
+		}
 
-		if ( ForumImporter::target_available() ) {
+		if ( ! in_array( 'forums', $selected, true ) ) {
+			$this->skipped_by_choice( 'forums' );
+		} elseif ( ForumImporter::target_available() ) {
 			$this->migrate_forums( $args, $assoc_args );
 		} else {
 			\WP_CLI::log( 'Skipping forums (Jetonomy is not active) - source forum content will NOT be migrated.' );
@@ -1287,19 +1391,25 @@ final class MigrateCommand {
 
 		// After spaces (group images need their space) and before the media
 		// domains, so a member's avatar is in place when their content lands.
-		if ( ImageImporter::target_available() ) {
+		if ( ! in_array( 'images', $selected, true ) ) {
+			$this->skipped_by_choice( 'avatars and cover images' );
+		} elseif ( ImageImporter::target_available() ) {
 			$this->migrate_images( $args, $assoc_args );
 		} else {
 			\WP_CLI::log( 'Skipping avatars and cover images (BuddyNext image storage is unavailable) - source avatars/covers will NOT be migrated.' );
 		}
 
-		if ( MediaImporter::target_available() ) {
+		if ( ! in_array( 'media', $selected, true ) ) {
+			$this->skipped_by_choice( 'albums and standalone media' );
+		} elseif ( MediaImporter::target_available() ) {
 			$this->migrate_media( $args, $assoc_args );
 		} else {
 			\WP_CLI::log( 'Skipping albums and standalone media (WPMediaVerse is not active) - source album photos will NOT be migrated.' );
 		}
 
-		if ( MessageImporter::target_available() ) {
+		if ( ! in_array( 'messages', $selected, true ) ) {
+			$this->skipped_by_choice( 'private messages' );
+		} elseif ( MessageImporter::target_available() ) {
 			$this->migrate_messages( $args, $assoc_args );
 		} else {
 			\WP_CLI::log( 'Skipping private messages (WPMediaVerse is not active) - source message threads will NOT be migrated.' );
@@ -1533,7 +1643,25 @@ final class MigrateCommand {
 			}
 
 			$expected = $row['expected'];
-			$short    = ( null !== $expected && (int) $row['imported'] < (int) $expected );
+
+			// Chosen to be left behind: not imported, but not missing either, and
+			// emphatically not a problem to be counted. Saying "short by 4,812" for
+			// messages the owner deliberately declined is how a verify screen loses
+			// the operator's trust on the one run where it matters.
+			if ( ! empty( $row['skipped'] ) ) {
+				\WP_CLI::log(
+					sprintf(
+						'  %-22s %10s %10s   %s',
+						(string) $row['label'],
+						null === $expected ? '-' : (string) $expected,
+						'-',
+						'skipped by choice'
+					)
+				);
+				continue;
+			}
+
+			$short = ( null !== $expected && (int) $row['imported'] < (int) $expected );
 			if ( $short ) {
 				++$problems;
 			}

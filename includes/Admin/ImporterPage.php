@@ -134,17 +134,22 @@ final class ImporterPage {
 				// import" reported success after migrating a third of the community.
 				'steps'    => null === $source ? array() : StepRegistry::client_steps( $source ),
 				'i18n'     => array(
-					'noSource'     => __( 'No BuddyPress or BuddyBoss data was found on this site.', 'buddynext-importer' ),
-					'bnInactive'   => __( 'BuddyNext is not active. Activate it before importing.', 'buddynext-importer' ),
-					'loadFailed'   => __( 'Could not load source statistics.', 'buddynext-importer' ),
-					'importing'    => __( 'Importing', 'buddynext-importer' ),
-					'complete'     => __( 'Import complete. You can now deactivate and remove this importer.', 'buddynext-importer' ),
-					'runFailed'    => __( 'The import stopped on an error. It is safe to run again - it resumes where it left off.', 'buddynext-importer' ),
-					'domain'       => __( 'Domain', 'buddynext-importer' ),
-					'shortfall'    => __( 'Fewer rows than the source holds. Some content cannot migrate - see the note below the table.', 'buddynext-importer' ),
+					'noSource'          => __( 'No BuddyPress or BuddyBoss data was found on this site.', 'buddynext-importer' ),
+					'bnInactive'        => __( 'BuddyNext is not active. Activate it before importing.', 'buddynext-importer' ),
+					'loadFailed'        => __( 'Could not load source statistics.', 'buddynext-importer' ),
+					'importing'         => __( 'Importing', 'buddynext-importer' ),
+					'complete'          => __( 'Import complete. You can now deactivate and remove this importer.', 'buddynext-importer' ),
+					'runFailed'         => __( 'The import stopped on an error. It is safe to run again - it resumes where it left off.', 'buddynext-importer' ),
+					'domain'            => __( 'Domain', 'buddynext-importer' ),
+					'shortfall'         => __( 'Fewer rows than the source holds. Some content cannot migrate - see the note below the table.', 'buddynext-importer' ),
 					/* translators: 1: number of comments, 2: list of activity types with counts. */
-					'commentRoots' => __( '%1$d comment(s) will not be migrated. They sit on system notices - joining a group, making a friend - which are not content and have no BuddyNext equivalent to attach to: %2$s.', 'buddynext-importer' ),
-					'count'        => __( 'Records', 'buddynext-importer' ),
+					'commentRoots'      => __( '%1$d comment(s) will not be migrated. They sit on system notices - joining a group, making a friend - which are not content and have no BuddyNext equivalent to attach to: %2$s.', 'buddynext-importer' ),
+					'count'             => __( 'Records', 'buddynext-importer' ),
+					// A domain left out on purpose. Never phrased as a failure - the
+					// owner made this choice and the report has to reflect it back as
+					// a decision, not as content that went missing.
+					'skippedByChoice'   => __( 'skipped by choice', 'buddynext-importer' ),
+					'domainUnavailable' => __( 'not available on this site', 'buddynext-importer' ),
 				),
 			)
 		);

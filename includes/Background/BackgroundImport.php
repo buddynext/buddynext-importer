@@ -24,7 +24,7 @@ declare( strict_types=1 );
 namespace BuddyNextImporter\Background;
 
 use BuddyNextImporter\Pipeline\Checkpoint;
-use BuddyNextImporter\Pipeline\StepRegistry;
+use BuddyNextImporter\Pipeline\DomainSelection;
 use BuddyNextImporter\Plugin;
 
 defined( 'ABSPATH' ) || exit;
@@ -82,6 +82,11 @@ final class BackgroundImport {
 				'source'     => $source,
 				'state'      => 'running',
 				'step'       => 0,
+				// The chosen domains are snapshotted here, not read live on every
+				// tick: the job tracks its position by STEP INDEX, so a selection
+				// changed mid-run would renumber the list underneath a resume and
+				// silently move the cursor onto a different domain.
+				'domains'    => DomainSelection::get( $source ),
 				// Domains that read rows they could not account for, carried
 				// across ticks so the cursor can be settled when the domain ends.
 				'gaps'       => array(),
@@ -90,6 +95,8 @@ final class BackgroundImport {
 			),
 			false
 		);
+
+		DomainSelection::record_run( DomainSelection::get( $source ) );
 
 		$this->schedule();
 	}
@@ -127,7 +134,7 @@ final class BackgroundImport {
 			);
 		}
 
-		$steps = $this->steps( (string) $job['source'] );
+		$steps = $this->steps( (string) $job['source'], self::job_domains( $job ) );
 		$total = count( $steps );
 		$step  = min( (int) ( $job['step'] ?? 0 ), $total );
 		$state = (string) ( $job['state'] ?? 'idle' );
@@ -163,7 +170,7 @@ final class BackgroundImport {
 		}
 
 		$source = (string) $job['source'];
-		$steps  = $this->steps( $source );
+		$steps  = $this->steps( $source, self::job_domains( $job ) );
 		$total  = count( $steps );
 		$index  = (int) ( $job['step'] ?? 0 );
 		// A job started before this key existed carries no gap map; treat it as
@@ -247,11 +254,26 @@ final class BackgroundImport {
 	 * runner, the REST endpoint and the admin page can never disagree about what
 	 * a full migration contains.
 	 *
-	 * @param string $source Source key.
+	 * @param string        $source  Source key.
+	 * @param string[]|null $domains Chosen phases, or null for the stored choice.
 	 * @return array<int,array{phase:string,stage:?string,label:string,domain:string,empty_done:bool,available:callable,run:callable}>
 	 */
-	private function steps( string $source ): array {
-		return StepRegistry::steps( $source );
+	private function steps( string $source, ?array $domains = null ): array {
+		return DomainSelection::steps( $source, $domains );
+	}
+
+	/**
+	 * The domain selection a job was started with.
+	 *
+	 * Null for a job created before selections existed, which correctly falls
+	 * back to whatever is currently selected - for such a job that is "all of
+	 * them", which is what it was already running.
+	 *
+	 * @param array<string,mixed> $job Stored job.
+	 * @return string[]|null
+	 */
+	private static function job_domains( array $job ): ?array {
+		return is_array( $job['domains'] ?? null ) ? array_map( 'strval', $job['domains'] ) : null;
 	}
 
 	/**

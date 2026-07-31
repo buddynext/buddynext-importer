@@ -36,6 +36,7 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Verify;
 
+use BuddyNextImporter\Pipeline\DomainSelection;
 use BuddyNextImporter\Pipeline\ImportLedger;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Source\AdapterRegistry;
@@ -182,6 +183,8 @@ final class VerifyService {
 		$ledger = ImportLedger::for_source( $source );
 		$rows   = array();
 
+		$selected = DomainSelection::last_run( $source );
+
 		foreach ( StepRegistry::steps( $source ) as $step ) {
 			$domain = (string) $step['domain'];
 			$stat   = (string) ( $step['stat'] ?? '' );
@@ -194,15 +197,25 @@ final class VerifyService {
 				}
 			}
 
+			// A domain the owner chose to leave behind is a THIRD state, distinct
+			// from imported and from failed. Reporting it as a shortfall would make
+			// every selective migration look like a broken one, and would train the
+			// owner to ignore the one screen that is supposed to tell them whether
+			// it is safe to delete the source community.
+			$skipped = ! in_array( (string) $step['phase'], $selected, true );
+
 			$rows[] = array(
 				'label'     => (string) $step['label'],
 				'domain'    => $domain,
 				'expected'  => $expected,
 				'imported'  => (int) ( $ledger[ $domain ] ?? 0 ),
 				'available' => (bool) ( $step['available'] )(),
+				'skipped'   => $skipped,
 				// Why a domain is short, when the answer is knowable from the
 				// id-map rather than from guessing.
-				'because'   => $this->shortfall_reason( $source, $domain, $expected, (int) ( $ledger[ $domain ] ?? 0 ) ),
+				'because'   => $skipped
+					? __( 'skipped by choice', 'buddynext-importer' )
+					: $this->shortfall_reason( $source, $domain, $expected, (int) ( $ledger[ $domain ] ?? 0 ) ),
 			);
 		}
 

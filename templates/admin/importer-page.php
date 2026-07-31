@@ -44,6 +44,49 @@ defined( 'ABSPATH' ) || exit;
 		<p class="bni-warn" id="bni-comment-roots" hidden></p>
 	</div>
 
+	<?php
+	/*
+	 * What to bring across. Everything is selected by default, so an owner who
+	 * ignores this panel gets exactly the all-or-nothing migration they got
+	 * before it existed.
+	 *
+	 * It sits directly under the source counts on purpose: the only way to
+	 * decide whether to carry five years of private messages is to see how many
+	 * there are. The list is built in JS from /domains, which derives it from
+	 * StepRegistry, so a domain added to the pipeline appears here on its own.
+	 */
+	?>
+	<div class="bni-card" id="bni-domains-card" hidden>
+		<div class="bni-card__head">
+			<h2 class="bni-card__title"><?php esc_html_e( 'What to import', 'buddynext-importer' ); ?></h2>
+			<button type="button" class="button-link" id="bni-domains-all">
+				<?php esc_html_e( 'Select all', 'buddynext-importer' ); ?>
+			</button>
+		</div>
+
+		<p class="bni-muted">
+			<?php esc_html_e( 'Everything is selected. Clear anything you would rather not bring across - your old community is not changed either way.', 'buddynext-importer' ); ?>
+		</p>
+
+		<div class="bni-domains" id="bni-domains-list"></div>
+
+		<?php
+		/*
+		 * The half of the story that makes deselecting safe. Skipping is
+		 * reversible - every write is keyed in bni_id_map, so a later run with
+		 * more selected tops up instead of duplicating - but ONLY until "Remove
+		 * import data" drops that map. Saying just the first half would invite an
+		 * owner to skip messages, tidy up, and then duplicate their whole
+		 * community trying to add them back.
+		 */
+		?>
+		<p class="bni-hint" id="bni-domains-hint">
+			<span>
+				<?php esc_html_e( 'You can run the import again later with more selected - anything already imported is recognised and never duplicated. That protection lives in the importer\'s own mapping tables, so add whatever you skipped BEFORE you use "Remove import data" below.', 'buddynext-importer' ); ?>
+			</span>
+		</p>
+	</div>
+
 	<div class="bni-card">
 		<h2 class="bni-card__title"><?php esc_html_e( 'Progress', 'buddynext-importer' ); ?></h2>
 

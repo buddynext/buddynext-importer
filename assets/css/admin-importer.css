@@ -496,3 +496,74 @@
 .bni-teardown__confirm .bni-actions {
 	margin-top: 12px;
 }
+
+/* -------------------------------------------------------- domain selection */
+
+/* What to bring across. Rows are labels wrapping their own checkbox, so the
+   whole row is a hit target - a 13px box alone is a poor one, and this list is
+   where an owner decides whether five years of messages move. */
+.bni-domains {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 8px;
+	margin: 14px 0 4px;
+}
+
+.bni-domain {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	align-items: baseline;
+	gap: 2px 8px;
+	padding: 10px 12px;
+	border: 1px solid var(--bni-border);
+	border-radius: 6px;
+	background: var(--bni-surface);
+	cursor: pointer;
+}
+
+.bni-domain:hover,
+.bni-domain:focus-within {
+	border-color: var(--bni-accent);
+	background: var(--bni-accent-100);
+}
+
+.bni-domain input[type="checkbox"] {
+	margin: 0;
+	grid-row: 1 / span 2;
+}
+
+.bni-domain__name {
+	font-weight: 600;
+}
+
+/* What the phase actually contains, so "Activity" is not a guess. */
+.bni-domain__detail {
+	grid-column: 2;
+	font-size: 12px;
+	color: var(--bni-text-muted);
+}
+
+/* A domain this site cannot import: shown, never silently dropped, so the
+   absence is explained rather than mysterious. */
+.bni-domain input[type="checkbox"]:disabled {
+	cursor: not-allowed;
+}
+
+.bni-domain:has( input:disabled ) {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+/* Deliberately not imported. Neutral, never the shortfall colour - this is a
+   decision the owner made, not a number that came up short. */
+.bni-summary__num.is-skipped {
+	font-style: italic;
+	font-weight: 400;
+	color: var(--bni-text-muted);
+}
+
+@media (max-width: 640px) {
+	.bni-domains {
+		grid-template-columns: 1fr;
+	}
+}

@@ -61,6 +61,7 @@ final class StepRegistry {
 			'stat'       => 'profile_values',
 			'label'      => __( 'profile fields', 'buddynext-importer' ),
 			'domain'     => 'profile_value',
+			'depends'    => array(),
 			'empty_done' => false,
 			'available'  => static fn (): bool => null !== ProfileImporter::for_source( $source ),
 			'run'        => static function ( int $cursor, int $batch ) use ( $source ): array {
@@ -91,6 +92,7 @@ final class StepRegistry {
 			'stat'       => 'member_type_users',
 			'label'      => __( 'member types', 'buddynext-importer' ),
 			'domain'     => 'member_type_user',
+			'depends'    => array(),
 			'empty_done' => false,
 			'available'  => static fn (): bool => MemberTypeImporter::target_available()
 				&& null !== MemberTypeImporter::for_source( $source ),
@@ -141,7 +143,12 @@ final class StepRegistry {
 			static fn ( array $r ): int => (int) $r['groups'] + (int) $r['members'],
 			// Both sides count spaces AND memberships, or 11 groups would be
 			// compared against 11 spaces plus their 54 members.
-			'groups,group_members'
+			'groups,group_members',
+			false,
+			// A space carries category_id at create time, so importing spaces
+			// without their categories silently drops the community's whole
+			// classification - the directory stops filtering and nothing says so.
+			array( 'space_categories' )
 		);
 
 		$activity_available = static fn (): bool => null !== ActivityImporter::for_source( $source );
@@ -155,7 +162,12 @@ final class StepRegistry {
 			$activity_available,
 			static fn ( int $c, int $b ): array => ActivityImporter::for_source( $source )->import_posts_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['posts'],
-			'activities'
+			'activities',
+			false,
+			// Group activity resolves its parent space through the id-map. With
+			// spaces skipped there is nothing to resolve, so every group post is
+			// refused - the run still reports success and the owner loses the lot.
+			array( 'spaces' )
 		);
 
 		$steps[] = self::step(
@@ -170,7 +182,9 @@ final class StepRegistry {
 			// Measured against the comments that CAN migrate. Comparing with the
 			// raw total would flag a structural gap - comments on roots the posts
 			// pass does not import - as a fresh shortfall on every run.
-			'activity_comments_importable'
+			'activity_comments_importable',
+			false,
+			array( 'spaces' )
 		);
 
 		$steps[] = self::step(
@@ -210,7 +224,10 @@ final class StepRegistry {
 			static fn ( int $c, int $b ): array => ReactionImporter::for_source( $source )->import_batch( $c, $b ),
 			static fn ( array $r ): int => (int) $r['reactions'],
 			'reactions',
-			true
+			true,
+			// A favourite points at a source activity; without the posts pass
+			// there is no post to attach the reaction to.
+			array( 'activity' )
 		);
 
 		$forums_available = static fn (): bool => ForumImporter::target_available()
@@ -379,7 +396,9 @@ final class StepRegistry {
 	public static function client_steps( string $source ): array {
 		$client = array();
 
-		foreach ( self::steps( $source ) as $step ) {
+		// The owner's chosen domains, not every domain. The browser drives its own
+		// run loop off this list, so a deselected phase is simply never requested.
+		foreach ( DomainSelection::steps( $source ) as $step ) {
 			if ( ! ( $step['available'] )() ) {
 				continue;
 			}
@@ -409,7 +428,8 @@ final class StepRegistry {
 	 *                                comma-separated when a domain writes rows
 	 *                                counted by more than one source stat.
 	 * @param bool        $empty_done Step ends on an empty batch, not a short one.
-	 * @return array{phase:string,stage:?string,label:string,domain:string,empty_done:bool,available:callable,run:callable}
+	 * @param string[]    $depends    Phases this step's content resolves through.
+	 * @return array{phase:string,stage:?string,label:string,domain:string,empty_done:bool,depends:string[],available:callable,run:callable}
 	 */
 	private static function step(
 		string $source,
@@ -421,7 +441,8 @@ final class StepRegistry {
 		callable $run,
 		callable $count,
 		string $stat = '',
-		bool $empty_done = false
+		bool $empty_done = false,
+		array $depends = array()
 	): array {
 		return array(
 			'phase'      => $phase,
@@ -430,6 +451,7 @@ final class StepRegistry {
 			'label'      => $label,
 			'domain'     => $domain,
 			'empty_done' => $empty_done,
+			'depends'    => $depends,
 			'available'  => $available,
 			'run'        => static function ( int $cursor, int $batch ) use ( $available, $run, $count, $source, $domain ): array {
 				// A step can go unavailable between the check and the call (a

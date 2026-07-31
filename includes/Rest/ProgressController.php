@@ -18,6 +18,7 @@ namespace BuddyNextImporter\Rest;
 use BuddyNextImporter\Background\BackgroundImport;
 use BuddyNextImporter\Pipeline\Checkpoint;
 use BuddyNextImporter\Pipeline\IdMap;
+use BuddyNextImporter\Pipeline\DomainSelection;
 use BuddyNextImporter\Pipeline\ImportLedger;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
@@ -61,6 +62,42 @@ final class ProgressController {
 						'type'              => 'string',
 						'required'          => false,
 						'sanitize_callback' => 'sanitize_key',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/domains',
+			array(
+				array(
+					'methods'             => 'GET',
+					'callback'            => array( $this, 'get_domains' ),
+					'permission_callback' => array( $this, 'require_admin' ),
+					'args'                => array(
+						'source' => array(
+							'type'              => 'string',
+							'required'          => false,
+							'sanitize_callback' => 'sanitize_key',
+						),
+					),
+				),
+				array(
+					'methods'             => 'POST',
+					'callback'            => array( $this, 'save_domains' ),
+					'permission_callback' => array( $this, 'require_admin' ),
+					'args'                => array(
+						'source'  => array(
+							'type'              => 'string',
+							'required'          => false,
+							'sanitize_callback' => 'sanitize_key',
+						),
+						'domains' => array(
+							'type'     => 'array',
+							'required' => true,
+							'items'    => array( 'type' => 'string' ),
+						),
 					),
 				),
 			)
@@ -201,6 +238,18 @@ final class ProgressController {
 	}
 
 	/**
+	 * The source a request is about: the one it names, or the active one.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return string|null Null when this site has no importable source at all.
+	 */
+	private function resolve_source( WP_REST_Request $request ): ?string {
+		$source = $request->get_param( 'source' );
+
+		return is_string( $source ) && '' !== $source ? $source : AdapterRegistry::detect_active_key();
+	}
+
+	/**
 	 * GET /stats - source detection + per-domain counts.
 	 *
 	 * @param WP_REST_Request $request Request.
@@ -237,6 +286,76 @@ final class ProgressController {
 	}
 
 	/**
+	 * GET /domains - what this site can migrate, and what is currently chosen.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function get_domains( WP_REST_Request $request ): WP_REST_Response {
+		$source = $this->resolve_source( $request );
+
+		if ( null === $source ) {
+			return new WP_REST_Response(
+				array(
+					'source'   => null,
+					'phases'   => array(),
+					'selected' => array(),
+				)
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'source'   => $source,
+				'phases'   => DomainSelection::phases( $source ),
+				'selected' => DomainSelection::get( $source ),
+				// The browser's run order for the current choice. Returned with the
+				// selection so the two can never disagree - the page localises this
+				// list once at load, and a selection changed afterwards would
+				// otherwise start a run over the domains chosen before the change.
+				'steps'    => StepRegistry::client_steps( $source ),
+			)
+		);
+	}
+
+	/**
+	 * POST /domains - store which domains the next run should carry.
+	 *
+	 * The stored value is what DomainSelection::resolve() made of the request,
+	 * not the request itself: a choice that would strand content on a missing
+	 * parent is completed rather than honoured literally. The response returns
+	 * the resolved list so the UI can re-tick anything that was pulled in and
+	 * show the owner what actually happened.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function save_domains( WP_REST_Request $request ): WP_REST_Response {
+		$source = $this->resolve_source( $request );
+
+		if ( null === $source ) {
+			return new WP_REST_Response(
+				array(
+					'source'   => null,
+					'selected' => array(),
+				),
+				409
+			);
+		}
+
+		$requested = array_map( 'sanitize_key', (array) $request->get_param( 'domains' ) );
+
+		$selected = DomainSelection::save( $requested, $source );
+
+		return new WP_REST_Response(
+			array(
+				'source'   => $source,
+				'selected' => $selected,
+				// Read AFTER the save, so it reflects the choice just stored.
+				'steps'    => StepRegistry::client_steps( $source ),
+			)
+		);
+	}
+
+	/**
 	 * GET /summary - what the migration actually moved, per domain.
 	 *
 	 * "Import complete" on its own is not an answer to "did my hundred message
@@ -265,7 +384,8 @@ final class ProgressController {
 		$stats   = null !== $adapter && $adapter->is_available() ? $adapter->stats() : array();
 		$ledger  = ImportLedger::for_source( $source );
 
-		$rows = array();
+		$rows     = array();
+		$selected = DomainSelection::last_run( $source );
 		foreach ( StepRegistry::steps( $source ) as $step ) {
 			$domain = (string) $step['domain'];
 			$stat   = (string) ( $step['stat'] ?? '' );
@@ -278,6 +398,10 @@ final class ProgressController {
 				// better than printing a 0 that reads as "none found".
 				'source'    => self::source_total( $stat, $stats ),
 				'available' => (bool) ( $step['available'] )(),
+				// Left behind on purpose. The table has to distinguish this from a
+				// domain that tried and came up short, or a selective import reads
+				// as a failed one.
+				'skipped'   => ! in_array( (string) $step['phase'], $selected, true ),
 			);
 		}
 
