@@ -166,7 +166,12 @@ final class SpaceImporter {
 				++$existing;
 			}
 
-			$members += $this->import_members( (int) $group['source_id'], $bn_space['id'], (int) $group['creator_id'] );
+			$members += $this->import_members(
+				(int) $group['source_id'],
+				$bn_space['id'],
+				(int) $group['creator_id'],
+				(bool) $bn_space['created']
+			);
 		}
 
 		return array(
@@ -181,11 +186,12 @@ final class SpaceImporter {
 	/**
 	 * Import all members of one group, keyset-paginated.
 	 *
-	 * @param int $source_group_id Source group id.
-	 * @param int $bn_space_id     Mapped space id.
-	 * @param int $owner_id        Space owner.
+	 * @param int  $source_group_id Source group id.
+	 * @param int  $bn_space_id     Mapped space id.
+	 * @param int  $owner_id        Space owner.
+	 * @param bool $space_created   Whether the space was created by THIS run.
 	 */
-	private function import_members( int $source_group_id, int $bn_space_id, int $owner_id ): int {
+	private function import_members( int $source_group_id, int $bn_space_id, int $owner_id, bool $space_created = false ): int {
 		$written = 0;
 		$after   = 0;
 
@@ -195,7 +201,25 @@ final class SpaceImporter {
 			foreach ( $rows as $row ) {
 				if ( $this->writer->import_member( $bn_space_id, $owner_id, $row ) ) {
 					++$written;
+					$after = (int) $row['row_id'];
+					continue;
 				}
+
+				// The owner's membership is real - SpaceService::create() adds it
+				// with the space - but import_member() refuses the row, so nothing
+				// counted it. The source stat counts every bp_groups_members row
+				// INCLUDING the creator's, so each space reported one member fewer
+				// than it holds: a phantom "short by N" on a migration that had
+				// lost nothing, on the screen an owner reads before deleting their
+				// old community.
+				//
+				// Counted only on the run that CREATED the space. On a re-run the
+				// space already exists, every other member row returns false too,
+				// and the ledger keeps the count the first run recorded.
+				if ( $space_created && (int) $row['user_id'] === $owner_id ) {
+					++$written;
+				}
+
 				$after = (int) $row['row_id'];
 			}
 		} while ( self::MEMBER_BATCH === $fetched );

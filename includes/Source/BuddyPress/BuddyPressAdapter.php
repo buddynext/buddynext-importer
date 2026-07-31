@@ -958,6 +958,47 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Comments that COULD have migrated but whose own root post did not.
+	 *
+	 * The precise size of the comment shortfall, and the only number that
+	 * belongs beside it: comments on a root type this importer never carries are
+	 * already excluded from the expected total, so counting them here would
+	 * report a reason larger than the gap it explains.
+	 *
+	 * Lives on the adapter because it needs IMPORTED_ACTIVITY_TYPES, and that
+	 * list is deliberately in one place - a second copy in the verifier is how
+	 * the count and the fetch drift apart.
+	 *
+	 * @param string $source Source key, for the id-map lookup.
+	 */
+	public function orphaned_importable_comment_count( string $source ): int {
+		global $wpdb;
+
+		$map = $wpdb->prefix . 'bni_id_map';
+		if ( ! $this->table_exists( 'bp_activity' ) ) {
+			return 0;
+		}
+
+		$types = "'" . implode( "','", self::IMPORTED_ACTIVITY_TYPES ) . "'";
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->prefix}bp_activity c
+				  INNER JOIN {$wpdb->prefix}bp_activity r ON r.id = c.item_id
+				  WHERE c.type = 'activity_comment' AND c.is_spam = 0
+				    AND r.type IN ( {$types} )
+				    AND NOT EXISTS (
+				        SELECT 1 FROM `{$map}` m
+				         WHERE m.source = %s AND m.domain = 'post' AND m.source_id = c.item_id
+				    )",
+				$source
+			)
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+	}
+
+	/**
 	 * Referential integrity of this source. {@see SourceAdapter::relationship_report()}
 	 *
 	 * @return array<int,array{relation:string,total:int,broken:int,fatal:bool,note:string}>

@@ -215,7 +215,7 @@ final class VerifyService {
 				// id-map rather than from guessing.
 				'because'   => $skipped
 					? __( 'skipped by choice', 'buddynext-importer' )
-					: $this->shortfall_reason( $source, $domain, $expected, (int) ( $ledger[ $domain ] ?? 0 ) ),
+					: $this->shortfall_reason( $source, $domain, $expected, (int) ( $ledger[ $domain ] ?? 0 ), $adapter ),
 			);
 		}
 
@@ -229,12 +229,13 @@ final class VerifyService {
 	 * a reaction, a comment - the id-map already knows whether that parent was
 	 * imported, so the gap can be attributed rather than left to be feared.
 	 *
-	 * @param string   $source   Source key.
-	 * @param string   $domain   Domain key.
-	 * @param int|null $expected Source count, when comparable.
-	 * @param int      $imported Rows written.
+	 * @param string      $source   Source key.
+	 * @param string      $domain   Domain key.
+	 * @param int|null    $expected Source count, when comparable.
+	 * @param int         $imported Rows written.
+	 * @param object|null $adapter Source adapter, for source-side explanations.
 	 */
-	private function shortfall_reason( string $source, string $domain, ?int $expected, int $imported ): string {
+	private function shortfall_reason( string $source, string $domain, ?int $expected, int $imported, ?object $adapter = null ): string {
 		if ( null === $expected || $imported >= $expected ) {
 			return '';
 		}
@@ -268,6 +269,27 @@ final class VerifyService {
 				return sprintf(
 					/* translators: %d: number of reactions. */
 					__( '%d were on activity that is not imported, so they have no post to attach to', 'buddynext-importer' ),
+					$orphaned
+				);
+			}
+		}
+
+		// A comment whose root post was not imported has nowhere to attach, so it
+		// is dropped with its parent - correct cascade behaviour, and by far the
+		// commonest reason this domain comes up short. The gap was real and the
+		// silence was the defect: verify printed a bare "short by 1" with nothing
+		// pointing at the refused post, which reads as unexplained data loss.
+		//
+		// The adapter owns the count because it needs the imported-type list, and
+		// asking it here means the reason can never be larger than the gap it
+		// explains.
+		if ( 'comment' === $domain && method_exists( $adapter, 'orphaned_importable_comment_count' ) ) {
+			$orphaned = (int) $adapter->orphaned_importable_comment_count( $source );
+
+			if ( $orphaned > 0 ) {
+				return sprintf(
+					/* translators: %d: number of comments. */
+					__( '%d were on posts that did not migrate, so they were dropped with them', 'buddynext-importer' ),
 					$orphaned
 				);
 			}
