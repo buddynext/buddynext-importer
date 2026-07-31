@@ -25,10 +25,18 @@ class BuddyPressAdapter implements SourceAdapter {
 	 *
 	 * `activity_update` is a member's own post. `new_blog_post` is BuddyPress
 	 * announcing a published article - real content with a URL, which maps to a
-	 * BuddyNext `link` post and brings its comment thread with it. Everything
+	 * BuddyNext `article` post and brings its comment thread with it. Everything
 	 * else BuddyPress records (joined_group, friendship_created, new_member,
 	 * updated_profile) is a system notice rather than content, and BuddyNext has
 	 * nothing to import it into.
+	 *
+	 * `new_blog_comment` is EXCLUDED ON PURPOSE, and it is the one omission here
+	 * that looks like an oversight. A comment on an article is a reply, not a
+	 * post: BuddyNext attaches it to the article's existing card
+	 * (ActivityWriter::import_blog_comments(), sourced from wp_comments, which
+	 * is authoritative and complete where the activity rows are neither).
+	 * Adding it to this list would give every blog comment its own card in the
+	 * feed AND leave it duplicated as a reply underneath the article.
 	 *
 	 * Read by the posts query, by the `activities` stat, and by the comment-root
 	 * check - so those three cannot drift apart, which is exactly how comments
