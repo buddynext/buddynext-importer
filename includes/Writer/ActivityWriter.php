@@ -130,14 +130,16 @@ final class ActivityWriter {
 			);
 		}
 
-		// A blog-post announcement is a link card, not a status update: it has a
-		// URL, a title and usually an image, and BuddyNext has a `link` type for
-		// exactly that. Bringing it across is also what lets its comment thread
-		// come with it - those comments have no other parent to attach to.
+		// A blog-post announcement is an article, not a status update: it has a
+		// URL, a headline and usually a featured image, and BuddyNext has a
+		// dedicated `article` type that renders exactly that - a cover card in
+		// the feed and its own Explore tile. Bringing it across is also what
+		// lets its comment thread come with it: those comments have no other
+		// parent to attach to.
 		$is_blog_post = 'new_blog_post' === (string) ( $activity['source_type'] ?? 'activity_update' );
 
 		$data = array(
-			'type'       => $is_blog_post ? 'link' : ( empty( $media_ids ) ? 'text' : 'media' ),
+			'type'       => $is_blog_post ? self::blog_post_type() : ( empty( $media_ids ) ? 'text' : 'media' ),
 			'content'    => $content,
 			'space_id'   => $space_id,
 			'privacy'    => PrivacyMap::post_privacy( (string) ( $activity['privacy'] ?? 'public' ) ),
@@ -340,6 +342,48 @@ final class ActivityWriter {
 	 * @param array<string,mixed> $activity Source activity row.
 	 * @return array{title:string,description:string,thumbnail:string}
 	 */
+	/**
+	 * The card type BuddyNext uses for a published post.
+	 *
+	 * Taken FROM BuddyNext rather than hardcoded, and it falls back: BuddyNext
+	 * gained a dedicated `article` type (with its own feed card and Explore
+	 * tile) alongside Feed\BlogPostListener. Against a BuddyNext that predates
+	 * it, `article` is not in PostService::ALLOWED_TYPES, create() refuses the
+	 * row, and the activity would be dropped in silence - content loss, which
+	 * is the one failure this importer must never introduce. `link` is what
+	 * every already-migrated site carries and still renders correctly.
+	 *
+	 * @return string
+	 */
+	private static function blog_post_type(): string {
+		return class_exists( \BuddyNext\Feed\BlogPostListener::class )
+			? \BuddyNext\Feed\BlogPostListener::TYPE
+			: 'link';
+	}
+
+	/**
+	 * The link_meta key BuddyNext stores a card's source post id under.
+	 *
+	 * @return string
+	 */
+	private static function source_post_meta_key(): string {
+		return class_exists( \BuddyNext\Feed\BlogPostListener::class )
+			? \BuddyNext\Feed\BlogPostListener::META_POST_ID
+			: 'source_post_id';
+	}
+
+	/**
+	 * Build the card payload for a blog-post activity from the local post.
+	 *
+	 * Never returns empty: PostService::create() fetches Open Graph data over
+	 * HTTP whenever link_url is set and link_meta is not, on the write path,
+	 * without consulting the link-preview toggle. These are the site's own
+	 * posts, so the title, excerpt and featured image are already in the
+	 * database and are better than any scrape.
+	 *
+	 * @param array<string,mixed> $activity Source activity record.
+	 * @return array<string,mixed> link_meta payload.
+	 */
 	private function link_meta_for( array $activity ): array {
 		$meta = array(
 			'title'       => '',
@@ -351,6 +395,14 @@ final class ActivityWriter {
 		$post    = $post_id > 0 ? get_post( $post_id ) : null;
 
 		if ( $post instanceof \WP_Post ) {
+			// Stamp the source post id the same way BuddyNext stamps its own
+			// article cards. Without it an imported card is invisible to
+			// BuddyNext: it would announce a SECOND card the first time that
+			// post is re-published, and comments would not sync between the
+			// post and its card. With it, a migrated card behaves exactly like
+			// one BuddyNext published itself.
+			$meta[ self::source_post_meta_key() ] = (int) $post->ID;
+
 			$meta['title']       = (string) get_the_title( $post );
 			$excerpt             = has_excerpt( $post ) ? (string) $post->post_excerpt : (string) $post->post_content;
 			$meta['description'] = wp_trim_words( wp_strip_all_tags( $excerpt ), 40, '' );
