@@ -620,7 +620,11 @@ final class MigrateCommand {
 
 		$this->settle_checkpoint( $source, 'dm_thread', $source_messages, $messages + array_sum( $skipped ) );
 
-		ImportLedger::add( $source, 'dm_thread', (int) $conversations );
+		// Threads accounted for, matching the message_threads source stat. A
+		// merged thread was folded into a conversation that already existed, so
+		// omitting it here under-reported the domain and invented a shortfall on
+		// a clean re-run.
+		ImportLedger::add( $source, 'dm_thread', (int) $conversations + (int) $merged );
 		\WP_CLI::success(
 			sprintf(
 				'Messages imported: %d conversations, %d of %d source messages.',
@@ -780,9 +784,9 @@ final class MigrateCommand {
 
 		$replies = $this->run_loop( fn( $after ) => $importer->import_replies_batch( $after, $batch ), 'replies', $batch, $source, 'forum_reply' );
 
-		ImportLedger::add( $source, 'forum_space', (int) $forums );
-		ImportLedger::add( $source, 'forum_post', (int) $topics );
-		ImportLedger::add( $source, 'forum_reply', (int) $replies );
+		ImportLedger::add( $source, 'forum_space', (int) $forums['done'] );
+		ImportLedger::add( $source, 'forum_post', (int) $topics['done'] );
+		ImportLedger::add( $source, 'forum_reply', (int) $replies['done'] );
 		\WP_CLI::success(
 			sprintf(
 				'Forums imported: %d forums, %d topics, %d replies.',
@@ -1055,8 +1059,8 @@ final class MigrateCommand {
 
 		$spaces = $this->image_loop( fn( $after ) => $importer->import_groups_batch( $after, $batch ), 'spaces', $batch, $source, 'group_image' );
 
-		ImportLedger::add( $source, 'member_image', (int) $members );
-		ImportLedger::add( $source, 'group_image', (int) $spaces );
+		ImportLedger::add( $source, 'member_image', (int) $members['done'] );
+		ImportLedger::add( $source, 'group_image', (int) $spaces['done'] );
 		\WP_CLI::success(
 			sprintf(
 				'Images imported: %d members, %d spaces.',

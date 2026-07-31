@@ -1574,8 +1574,15 @@ class BuddyPressAdapter implements SourceAdapter {
 		}
 
 		// Fallback: BuddyPress core favorites (usermeta, no dates).
+		// The meta_value filter MUST match favorites_count() exactly. BuddyPress
+		// leaves 'a:0:{}' behind when a member un-favourites their last item, and
+		// this LIMIT counts USERS while the loop below emits favourites - so a
+		// page of consecutive emptied members returned zero rows. The reactions
+		// step is empty_done, meaning an empty batch is read as "domain
+		// finished", so every reaction above that gap was silently dropped and
+		// the checkpoint recorded the truncation as a completed domain.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$users = $wpdb->get_results( $wpdb->prepare( "SELECT user_id, meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'bp_favorite_activities' AND user_id > %d ORDER BY user_id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		$users = $wpdb->get_results( $wpdb->prepare( "SELECT user_id, meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'bp_favorite_activities' AND meta_value NOT IN ( '', 'a:0:{}' ) AND user_id > %d ORDER BY user_id ASC LIMIT %d", $after, $limit ), ARRAY_A );
 
 		$out = array();
 		foreach ( (array) $users as $row ) {

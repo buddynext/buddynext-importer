@@ -103,7 +103,13 @@ final class ActivityWriter {
 			// content would change audience during the migration, and no row
 			// count would show it - the totals still reconcile. Skipping loses a
 			// post; publishing it discloses one.
-			if ( null === $mapped ) {
+			// A mapping of 0 is treated exactly like no mapping. The space write
+			// can fail without raising a WP_Error - BuddyNext's services return
+			// (int) $wpdb->insert_id, which is 0 on a failed INSERT - so the
+			// id-map can hold a real entry pointing at nothing. Testing only for
+			// null let that 0 through to the global-feed fallback above, which is
+			// the precise disclosure this guard exists to prevent.
+			if ( null === $mapped || $mapped <= 0 ) {
 				return array(
 					'id'      => 0,
 					'created' => false,
@@ -181,7 +187,12 @@ final class ActivityWriter {
 			fn() => $this->posts()->create( $user_id, $data )
 		);
 
-		if ( is_wp_error( $result ) ) {
+		// PostService::create() returns (int) $wpdb->insert_id, which is 0 on a
+		// failed INSERT rather than a WP_Error, so a falsy id has to be refused
+		// here as well. Mapping a 0 would mark this row imported forever: the
+		// early return at the top of this method would skip it on every later
+		// run, and no count would ever show it missing.
+		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
 			return array(
 				'id'      => 0,
 				'created' => false,
@@ -254,8 +265,10 @@ final class ActivityWriter {
 		$secondary = (int) $comment['secondary_item_id'];
 		$parent_id = null;
 		if ( $secondary > 0 && $secondary !== (int) $comment['root_id'] ) {
+			// A 0 mapping means the parent comment's write failed; treat it as
+			// unmapped so the reply attaches to the post rather than to comment 0.
 			$mapped_parent = IdMap::get( $this->source, 'comment', $secondary );
-			$parent_id     = null === $mapped_parent ? null : $mapped_parent;
+			$parent_id     = ( null === $mapped_parent || $mapped_parent <= 0 ) ? null : $mapped_parent;
 		}
 
 		$result = ImportMode::run(
@@ -264,7 +277,9 @@ final class ActivityWriter {
 			fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $this->utc( (string) $comment['date_recorded'] ) )
 		);
 
-		if ( is_wp_error( $result ) ) {
+		// CommentService::create() returns (int) $wpdb->insert_id - 0 on a failed
+		// INSERT, not a WP_Error - so a falsy id must be refused before mapping.
+		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
 			return array(
 				'id'      => 0,
 				'created' => false,

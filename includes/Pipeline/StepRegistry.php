@@ -315,7 +315,14 @@ final class StepRegistry {
 			static fn (): bool => MessageImporter::target_available()
 				&& null !== MessageImporter::for_source( $source ),
 			static fn ( int $c, int $b ): array => MessageImporter::for_source( $source )->import_batch( $c, $b ),
-			static fn ( array $r ): int => (int) $r['messages'],
+			// Threads accounted for, NOT messages written. The declared stat below
+			// is message_threads (COUNT(DISTINCT thread_id) at the source), so
+			// counting messages here compared two different units: on any real
+			// site messages far outnumber threads, imported always exceeded
+			// expected, and a genuine message shortfall could never surface. A
+			// merged thread is one folded into an existing conversation - still a
+			// source thread that was handled, so it counts alongside a new one.
+			static fn ( array $r ): int => (int) $r['conversations'] + (int) $r['merged'],
 			'message_threads'
 		);
 
@@ -433,7 +440,30 @@ final class StepRegistry {
 
 				ImportLedger::add( $source, $domain, $rows );
 
-				return array_merge( $result, array( 'count' => $rows ) );
+				// Did this batch account for everything it read? The cursor may
+				// only ever skip rows that are already handled, so a batch that
+				// read more than it wrote, found present, or deliberately skipped
+				// left a gap behind - a transient write failure. The CLI has
+				// checked this since the beginning (settle_checkpoint); the
+				// background runner did not, so on the "Start import" button path
+				// every unwritten row had the cursor stepped permanently past it
+				// with no id-map entry and nothing in the report.
+				//
+				// Reported here rather than acted on, because the caller owns the
+				// cursor. Erring toward a false gap is the safe direction: it
+				// costs a re-scan, never a row.
+				$seen      = (int) ( $result['fetched'] ?? 0 );
+				$accounted = $rows
+					+ (int) ( $result['existing'] ?? 0 )
+					+ array_sum( array_map( 'intval', (array) ( $result['skipped'] ?? array() ) ) );
+
+				return array_merge(
+					$result,
+					array(
+						'count' => $rows,
+						'gap'   => $seen > $accounted,
+					)
+				);
 			},
 		);
 	}
@@ -449,6 +479,7 @@ final class StepRegistry {
 			'last'    => $cursor,
 			'fetched' => 0,
 			'count'   => 0,
+			'gap'     => false,
 		);
 	}
 }

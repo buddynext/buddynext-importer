@@ -75,6 +75,14 @@ final class ProfileWriter {
 			)
 		);
 
+		// create_group() returns (int) $wpdb->insert_id, so a refused insert (a
+		// duplicate group_key, most likely) comes back as 0. Mapping that made
+		// every field in the group import with group_id 0 - orphaned, invisible
+		// in the UI, and counted as a success.
+		if ( $bn_id <= 0 ) {
+			return 0;
+		}
+
 		IdMap::set( $this->source, 'profile_group', $source_id, $bn_id );
 
 		return $bn_id;
@@ -116,6 +124,13 @@ final class ProfileWriter {
 		}
 
 		$bn_id = (int) $this->service()->create_field( $data );
+
+		// Same failed-insert shape as create_group() above. An unmapped field is
+		// recoverable on a re-run; a field mapped to 0 makes import_user_values()
+		// below write member values under a field_key with no field row.
+		if ( $bn_id <= 0 ) {
+			return 0;
+		}
 
 		IdMap::set( $this->source, 'profile_field', $source_id, $bn_id );
 

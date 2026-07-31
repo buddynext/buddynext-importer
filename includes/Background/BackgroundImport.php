@@ -82,6 +82,9 @@ final class BackgroundImport {
 				'source'     => $source,
 				'state'      => 'running',
 				'step'       => 0,
+				// Domains that read rows they could not account for, carried
+				// across ticks so the cursor can be settled when the domain ends.
+				'gaps'       => array(),
 				'started_at' => time(),
 				'updated_at' => time(),
 			),
@@ -163,6 +166,9 @@ final class BackgroundImport {
 		$steps  = $this->steps( $source );
 		$total  = count( $steps );
 		$index  = (int) ( $job['step'] ?? 0 );
+		// A job started before this key existed carries no gap map; treat it as
+		// empty rather than letting the first gap write into a non-array.
+		$job['gaps'] = is_array( $job['gaps'] ?? null ) ? $job['gaps'] : array();
 
 		/**
 		 * Filter the wall-clock budget for a single background tick, in seconds.
@@ -194,9 +200,27 @@ final class BackgroundImport {
 			$result = ( $step['run'] )( $cursor, self::BATCH );
 			Checkpoint::set( $source, $step['domain'], (int) $result['last'] );
 
+			// Remember that this domain left rows behind, but do NOT act on it
+			// yet. The cursor may only ever skip rows that are already handled,
+			// so a gap has to drop the cursor - and dropping it here, per batch,
+			// would restart a domain containing one permanently-failing row on
+			// every tick and never finish. The CLI settles once at the END of a
+			// domain for exactly this reason; this mirrors it across ticks.
+			if ( ! empty( $result['gap'] ) ) {
+				$job['gaps'][ $step['domain'] ] = true;
+			}
+
 			$fetched   = (int) $result['fetched'];
 			$step_done = $step['empty_done'] ? ( 0 === $fetched ) : ( $fetched < self::BATCH );
 			if ( $step_done ) {
+				// Domain finished. If anything went unaccounted for along the way,
+				// clear the cursor so the NEXT run re-scans from the start and the
+				// id-map refills the hole. A stale cursor costs a re-scan; keeping
+				// it here would cost the rows, silently.
+				if ( ! empty( $job['gaps'][ $step['domain'] ] ) ) {
+					Checkpoint::clear( $source, $step['domain'] );
+					unset( $job['gaps'][ $step['domain'] ] );
+				}
 				++$index;
 			}
 

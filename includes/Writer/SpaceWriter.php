@@ -253,7 +253,13 @@ final class SpaceWriter {
 			fn() => $this->spaces()->create( $owner_id, $data )
 		);
 
-		if ( is_wp_error( $result ) ) {
+		// SpaceService::create() returns (int) $wpdb->insert_id - 0 on a failed
+		// INSERT, not a WP_Error. Mapping a 0 here is the most damaging version
+		// of this mistake: ActivityWriter resolves a group's posts through this
+		// domain, and an entry pointing at nothing used to read as "space 0",
+		// which is the global feed - a private group's history republished
+		// publicly, with every row count still reconciling.
+		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
 			return array(
 				'id'      => 0,
 				'created' => false,
@@ -293,22 +299,30 @@ final class SpaceWriter {
 			return false;
 		}
 
+		// Every branch reports what the service actually did. Returning a
+		// hardcoded true here meant a roster the target refused was still counted
+		// as imported, so a space whose members all failed reconciled as complete
+		// on the verify screen - the exact silent shortfall the operator checks
+		// that screen to rule out before deleting the source community.
 		return (bool) ImportMode::run(
 			function () use ( $bn_space_id, $owner_id, $user_id, $member ): bool {
 				if ( 1 === (int) $member['is_banned'] ) {
-					$this->members()->ban_from_space( $bn_space_id, $user_id, $owner_id, '' );
-					return true;
+					return true === $this->members()->ban_from_space( $bn_space_id, $user_id, $owner_id, '' );
 				}
 
 				// Pending membership (request not yet confirmed).
 				if ( 0 === (int) $member['is_confirmed'] ) {
-					$this->members()->request_join( $bn_space_id, $user_id );
-					return true;
+					return true === $this->members()->request_join( $bn_space_id, $user_id );
 				}
 
 				// Confirmed: active member, promoted to moderator for group admins/mods.
-				$this->members()->join( $bn_space_id, $user_id );
+				if ( true !== $this->members()->join( $bn_space_id, $user_id ) ) {
+					return false;
+				}
 
+				// The member did land, so the row counts even if the promotion is
+				// refused; a moderator arriving as a plain member is a role to fix,
+				// not a missing person to hunt for in the deleted source.
 				if ( 1 === (int) $member['is_admin'] || 1 === (int) $member['is_mod'] ) {
 					$this->members()->change_role( $bn_space_id, $user_id, 'moderator', $owner_id );
 				}
