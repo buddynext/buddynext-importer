@@ -25,10 +25,17 @@ class BuddyPressAdapter implements SourceAdapter {
 	 *
 	 * `activity_update` is a member's own post. `new_blog_post` is BuddyPress
 	 * announcing a published article - real content with a URL, which maps to a
-	 * BuddyNext `article` post and brings its comment thread with it. Everything
-	 * else BuddyPress records (joined_group, friendship_created, new_member,
-	 * updated_profile) is a system notice rather than content, and BuddyNext has
-	 * nothing to import it into.
+	 * BuddyNext `article` post and brings its comment thread with it.
+	 * `rtmedia_update` is a member posting photos or video through rtMedia, the
+	 * media plugin plain BuddyPress sites use: content in exactly the way a
+	 * status update is, and the reason a whole community's photos used to stay
+	 * behind. Its attachments already ride along through
+	 * activity_media_for(), which has always read rt_rtm_media - the media had
+	 * a way in the entire time, and nothing ever fetched the activity holding it.
+	 *
+	 * Everything else BuddyPress records (joined_group, friendship_created,
+	 * new_member, updated_profile) is a system notice rather than content, and
+	 * BuddyNext has nothing to import it into.
 	 *
 	 * `new_blog_comment` is EXCLUDED ON PURPOSE, and it is the one omission here
 	 * that looks like an oversight. A comment on an article is a reply, not a
@@ -44,7 +51,7 @@ class BuddyPressAdapter implements SourceAdapter {
 	 *
 	 * @var array<int,string>
 	 */
-	private const IMPORTED_ACTIVITY_TYPES = array( 'activity_update', 'new_blog_post' );
+	private const IMPORTED_ACTIVITY_TYPES = array( 'activity_update', 'new_blog_post', 'rtmedia_update' );
 
 	/**
 	 * Taxonomy that carries member-type assignments on the user object. Set by
@@ -980,12 +987,18 @@ class BuddyPressAdapter implements SourceAdapter {
 		}
 
 		$albums = $this->table_count( 'rt_rtm_media', "media_type = 'album'" );
-		$media  = $this->table_count( 'rt_rtm_media', "media_type <> 'album'" );
 
-		if ( $media > 0 ) {
+		// ONLY the media no activity carries. A photo posted through rtMedia
+		// rides its rtmedia_update activity into a post and does migrate, so
+		// counting every rtMedia row here would warn an owner about content that
+		// is sitting in their new community - the opposite failure to the one
+		// this notice exists to prevent, and just as corrosive.
+		$stranded = $this->table_count( 'rt_rtm_media', "media_type <> 'album' AND COALESCE( activity_id, 0 ) = 0" );
+
+		if ( $stranded > 0 ) {
 			$out[] = array(
-				'reason' => __( 'rtMedia photos and videos - this importer reads BuddyBoss media, not rtMedia, so they stay on the source site', 'buddynext-importer' ),
-				'rows'   => $media,
+				'reason' => __( 'rtMedia photos and videos that were never posted to activity - they live only in an album, which this importer does not read yet', 'buddynext-importer' ),
+				'rows'   => $stranded,
 			);
 		}
 
