@@ -1015,6 +1015,35 @@ final class MigrateCommand {
 			\WP_CLI::log( sprintf( '  %d albums were already imported by an earlier run.', $albums_existing ) );
 		}
 
+		// Album contents, between the albums and the loose library items: a photo
+		// can only be filed once its album exists in the id-map.
+		//
+		// This mirrors the album_media step in StepRegistry by hand, because
+		// migrate-all does not run through the registry - the divergence noted in
+		// docs/audit-2026-07-31.md. Adding a domain there and forgetting it here
+		// is exactly how this command came to know fewer domains than the browser.
+		$after         = Checkpoint::get( $source, 'album_media' );
+		$album_media   = 0;
+		$album_seen    = 0;
+		$album_skipped = array();
+
+		do {
+			$result       = $importer->import_album_media_batch( $after, $batch );
+			$album_media += $result['media'];
+			$album_seen  += $result['fetched'];
+			$after        = $result['last'];
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$album_skipped[ $reason ] = ( $album_skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
+			Checkpoint::set( $source, 'album_media', $after );
+		} while ( (int) $result['fetched'] === $batch );
+
+		$this->settle_checkpoint( $source, 'album_media', $album_seen, $album_media + array_sum( $album_skipped ) );
+		ImportLedger::add( $source, 'album_media', $album_media );
+
+		\WP_CLI::log( sprintf( '%d album photos filed.', $album_media ) );
+		$this->report_skips( $album_skipped, $album_seen, $album_media, 'album photos' );
+
 		$after        = Checkpoint::get( $source, 'standalone_media' );
 		$media        = 0;
 		$source_media = 0;

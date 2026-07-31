@@ -148,4 +148,56 @@ final class MediaImporter {
 			'skipped' => $skipped,
 		);
 	}
+
+	/**
+	 * Import one keyset batch of album contents, then restore each touched
+	 * album's running order.
+	 *
+	 * The reorder runs per batch rather than once at the end, because there is
+	 * no "end" a step can hook: the pipeline hands out one batch at a time and
+	 * may stop between any two. Re-ordering an album whose contents are still
+	 * arriving is harmless - reorder() positions by array index over whatever
+	 * has landed, so each pass simply gets closer to the source arrangement and
+	 * the last one is correct.
+	 *
+	 * @param int $after Exclusive lower-bound media row id.
+	 * @param int $limit Batch size.
+	 * @return array{last:int,fetched:int,media:int,skipped:array<string,int>}
+	 */
+	public function import_album_media_batch( int $after, int $limit ): array {
+		$rows    = $this->adapter->album_media( $after, $limit );
+		$media   = 0;
+		$skipped = array();
+		$last    = $after;
+		$albums  = array();
+
+		foreach ( $rows as $row ) {
+			$last     = max( $last, (int) $row['source_id'] );
+			$album_id = (int) $row['album_id'];
+
+			$reason = $this->writer->import_album_media( $row );
+
+			if ( '' === $reason ) {
+				++$media;
+				$albums[ $album_id ] = true;
+				continue;
+			}
+
+			$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + 1;
+		}
+
+		foreach ( array_keys( $albums ) as $source_album_id ) {
+			$this->writer->apply_album_order(
+				(int) $source_album_id,
+				$this->adapter->album_media_order( (int) $source_album_id )
+			);
+		}
+
+		return array(
+			'last'    => $last,
+			'fetched' => count( $rows ),
+			'media'   => $media,
+			'skipped' => $skipped,
+		);
+	}
 }

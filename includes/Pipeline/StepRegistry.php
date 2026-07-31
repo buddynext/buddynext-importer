@@ -315,6 +315,20 @@ final class StepRegistry {
 			'media_albums'
 		);
 
+		// Album contents BEFORE loose media, and after the albums themselves: a
+		// photo can only be filed once its album exists in the id-map.
+		$steps[] = self::step(
+			$source,
+			'media',
+			'album_media',
+			__( 'album photos', 'buddynext-importer' ),
+			'album_media',
+			$media_available,
+			static fn ( int $c, int $b ): array => MediaImporter::for_source( $source )->import_album_media_batch( $c, $b ),
+			static fn ( array $r ): int => (int) $r['media'],
+			'album_media'
+		);
+
 		$steps[] = self::step(
 			$source,
 			'media',

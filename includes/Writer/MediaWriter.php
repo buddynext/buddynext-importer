@@ -139,10 +139,50 @@ final class MediaWriter {
 		$album_id = (int) $created;
 		IdMap::set( $this->source, 'media_album', $source_id, $album_id );
 
+		// A BuddyBoss album with a group_id belongs to that group, not to the
+		// member who happened to create it. BuddyNext gained space-owned albums
+		// for exactly this, so the association is carried instead of dropped -
+		// otherwise a club's shared album arrives as one member's private one.
+		$this->attach_to_space( $album_id, (int) ( $album['group_id'] ?? 0 ) );
+
 		return array(
 			'id'      => $album_id,
 			'created' => true,
 		);
+	}
+
+	/**
+	 * Hand a migrated album to the space its source group became.
+	 *
+	 * Through BuddyNext's own seam rather than by writing the meta key here:
+	 * the association carries a privacy rule with it (a space album's audience
+	 * is the space's), and that belongs to BuddyNext to decide, not to a
+	 * migration tool to reproduce.
+	 *
+	 * Silent when the group never became a space - the album still exists and
+	 * still holds its photos, it simply belongs to its creator. Losing the
+	 * association is better than attaching content to the wrong space.
+	 *
+	 * @param int $album_id        Target album id.
+	 * @param int $source_group_id Source group id (0 for a personal album).
+	 * @return void
+	 */
+	private function attach_to_space( int $album_id, int $source_group_id ): void {
+		if ( $album_id <= 0 || $source_group_id <= 0 ) {
+			return;
+		}
+
+		if ( ! class_exists( '\\BuddyNext\\Media\\Galleries' )
+			|| ! method_exists( '\\BuddyNext\\Media\\Galleries', 'assign_album_to_space' ) ) {
+			return;
+		}
+
+		$space_id = IdMap::get( $this->source, 'space', $source_group_id );
+		if ( null === $space_id || $space_id <= 0 ) {
+			return;
+		}
+
+		ImportMode::run( fn() => \BuddyNext\Media\Galleries::assign_album_to_space( $album_id, (int) $space_id ) );
 	}
 
 	/**
@@ -169,13 +209,6 @@ final class MediaWriter {
 			return 'user_missing';
 		}
 
-		// Whether the activity pass already brought this attachment in. Read BEFORE
-		// ingesting, because ingest() is idempotent and afterwards the two cases are
-		// indistinguishable. An album photo in BuddyBoss always has an activity too,
-		// so it arrives here having already been written - this pass adds only the
-		// album membership the activity pass had no way to know about.
-		$already = $this->ingest->existing( $attachment_id );
-
 		// The source row points at a WP attachment whose file must still exist -
 		// ingest copies the real file. A pruned uploads directory is a real loss
 		// and is reported rather than counted as written.
@@ -186,12 +219,105 @@ final class MediaWriter {
 
 		IdMap::set( $this->source, 'standalone_media', $source_id, $media_id );
 
+		// No album handling here any more. This domain is now loose library items
+		// only - nothing with an album_id reaches it - so the linked_from_activity
+		// note this used to return is gone with the overlap that caused it.
+		return '';
+	}
+
+	/**
+	 * Import one album photo: bring the file in, then file it in its album.
+	 *
+	 * Separate from import_media() because the two answer different questions.
+	 * A loose library item asks "is this media in BuddyNext yet"; an album photo
+	 * asks "is this album membership recorded yet", and in BuddyBoss the answer
+	 * is usually that the file itself already arrived with its activity. Counting
+	 * that as a fresh write would report more media than the source holds.
+	 *
+	 * @param array<string,mixed> $media Source album-media row.
+	 * @return string Empty when filed, otherwise the skip reason.
+	 */
+	public function import_album_media( array $media ): string {
+		$source_id     = (int) $media['source_id'];
+		$attachment_id = (int) $media['attachment_id'];
+		$user_id       = (int) $media['user_id'];
+
+		if ( IdMap::has( $this->source, 'album_media', $source_id ) ) {
+			return 'already_imported';
+		}
+
+		if ( $attachment_id <= 0 ) {
+			return 'no_attachment';
+		}
+
+		if ( $user_id <= 0 || ! get_userdata( $user_id ) ) {
+			return 'user_missing';
+		}
+
+		$album_id = IdMap::get( $this->source, 'media_album', (int) $media['album_id'] );
+		if ( null === $album_id || $album_id <= 0 ) {
+			// The album never landed, so there is nowhere to file this. Named
+			// rather than silent: an album that failed takes its whole contents
+			// with it, and that is worth seeing.
+			return 'album_not_imported';
+		}
+
+		$media_id = $this->ingest->ingest( $attachment_id, $user_id );
+		if ( $media_id <= 0 ) {
+			return 'file_missing_or_upload_refused';
+		}
+
+		IdMap::set( $this->source, 'album_media', $source_id, $media_id );
+
 		$this->place_in_album( (int) $media['album_id'], $media_id );
 
-		// Not a fresh write, so it must not be counted as one - the report would
-		// claim more media migrated than the source holds. It is not a loss either,
-		// so it is a note rather than a shortfall {@see MigrateCommand::report_skips}.
-		return $already > 0 ? 'linked_from_activity' : '';
+		return '';
+	}
+
+	/**
+	 * Restore one album's running order.
+	 *
+	 * Album position is assigned as photos are added, and the import adds them
+	 * in media-id order so the pass stays resumable - which is rarely the order
+	 * the member arranged. Their arrangement lives in bp_media.menu_order and
+	 * nowhere else, so it is applied afterwards, once the contents are in.
+	 *
+	 * @param int            $source_album_id Source album id.
+	 * @param array<int,int> $source_order    Source media ids, menu_order first.
+	 * @return bool Whether an order was applied.
+	 */
+	public function apply_album_order( int $source_album_id, array $source_order ): bool {
+		$album_id = IdMap::get( $this->source, 'media_album', $source_album_id );
+		if ( null === $album_id || $album_id <= 0 || array() === $source_order ) {
+			return false;
+		}
+
+		$service = self::albums();
+		if ( null === $service || ! method_exists( $service, 'reorder' ) ) {
+			return false;
+		}
+
+		// Map the source order onto target ids, dropping anything that did not
+		// make it - reorder() positions by array index, so a gap would simply
+		// close up rather than corrupt the sequence.
+		$ordered = array();
+		foreach ( $source_order as $source_media_id ) {
+			foreach ( array( 'album_media', 'standalone_media' ) as $domain ) {
+				$mapped = IdMap::get( $this->source, $domain, (int) $source_media_id );
+				if ( null !== $mapped && $mapped > 0 ) {
+					$ordered[] = (int) $mapped;
+					break;
+				}
+			}
+		}
+
+		if ( array() === $ordered ) {
+			return false;
+		}
+
+		ImportMode::run( fn() => $service->reorder( (int) $album_id, $ordered ) );
+
+		return true;
 	}
 
 	/**

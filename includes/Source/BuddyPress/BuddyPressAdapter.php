@@ -738,6 +738,35 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * BuddyPress core has no albums, so no media belongs to one.
+	 *
+	 * Note that rtMedia albums exist on some BuddyPress sites and are NOT read
+	 * here - they are declared in unsupported_content() instead, so an owner is
+	 * told rather than left to discover it. {@see SourceAdapter::album_media()}
+	 *
+	 * @param int $after Exclusive lower-bound media row id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function album_media( int $after, int $limit ): array {
+		unset( $after, $limit );
+
+		return array();
+	}
+
+	/**
+	 * No albums here, so nothing to order. {@see SourceAdapter::album_media_order()}
+	 *
+	 * @param int $source_album_id Source album id.
+	 * @return array<int,int>
+	 */
+	public function album_media_order( int $source_album_id ): array {
+		unset( $source_album_id );
+
+		return array();
+	}
+
+	/**
 	 * Source groups, keyset-paginated by group id.
 	 *
 	 * @param int $after Exclusive lower-bound group id.

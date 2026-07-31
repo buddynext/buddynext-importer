@@ -68,8 +68,15 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		// source-vs-written comparison, so a mismatch reports a phantom shortfall (or
 		// hides a real one) on a migration that is actually fine. Album photos are
 		// included even though they carry an activity_id - see standalone_media().
-		$stats['media_albums']     = $this->table_count( 'bp_media_albums' );
-		$stats['standalone_media'] = $this->table_count( 'bp_media', "COALESCE( message_id, 0 ) = 0 AND ( COALESCE( activity_id, 0 ) = 0 OR COALESCE( album_id, 0 ) > 0 ) AND status = 'published'" );
+		$stats['media_albums'] = $this->table_count( 'bp_media_albums' );
+
+		// Each predicate MUST match its reader character for character - this is
+		// the source side of the source-vs-written comparison, so a mismatch
+		// reports a phantom shortfall (or hides a real one) on a migration that
+		// is fine. Now that album contents have their own domain, "standalone"
+		// means what it says: no message, no activity, no album.
+		$stats['standalone_media'] = $this->table_count( 'bp_media', "COALESCE( message_id, 0 ) = 0 AND COALESCE( activity_id, 0 ) = 0 AND COALESCE( album_id, 0 ) = 0 AND status = 'published'" );
+		$stats['album_media']      = $this->table_count( 'bp_media', "COALESCE( message_id, 0 ) = 0 AND COALESCE( album_id, 0 ) > 0 AND status = 'published'" );
 
 		// Forums (bbPress) -> Jetonomy. Inherited from the parent now, which
 		// counts over exactly the statuses each reader imports; the local copy
@@ -256,7 +263,8 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 				FROM `{$table}`
 				WHERE id > %d
 					AND COALESCE( message_id, 0 ) = 0
-					AND ( COALESCE( activity_id, 0 ) = 0 OR COALESCE( album_id, 0 ) > 0 )
+					AND COALESCE( activity_id, 0 ) = 0
+					AND COALESCE( album_id, 0 ) = 0
 					AND status = 'published'
 				ORDER BY id ASC
 				LIMIT %d",
@@ -284,6 +292,107 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		}
 
 		return $media;
+	}
+
+	/**
+	 * Media that belongs to an album, keyset-paginated by media id.
+	 *
+	 * Every source media row now has exactly ONE owning domain, decided by the
+	 * columns BuddyBoss already fills in: a message attachment belongs to
+	 * messages, a row with an album_id belongs to the album, a row with only an
+	 * activity_id rides its post, and what is left is a loose library item.
+	 *
+	 * The album pass used to be done by widening standalone_media() to admit
+	 * rows that also had an activity - which worked, but left "standalone
+	 * media" meaning something other than its name and needed compensating
+	 * bookkeeping (a linked_from_activity skip reason, and a stats predicate
+	 * widened to match) to keep the counts honest.
+	 *
+	 * menu_order comes with the row because it is the only record of the order
+	 * a member arranged their album in, and it is not recoverable afterwards.
+	 *
+	 * @param int $after Exclusive lower-bound media id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function album_media( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_media' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_media';
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, attachment_id, user_id, title, description, album_id, group_id, privacy, type, menu_order, date_created
+				FROM `{$table}`
+				WHERE id > %d
+					AND COALESCE( message_id, 0 ) = 0
+					AND COALESCE( album_id, 0 ) > 0
+					AND status = 'published'
+				ORDER BY id ASC
+				LIMIT %d",
+				$after,
+				$limit
+			),
+			ARRAY_A
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+		$media = array();
+		foreach ( (array) $rows as $row ) {
+			$media[] = array(
+				'source_id'     => (int) $row['id'],
+				'attachment_id' => (int) $row['attachment_id'],
+				'user_id'       => (int) $row['user_id'],
+				'title'         => (string) wp_unslash( (string) $row['title'] ),
+				'description'   => (string) wp_unslash( (string) $row['description'] ),
+				'album_id'      => (int) $row['album_id'],
+				'group_id'      => (int) $row['group_id'],
+				'privacy'       => (string) $row['privacy'],
+				'type'          => (string) $row['type'],
+				'menu_order'    => (int) $row['menu_order'],
+				'date_created'  => (string) $row['date_created'],
+			);
+		}
+
+		return $media;
+	}
+
+	/**
+	 * One album's media ids in the order the member arranged them.
+	 *
+	 * Ordering cannot fall out of the import pass: that walks by media id so it
+	 * stays resumable, and a member's arrangement rarely matches id order. So
+	 * the order is asked for separately, per album, once its contents are in.
+	 *
+	 * @param int $source_album_id Source album id.
+	 * @return array<int,int> Source media ids, menu_order first.
+	 */
+	public function album_media_order( int $source_album_id ): array {
+		global $wpdb;
+
+		if ( $source_album_id <= 0 || ! $this->table_exists( 'bp_media' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'bp_media';
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT id FROM `{$table}`
+				  WHERE album_id = %d AND COALESCE( message_id, 0 ) = 0 AND status = 'published'
+				  ORDER BY menu_order ASC, id ASC",
+				$source_album_id
+			)
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+		return array_map( 'intval', (array) $ids );
 	}
 
 	/**

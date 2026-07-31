@@ -229,6 +229,35 @@ interface SourceAdapter {
 	public function standalone_media( int $after, int $limit ): array;
 
 	/**
+	 * Media that belongs to an album, keyset-paginated by media row id.
+	 *
+	 * Every source media row has exactly one owning domain: message attachments
+	 * belong to messages, a row with an album_id to its album, a row with only
+	 * an activity_id rides its post, and the remainder is a loose library item.
+	 * Splitting them this way is what lets each domain's count mean something.
+	 *
+	 * Rows carry `menu_order` - the member's own arrangement of the album, and
+	 * the one thing about an album that cannot be reconstructed afterwards.
+	 * BuddyPress core has no albums; only BuddyBoss implements this.
+	 *
+	 * @param int $after Exclusive lower-bound media row id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function album_media( int $after, int $limit ): array;
+
+	/**
+	 * One album's media ids in the order the member arranged them.
+	 *
+	 * Asked separately from the import pass, which walks by media id so it can
+	 * resume - and a member's arrangement rarely matches id order.
+	 *
+	 * @param int $source_album_id Source album id.
+	 * @return array<int,int> Source media ids, menu_order first.
+	 */
+	public function album_media_order( int $source_album_id ): array;
+
+	/**
 	 * Source bbPressforums, keyset-paginated by post id.
 	 *
 	 * Row shape includes `group_id`: the source group this forum belongs to
