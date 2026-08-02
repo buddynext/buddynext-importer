@@ -1,17 +1,65 @@
 # BuddyNext Importer
 
-Move an existing BuddyPress or BuddyBoss community into [BuddyNext](https://github.com/buddynext/buddynext), then remove this plugin.
+**Your whole BuddyPress or BuddyBoss community moves to [BuddyNext](https://github.com/buddynext/buddynext) - and you get told exactly what arrived.**
 
-> One-time transition tool. Install it, run the migration, verify it, then delete it. BuddyNext core never carries migration code.
+Not an export. Not "members and a CSV of posts". Members, profile fields and their
+values, member types, groups with their privacy and roles, years of activity with
+its comment threads, friendships, follows, reactions, forums with topics, replies
+and tags, avatars and covers, albums and media, and private messages.
+
+Then you delete this plugin and it leaves nothing behind.
+
+## Why this one is different
+
+Community migrations have historically meant "move what you can and accept the
+losses", with no way to tell a legitimate drop from a silent one. Three things
+change that here.
+
+**Nothing moves in the dark.** Every domain reports source count against rows
+written, plus a plain-sentence reason for every row it did not write. Not a
+progress bar and a total.
+
+```
+posts       1838   1443
+  395 posts were refused because their author is not a member of the space they belong to.
+comments   11006   8983
+  7819 comments were on a post that did not migrate, so they were dropped with it.
+```
+
+That matters because of what happens next: the operator deletes the old
+community. A shortfall nobody explained is how that goes wrong.
+
+**It writes through BuddyNext's services, never raw SQL.** So counters,
+the search index, hashtags, mentions and privacy rules end up correct rather than
+approximately correct. It also means anything BuddyNext itself would refuse gets
+refused here too, and reported, instead of being forced in through the back door.
+
+**Privacy is enforced during the move, not assumed.** A group post that cannot be
+placed in a space is refused rather than published to the global feed, and
+`verify` independently confirms no private or secret space content became
+publicly searchable. This is the failure that quietly turns a private group into
+a public one, and it is checked on every run.
+
+## Proven on real communities, not a demo
+
+Every release is established by migrating disposable but realistic communities end
+to end, then reconciling the result against an independently counted source.
+
+| Source | Size | Result |
+|---|---|---|
+| BuddyPress + bbPress | 501 members, 20 groups, 1,838 activities, 16,802 comments, 6,757 friendships, 1,405 forum items, 200 DM threads | every domain reconciled, every shortfall attributed |
+| BuddyBoss Platform 3.3.0 | 201 members, 20 groups, 4,619 comments, 1,284 friendships, 5 albums, 25 DM threads | same, plus media and album ordering preserved |
+
+A second full run over a completed migration writes **zero rows** across all 18
+domains. Nothing duplicates, and an interrupted run resumes where it stopped.
+
+## Before you run it
 
 > [!WARNING]
 > **Rehearse on a staging site or a local copy first. Never run this on a live
-> community you have not already migrated somewhere else.** An import writes real
-> members, spaces, posts and messages through BuddyNext's services. It never
-> duplicates on a re-run, but it cannot be undone from inside the plugin, and
-> reversing it means restoring a backup.
-
-## Before you run it
+> community you have not already migrated somewhere else.** It never duplicates on
+> a re-run, but it cannot be undone from inside the plugin, and reversing it means
+> restoring a backup.
 
 The rehearsal is the point. A migration is a one-way door, and the only way to
 know what your community looks like on the other side is to open it somewhere
@@ -45,22 +93,10 @@ FluentCommunity, PeepSo and Ultimate Member are v2. The adapter architecture bel
 is built to take them, but no adapter for them ships today. See
 [docs/build-plan.md](docs/build-plan.md).
 
-## The rule this tool is built around
-
-**A silent shortfall is the worst bug a migration tool can have**, because the
-operator deletes the old community believing everything moved. So every domain
-reports source-against-written plus a reason-coded breakdown of everything it did
-not write. Never "N imported" alone.
-
-```
-posts       1838   1443
-  395 posts were refused because their author is not a member of the space they belong to.
-comments   11006   8983
-  7819 comments were on a post that did not migrate, so they were dropped with it.
-```
-
-The same sentences appear in the CLI, in the admin table and in `verify`, because
-they come from one shared list rather than a copy per surface.
+The same reason sentences appear in the CLI, in the admin table and in `verify`,
+because they come from one shared list rather than a copy per surface. Two
+surfaces that disagree about why a row was dropped is how a migration loses an
+owner's trust at exactly the wrong moment.
 
 ## How it works
 
