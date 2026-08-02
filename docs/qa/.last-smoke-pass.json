@@ -1,0 +1,66 @@
+{
+  "slug": "buddynext-importer",
+  "version": "1.1.0",
+  "mode": "single",
+  "result": "pass",
+  "run_at": "2026-08-02T16:15:00Z",
+  "artifact_under_test": "buddynext-importer-1.1.0.zip (bin/build-release.sh, 50 files, 180K)",
+  "environments": [
+    {
+      "name": "docker-smoke",
+      "url": "http://localhost:8899",
+      "wordpress": "7.0.2",
+      "role": "packaging truth - clean install of the built zip",
+      "result": "pass with one environment caveat"
+    },
+    {
+      "name": "importer docker fixture",
+      "url": "http://localhost:8080",
+      "role": "admin surface - real BuddyBoss source community",
+      "result": "pass"
+    }
+  ],
+  "steps": {
+    "1_install_from_zip": {
+      "result": "pass",
+      "evidence": "wp plugin install /zips/buddynext-importer-1.1.0.zip --activate; buddynext, buddynext-pro and buddynext-importer all active; no activation error. Installed tree is exactly the 7 allowlisted entries - 0 dev entries (no docker/, docs/, *.md)."
+    },
+    "2_no_fatals_on_boot": {
+      "result": "pass",
+      "evidence": "BUDDYNEXT_IMPORTER_VERSION prints 1.1.0, matching the zip filename. debug.log gained 1 line, and it is WordPress core's wp_version_check() network warning (no outbound net in Docker), not ours. 0 lines matching fatal/uncaught/class-not-found/textdomain_just_in_time."
+    },
+    "3_admin_screen_renders": {
+      "result": "pass",
+      "environment": "importer docker fixture (see caveat)",
+      "evidence": "Renders inside .bni-wrap, no PHP notice. Source stated plainly (BuddyBoss). Step list POPULATED - 12 domain checkboxes, not zero, which is the drift condition this step exists to catch. All four panels present: Source community, What to import, Progress, Check the migration. No alert()/confirm() in any enqueued script. Verified at 1280 and 390: no horizontal spill (docScrollWidth == innerWidth at both), .bni-hint blocks keep display:flex with a 16px marker beside the text rather than collapsing."
+    },
+    "3a_staging_advisory": {
+      "result": "pass",
+      "evidence": "New in 1.1.0. Renders above the hero, non-dismissible, role=note. 1280: flex, bg #fdf6e7, color #7a4d05, 108px tall. 390: flex, 368px wide, 202px tall, 12px padding, no overflow."
+    },
+    "4_rest_answers_and_refuses": {
+      "result": "pass",
+      "evidence": "In-process as admin: /stats, /domains, /status all HTTP 200. Unauthenticated POST: /step 403 buddynext_importer_forbidden, /background 403, /cleanup 403 when the required confirm param is supplied - and bni_id_map + bni_checkpoint both still exist afterwards, so it refused rather than executed. (/cleanup returns 400 for a missing param before the 403, which is WordPress validating required args first; it never executes.)"
+    },
+    "6_degrades_without_buddynext": {
+      "result": "not_run",
+      "reason": "WordPress itself now refuses to deactivate BuddyNext while this plugin is active - the Plugins screen shows 'Required by: BuddyNext Importer, BuddyNext Pro' and blocks it. That is the Requires Plugins header working, and it is a stronger guarantee than the degrade path it made untestable."
+    }
+  },
+  "gates": {
+    "php_lint": "pass - 67 files, 0 parse errors; release gate lints all 46 shipped files",
+    "wpcs": "pass - 0 errors, 8 warnings (pre-existing VerifyService debt, documented in CLAUDE.md)",
+    "contract_audit": "pass - exit 0, 10 baselined with individually verified reasons, 0 unexplained",
+    "build_packaging": "pass - 50 files, 180K, no docker/, docs/, *.md or nested zip",
+    "docs_truth": "pass - audit/manifest.json and CAPABILITIES.md written this release"
+  },
+  "caveats": [
+    {
+      "id": "10157662488",
+      "severity": "high",
+      "owner": "buddynext (Free), not this plugin",
+      "summary": "On docker-smoke, BuddyNext's PWA service worker claims the whole origin including /wp-admin/ and answers admin REST with the offline HTML page at HTTP 200. The importer's admin screen then shows 'Could not load source statistics.' and renders 0 of 12 domains. WordPress CORE REST is hit too - /wp/v2/users/me returns the same offline page. Server-side rest_do_request() and unauthenticated curl both return correct JSON, so the plugin is behaving; only the browser behind the SW is affected. Step 3 was therefore completed on the importer fixture, which has no service worker. Filed as its own card; does not block this release because the CLI path is unaffected and the defect is pre-existing and external."
+    }
+  ],
+  "not_proven_by_this_smoke": "That a migration is CORRECT. This runbook proves install, boot, render, REST and refusal only. Correctness was established separately for 1.1.0 by real migrations against both fixtures (BuddyPress 501 users / 20 groups / 1838 activities, and BuddyBoss Platform 3.3.0), with verify and reconcile agreeing and a re-run writing 0 rows across all 18 domains."
+}
