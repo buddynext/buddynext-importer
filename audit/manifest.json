@@ -1,0 +1,156 @@
+{
+  "_generated": "hand-derived from ground-truth enumeration, 2026-08-02",
+  "_note": "This plugin is PUBLIC-repo-safe: it carries no customer data and no internal surface inventory beyond its own. Regenerate with the enumeration commands in ~/.claude/skills/wp-plugin-onboard/references/enumeration-commands.md",
+  "slug": "buddynext-importer",
+  "name": "BuddyNext Importer",
+  "version": "1.1.0",
+  "type": "plugin",
+  "lifecycle": "one-time transition tool; installed, run once, then deleted",
+  "requires": {
+    "wordpress": "6.9",
+    "php": "8.1",
+    "plugins": [
+      "buddynext"
+    ],
+    "optional_plugins": {
+      "jetonomy": "forums, topics, replies and tags",
+      "wpmediaverse": "albums, media and private messages"
+    }
+  },
+  "namespace": "BuddyNextImporter\\",
+  "autoloader": "hand-written PSR-4 in buddynext-importer.php (no composer)",
+  "boot": "plugins_loaded:20 -> BuddyNextImporter\\Plugin::boot()",
+  "capabilities_required": [
+    "manage_options"
+  ],
+  "surfaces": {
+    "admin_pages": [
+      "Tools -> Import to BuddyNext (?page=buddynext-importer)"
+    ],
+    "frontend": [],
+    "rest_namespace": "buddynext-importer/v1",
+    "rest_routes": [
+      "/stats",
+      "/domains",
+      "/summary",
+      "/verify",
+      "/status",
+      "/step",
+      "/background",
+      "/cleanup"
+    ],
+    "cli_namespace": "wp buddynext-import",
+    "cli_subcommands": [
+      "stats",
+      "verify",
+      "cleanup",
+      "migrate-all",
+      "migrate-profiles",
+      "migrate-member-types",
+      "migrate-spaces",
+      "migrate-activity",
+      "migrate-friends",
+      "migrate-follows",
+      "migrate-reactions",
+      "migrate-forums",
+      "migrate-images",
+      "migrate-media",
+      "migrate-messages"
+    ],
+    "ajax_handlers": [],
+    "blocks": [],
+    "shortcodes": [],
+    "widgets": []
+  },
+  "counts": {
+    "php_classes": 44,
+    "shipped_php_files": 46,
+    "rest_route_registrations": 9,
+    "templates": 1,
+    "js_files": 1,
+    "css_files": 1
+  },
+  "database": {
+    "owns_tables": [
+      "bni_id_map",
+      "bni_checkpoint",
+      "bni_domain_selection"
+    ],
+    "writes_to_partner_tables": "never directly - all writes go through BuddyNext / Jetonomy / WPMediaVerse services"
+  },
+  "extension_points": {
+    "filters_published": [
+      {
+        "hook": "buddynext_importer_source_adapters",
+        "purpose": "register an additional source-platform adapter"
+      },
+      {
+        "hook": "buddynext_importer_tick_batch",
+        "purpose": "rows per batch for the background runner"
+      },
+      {
+        "hook": "buddynext_importer_tick_budget",
+        "purpose": "per-tick wall-clock budget, for hosts with a short max_execution_time"
+      }
+    ],
+    "actions_fired": [
+      {
+        "hook": "buddynext_importer_mode_activated",
+        "purpose": "import mode on - side effects are suppressed from here"
+      },
+      {
+        "hook": "buddynext_importer_mode_deactivated",
+        "purpose": "import mode off"
+      }
+    ],
+    "parent_hooks_consumed": [
+      "buddynext_can_follow",
+      "buddynext_can_connect",
+      "buddynext_max_following",
+      "buddynext_notification_should_send",
+      "buddynext_sync_blog_comments",
+      "buddynext_is_importing"
+    ]
+  },
+  "migration_domains": {
+    "_source_of_truth": "includes/Pipeline/StepRegistry.php",
+    "steps": 18,
+    "selectable_phases": 12,
+    "phase_keys": [
+      "profiles",
+      "member_types",
+      "space_categories",
+      "spaces",
+      "activity",
+      "friends",
+      "follows",
+      "reactions",
+      "forums",
+      "images",
+      "media",
+      "messages"
+    ]
+  },
+  "source_adapters": {
+    "shipping": [
+      "buddypress",
+      "buddyboss"
+    ],
+    "planned_v2": [
+      "fluentcommunity",
+      "peepso",
+      "ultimatemember"
+    ]
+  },
+  "verification": {
+    "phpunit": false,
+    "approach": "real migration against the disposable docker fixture (docker/run.sh)",
+    "gates": [
+      "bin/shipped-php-files.sh + php -l",
+      "WPCS via ../buddynext/vendor/bin/phpcs",
+      "contract-audit with .contract-audit-baseline.json",
+      "bin/build-release.sh",
+      ".github/workflows/ci.yml (PHP 8.1-8.4)"
+    ]
+  }
+}

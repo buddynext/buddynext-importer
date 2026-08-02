@@ -1,0 +1,56 @@
+{
+    "_note": "Every entry below was verified before it was suppressed, not bulk-baselined. This plugin is a DEPENDENT of BuddyNext (Requires Plugins: buddynext), so a hook it consumes is usually fired by the parent rather than by itself - which reads to a single-plugin audit as 'never fired'. Re-verify with: contract-audit.php . --pair=../buddynext",
+    "generated": "2026-08-02T16:02:46+00:00",
+    "suppressions": [
+        {
+            "id": "user_meta-read-never-written:buddynext_cover_url",
+            "reason": "FALSE POSITIVE. BuddyNext owns and writes this key - AvatarService::COVER_META = 'buddynext_cover_url' (Profile/AvatarService.php:271), written through save_cover_url(). The audit cannot match a literal read here to a constant-named write there. NOTE for whoever touches ImageWriter: we read the literal while BuddyNext writes the constant, so renaming COVER_META would silently stale this guard and the importer would start overwriting covers members already have. Prefer the service getter if that guard is ever reworked.",
+            "severity": "error"
+        },
+        {
+            "id": "option-written-never-read:buddynext_importer_version",
+            "reason": "BY DESIGN. Activator stamps the installed version so a future upgrade routine can compare against it. Nothing reads it yet because there has been no schema migration to trigger one. Writing it from the first release is what makes a later upgrade path possible at all.",
+            "severity": "warning"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_importer_bg_tick",
+            "reason": "FALSE POSITIVE. Fired by the scheduler, not by a do_action in this codebase - as_enqueue_async_action( self::HOOK, ... ) and wp_schedule_single_event( ..., self::HOOK ) in Background/BackgroundImport.php. There is no literal do_action to find.",
+            "severity": "error"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_importer_bg_watchdog",
+            "reason": "FALSE POSITIVE. Same as bg_tick - dispatched by Action Scheduler / WP-Cron via wp_schedule_event( ..., self::WATCHDOG_HOOK ) in Background/BackgroundImport.php.",
+            "severity": "error"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_is_importing",
+            "reason": "REAL, and kept on purpose. Verified: nothing in BuddyNext, BuddyNext Pro or WPMediaVerse applies this filter today, so the callback never runs. It is a PUBLISHED SEAM - a site owner or third-party plugin can call apply_filters( 'buddynext_is_importing', false ) to detect a migration in progress and stand its own side effects down. Costs one no-op registration. Revisit if it is still unconsumed by 1.2.0.",
+            "severity": "error"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_notification_should_send",
+            "reason": "FALSE POSITIVE. Fired by BuddyNext (2 apply_filters call sites). ImportMode vetoes it so replaying years of history notifies nobody - CLAUDE.md rule 4.",
+            "severity": "error"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_sync_blog_comments",
+            "reason": "FALSE POSITIVE. Fired by BuddyNext (1 apply_filters call site).",
+            "severity": "error"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_can_follow",
+            "reason": "FALSE POSITIVE. Fired by BuddyNext (1 apply_filters call site). ImportMode lifts it for the run so a relationship that genuinely existed at the source is not dropped because the member's CURRENT preference is restrictive - owner decision, CLAUDE.md rule 4.",
+            "severity": "error"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_can_connect",
+            "reason": "FALSE POSITIVE. Fired by BuddyNext (1 apply_filters call site). Same preference-gate lift as buddynext_can_follow.",
+            "severity": "error"
+        },
+        {
+            "id": "hook-consumed-never-fired:buddynext_max_following",
+            "reason": "FALSE POSITIVE. Fired by BuddyNext (2 apply_filters call sites). The follow cap is lifted for the replay; it governs future actions, not history.",
+            "severity": "error"
+        }
+    ]
+}
