@@ -1,6 +1,6 @@
 # BuddyNext Importer
 
-Migrate an existing WordPress community into [BuddyNext](https://github.com/buddynext/buddynext) - members, profile fields, groups/spaces, and the activity stream - from any of the major community platforms.
+Migrate an existing WordPress community into [BuddyNext](https://github.com/buddynext/buddynext) - members, profile fields, groups/spaces, and the activity stream.
 
 > One-time transition tool. Install it, run the migration, then remove it. BuddyNext core never carries migration code.
 
@@ -8,16 +8,17 @@ Migrate an existing WordPress community into [BuddyNext](https://github.com/budd
 
 - **BuddyPress**
 - **BuddyBoss Platform**
-- **FluentCommunity**
-- **PeepSo**
-- **Ultimate Member**
+
+FluentCommunity, PeepSo and Ultimate Member are v2 - the adapter architecture below
+is built to take them, but no adapter for them ships today. See
+[docs/build-plan.md](docs/build-plan.md).
 
 ## How it works
 
 A source-adapter architecture. Each platform has a read-only **adapter** that reads its own database tables and normalizes records to one common shape. A single **writer** then creates them in BuddyNext **through the BuddyNext service layer** (never raw SQL into `bn_*` tables), so denormalized counters, the search index, hashtags, mentions, and privacy/role rules all stay correct.
 
 ```
-BuddyPress / BuddyBoss / FluentCommunity / PeepSo / Ultimate Member
+BuddyPress / BuddyBoss          (v2: FluentCommunity / PeepSo / Ultimate Member)
         |  (per-source read adapter)
         v
    common record shape  ->  BuddyNext services (write)  ->  bn_* tables
