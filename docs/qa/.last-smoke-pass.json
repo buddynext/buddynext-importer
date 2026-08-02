@@ -52,7 +52,9 @@
     "wpcs": "pass - 0 errors, 8 warnings (pre-existing VerifyService debt, documented in CLAUDE.md)",
     "contract_audit": "pass - exit 0, 10 baselined with individually verified reasons, 0 unexplained",
     "build_packaging": "pass - 50 files, 180K, no docker/, docs/, *.md or nested zip",
-    "docs_truth": "pass - audit/manifest.json and CAPABILITIES.md written this release"
+    "docs_truth": "pass - audit/manifest.json and CAPABILITIES.md written this release",
+    "plugin_check": "pass - 0 errors against the INSTALLED zip; 52 warnings, all the DirectDB interpolated-table-name false positive (see CLAUDE.md). Against the source tree it reports 4 errors, all dev files the build allowlist drops.",
+    "i18n": "pass - Domain Path declared, languages/buddynext-importer.pot shipped (119 msgids). Load chain verified with a real fr_FR .mo through just-in-time loading, no load_plugin_textdomain."
   },
   "caveats": [
     {

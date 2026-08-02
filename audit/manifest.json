@@ -60,7 +60,9 @@
     "ajax_handlers": [],
     "blocks": [],
     "shortcodes": [],
-    "widgets": []
+    "widgets": [],
+    "text_domain": "buddynext-importer",
+    "domain_path": "/languages"
   },
   "counts": {
     "php_classes": 44,
@@ -68,7 +70,8 @@
     "rest_route_registrations": 9,
     "templates": 1,
     "js_files": 1,
-    "css_files": 1
+    "css_files": 1,
+    "pot_msgids": 119
   },
   "database": {
     "owns_tables": [
@@ -150,7 +153,8 @@
       "WPCS via ../buddynext/vendor/bin/phpcs",
       "contract-audit with .contract-audit-baseline.json",
       "bin/build-release.sh",
-      ".github/workflows/ci.yml (PHP 8.1-8.4)"
+      ".github/workflows/ci.yml (PHP 8.1-8.4)",
+      "wp plugin check (run against the installed zip)"
     ]
   }
 }

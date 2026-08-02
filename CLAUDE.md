@@ -220,6 +220,46 @@ because raw SQL creates rows the services themselves would refuse.
 | Both, plus packaging | `bin/build-release.sh` |
 | CI (same gates, PHP 8.1-8.4) | `.github/workflows/ci.yml` |
 | Browser smoke | `/wp-plugin-smoke` → `docs/qa/AGENT_SMOKE_RUNBOOK.md` |
+| Contract audit | `contract-audit.php . --pair=../buddynext` (baseline: `.contract-audit-baseline.json`) |
+| Plugin Check (PCP) | `wp plugin check buddynext-importer` — **run it against the INSTALLED zip, not this tree** |
+
+**Run Plugin Check on what ships, not on the repo.** Against the source tree it
+reports 4 errors — `.phpcs.xml.dist`, `.gitignore` and
+`.contract-audit-baseline.json` as "hidden files", plus `.phpcs.xml.dist` again
+as an "application file". None of them ship: the build allowlist drops every one.
+Install the built zip on a throwaway site and check that instead, where the same
+run is **0 errors**.
+
+**The 52 PCP warnings are one false-positive class and are expected.** They are
+all `DirectDB.UnescapedDBParameter` / `DirectDatabaseQuery` on interpolated table
+names. This plugin reads source-platform tables, so the table name always comes
+from `$wpdb->prefix . '<literal>'` or a class constant — never from input — while
+the *values* still go through `$wpdb->prepare()` placeholders. Every one of those
+call sites already carries a `phpcs:ignore` with that reasoning. PCP's sniff
+cannot tell a code-controlled identifier from user input; do not "fix" them by
+wrapping table names in `prepare()`, which does not escape identifiers anyway.
+
+### Translations
+
+`Domain Path: /languages`, with `languages/buddynext-importer.pot` regenerated at
+release time:
+
+```bash
+wp i18n make-pot . languages/buddynext-importer.pot \
+  --slug=buddynext-importer --domain=buddynext-importer \
+  --exclude=docker,docs,bin,.github
+```
+
+**There is deliberately no `load_plugin_textdomain()` call.** Since WordPress 4.6
+the just-in-time loader resolves a plugin's own translations from the Domain Path
+header, and calling it early is what produces the `_load_textdomain_just_in_time`
+notice the smoke runbook fails on. Verified end to end with a real `.mo`.
+
+Testing a locale trips people up: **you cannot set `WPLANG` to a locale whose
+language pack is not installed** — core's `sanitize_option()` blanks it silently
+and the site stays `en_US`, which looks exactly like the translation failing to
+load. Drop any `<locale>.mo` into `wp-content/languages/` first so the locale
+becomes available.
 
 **Do not pass a path to `phpcs`.** `.phpcs.xml.dist` declares `<file>.</file>`
 with `docker/` excluded, so the ruleset owns the scope. Passing `includes/` (as
