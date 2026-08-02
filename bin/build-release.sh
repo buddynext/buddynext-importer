@@ -23,6 +23,21 @@ SLUG="buddynext-importer"
 VERSION="$(grep -m1 'Version:' buddynext-importer.php | sed -E 's/.*Version:[[:space:]]*//' | tr -d ' \r')"
 DIST="${1:-$HOME/Documents/work-artifacts/scratch}"
 
+# The zip is NAMED from the working tree but FILLED from `git archive HEAD`
+# (step 1). An uncommitted version bump therefore produces a zip called 1.1.0
+# whose plugin header still says 1.0.0 - a mislabelled artifact that installs
+# and reports the wrong version, and the kind of thing nobody re-checks once
+# the filename looks right. Caught here rather than trusted: if the two
+# disagree, the bump simply is not committed yet.
+HEAD_VERSION="$(git show HEAD:buddynext-importer.php 2>/dev/null | grep -m1 'Version:' | sed -E 's/.*Version:[[:space:]]*//' | tr -d ' \r')"
+if [ -n "$HEAD_VERSION" ] && [ "$VERSION" != "$HEAD_VERSION" ]; then
+	echo "build FAILED: working tree says $VERSION, HEAD says $HEAD_VERSION." >&2
+	echo "              The zip is named from the working tree and filled from HEAD," >&2
+	echo "              so this would ship a $HEAD_VERSION plugin in a $VERSION zip." >&2
+	echo "              Commit the version bump, then rebuild." >&2
+	exit 1
+fi
+
 # The ONLY paths that ship. Everything else — docker/, docs/, CLAUDE.md,
 # README.md, .phpcs.xml.dist — is development material.
 RUNTIME=( buddynext-importer.php includes templates assets )
