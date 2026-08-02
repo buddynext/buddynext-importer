@@ -30,7 +30,18 @@ defined( 'ABSPATH' ) || exit;
 	?>
 	<div class="bni-standing" role="note">
 		<span class="bni-standing__mark" aria-hidden="true">
-			<svg viewBox="0 0 24 24" role="img" focusable="false">
+			<?php
+			/*
+			 * Size and paint declared as ATTRIBUTES, not left to CSS alone.
+			 * An inline <svg> with only a viewBox has no intrinsic size, so if the
+			 * stylesheet is missing, stale in cache, or blocked, it expands to fill
+			 * its container and paints solid black - a full-page triangle instead of
+			 * a 20px marker. Seen for real. CSS still owns the final look and may
+			 * override these; the attributes only guarantee it degrades to a small
+			 * outlined icon rather than swallowing the screen.
+			 */
+			?>
+			<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" focusable="false">
 				<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
 				<path d="M12 9v4" />
 				<path d="M12 17h.01" />
@@ -51,7 +62,8 @@ defined( 'ABSPATH' ) || exit;
 
 	<div class="bni-hero">
 		<div class="bni-hero__mark" aria-hidden="true">
-			<svg viewBox="0 0 24 24" role="img" focusable="false">
+			<?php /* Same reason as the advisory marker above: never unsized. */ ?>
+			<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" focusable="false">
 				<path d="M4 7V5a2 2 0 0 1 2-2h5l2 2h5a2 2 0 0 1 2 2v2" />
 				<path d="M12 11v8" />
 				<path d="m8 15 4 4 4-4" />
