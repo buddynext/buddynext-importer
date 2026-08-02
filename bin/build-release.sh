@@ -29,6 +29,16 @@ DIST="${1:-$HOME/Documents/work-artifacts/scratch}"
 # and reports the wrong version, and the kind of thing nobody re-checks once
 # the filename looks right. Caught here rather than trusted: if the two
 # disagree, the bump simply is not committed yet.
+# Uncommitted work is NOT in the zip, for the same reason: step 1 archives HEAD.
+# That is correct (it is what keeps untracked and gitignored material out) but it
+# is silent, so a developer who builds a zip to test the change they just wrote
+# gets a zip without it. Say so rather than let them test the wrong artifact.
+# A warning, not a failure - building from a clean HEAD while carrying unrelated
+# local edits is legitimate.
+if [ -n "$(git status --porcelain -- ':!docker' 2>/dev/null)" ]; then
+	echo "note: working tree has uncommitted changes; the zip is built from HEAD and will NOT contain them." >&2
+fi
+
 HEAD_VERSION="$(git show HEAD:buddynext-importer.php 2>/dev/null | grep -m1 'Version:' | sed -E 's/.*Version:[[:space:]]*//' | tr -d ' \r')"
 if [ -n "$HEAD_VERSION" ] && [ "$VERSION" != "$HEAD_VERSION" ]; then
 	echo "build FAILED: working tree says $VERSION, HEAD says $HEAD_VERSION." >&2

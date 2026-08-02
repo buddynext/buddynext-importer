@@ -14,6 +14,12 @@ A one-time migration tool. It reads a BuddyPress or BuddyBoss community directly
 from the database and writes it into BuddyNext through BuddyNext's own services,
 then gets deactivated and deleted.
 
+RUN IT ON A STAGING COPY FIRST, not on your live community. An import writes real
+members, spaces, posts and messages. It never duplicates on a re-run, but it
+cannot be undone from inside the plugin - reversing it means restoring a backup.
+Copy the site to staging, migrate there, check the result, and only then repeat it
+on production.
+
 It reports source-against-written for every domain, and gives a reason for
 everything it did not write. A silent shortfall is the worst thing a migration
 tool can do, because the operator deletes the old community believing everything

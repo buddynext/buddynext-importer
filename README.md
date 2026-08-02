@@ -4,6 +4,13 @@ Move an existing BuddyPress or BuddyBoss community into [BuddyNext](https://gith
 
 > One-time transition tool. Install it, run the migration, verify it, then delete it. BuddyNext core never carries migration code.
 
+> [!WARNING]
+> **Run this on a staging copy first, not on your live community.** An import writes
+> real members, spaces, posts and messages through BuddyNext's services. It never
+> duplicates on a re-run, but it cannot be undone from inside the plugin - reversing
+> it means restoring a backup. Migrate on staging, check the result with
+> `wp buddynext-import verify`, and only then repeat it on production.
+
 **Current version: 1.1.0** - see [readme.txt](readme.txt) for the changelog.
 
 ## Supported sources

@@ -21,6 +21,14 @@
 	--bni-danger-700: #7f1d1d;
 	--bni-danger-100: #fdf0ef;
 	--bni-danger-200: #f7d9d7;
+	/* Caution, deliberately NOT the danger ramp. Red on this screen means "this
+	   deletes something" (the teardown block). Running on the wrong site is a
+	   different kind of wrong: nothing is destroyed on the spot, but it cannot
+	   be cleanly undone either. It gets its own signal so the two never blur. */
+	--bni-caution: #d98d13;
+	--bni-caution-700: #7a4d05;
+	--bni-caution-100: #fdf6e7;
+	--bni-caution-200: #f3e2bd;
 	--bni-surface: #ffffff;
 	--bni-surface-2: #f7f8fc;
 	--bni-text: #1c2033;
@@ -376,12 +384,77 @@
 .bni-warn {
 	margin: 12px 0 0;
 	padding: 10px 12px;
-	border-inline-start: 3px solid #d98d13;
+	border-inline-start: 3px solid var(--bni-caution);
 	border-radius: var(--bni-radius-sm);
-	background: #fdf6e7;
+	background: var(--bni-caution-100);
 	color: var(--bni-wp-ink);
 	font-size: 13px;
 	line-height: 1.5;
+}
+
+/* ------------------------------------------------------- staging advisory */
+
+/* The first thing on the screen, and it stays there. This tool writes a whole
+   community into BuddyNext through live services: it is idempotent and it is
+   careful, but "undo" is not one of its features. An owner who runs it against
+   production to "see what happens" has already happened.
+   Sits above the hero rather than inside it because it has to be read BEFORE
+   the source counts tempt anyone into pressing Start. */
+.bni-standing {
+	display: flex;
+	gap: 12px;
+	margin: 0 0 16px;
+	padding: 14px 16px;
+	border: 1px solid var(--bni-caution-200);
+	border-inline-start: 4px solid var(--bni-caution);
+	border-radius: var(--bni-radius-sm);
+	background: var(--bni-caution-100);
+	color: var(--bni-caution-700);
+	font-size: 13px;
+	line-height: 1.55;
+}
+
+.bni-standing__mark {
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	margin-top: 1px;
+	color: var(--bni-caution);
+}
+
+.bni-standing__mark svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* Multi-line content must be ONE child, or each node becomes its own flex item
+   and the heading collapses into a narrow column - the documented .bni-hint
+   trap, and this component has the same shape. */
+.bni-standing__body {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.bni-standing__title {
+	margin: 0 0 2px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.bni-standing p {
+	margin: 0;
+}
+
+@media screen and (max-width: 640px) {
+	.bni-standing {
+		padding: 12px;
+	}
 }
 
 /* ------------------------------------------------------------------ summary */

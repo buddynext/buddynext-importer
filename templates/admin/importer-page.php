@@ -13,6 +13,42 @@ defined( 'ABSPATH' ) || exit;
 <div class="wrap bni-wrap">
 	<h1><?php esc_html_e( 'Import to BuddyNext', 'buddynext-importer' ); ?></h1>
 
+	<?php
+	/*
+	 * Standing advisory, above everything and never dismissible.
+	 *
+	 * A migration writes a whole community through BuddyNext's live services.
+	 * Every write is idempotent and a re-run adds nothing twice, but there is no
+	 * "undo": the rows are real, members can see them, and taking them back out
+	 * again is a restore-from-backup job rather than a button. Someone who runs
+	 * this against production to find out what it does has already done it.
+	 *
+	 * Deliberately not dismissible and not stored per user. The audience is a
+	 * site owner who opens this screen once, so a "don't show again" would only
+	 * ever hide it from the person who most needs it.
+	 */
+	?>
+	<div class="bni-standing" role="note">
+		<span class="bni-standing__mark" aria-hidden="true">
+			<svg viewBox="0 0 24 24" role="img" focusable="false">
+				<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+				<path d="M12 9v4" />
+				<path d="M12 17h.01" />
+			</svg>
+		</span>
+		<div class="bni-standing__body">
+			<p class="bni-standing__title"><?php esc_html_e( 'Run this on a staging copy first, not on your live community.', 'buddynext-importer' ); ?></p>
+			<p>
+				<?php
+				esc_html_e(
+					'An import writes real members, spaces, posts and messages into BuddyNext. It never duplicates on a re-run, but it cannot be undone from here - reversing it means restoring a backup. Copy your site to staging, migrate there, check the result with the migration checks below, and only then repeat it on production.',
+					'buddynext-importer'
+				);
+				?>
+			</p>
+		</div>
+	</div>
+
 	<div class="bni-hero">
 		<div class="bni-hero__mark" aria-hidden="true">
 			<svg viewBox="0 0 24 24" role="img" focusable="false">

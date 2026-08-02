@@ -1416,6 +1416,12 @@ final class MigrateCommand {
 
 		\WP_CLI::log( sprintf( 'Migrating %s -> BuddyNext (batch %d).', $source, $batch ) );
 
+		// The same advisory the admin screen carries. The CLI is where a large
+		// migration actually gets run, and it is the surface with no standing
+		// banner to read - so it says it once, before anything is written.
+		// A warning rather than a log line: it should survive --quiet.
+		\WP_CLI::warning( 'Run this on a staging copy first. An import cannot be undone from here - reversing it means restoring a backup.' );
+
 		if ( array() !== $skipped ) {
 			\WP_CLI::log( sprintf( 'Leaving behind by choice: %s.', implode( ', ', $skipped ) ) );
 		}
