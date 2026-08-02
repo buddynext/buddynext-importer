@@ -61,7 +61,8 @@ skipped silently.
 
 The owner chooses what to import, and every surface now explains a shortfall in the same words.
 
-* New      - A standing advisory to run the importer on a staging copy first, on the admin screen and before every migrate-all. An import cannot be undone from inside the plugin, and nothing said so before.
+* New      - A standing advisory to rehearse the migration on a staging site or a local copy first, on the admin screen and before every migrate-all. An import cannot be undone from inside the plugin, and nothing said so before.
+* New      - The plugin is translatable: it now ships a POT file and declares its Domain Path, so a translator has something to open and a site owner's .mo is actually found.
 * New      - "What to import" panel on the importer screen: 12 domains, all selected by default, with parents pulled in automatically so comments can never be imported without their posts.
 * New      - CLI parity for the same choice, --only and --skip on migrate-all, validated against the step registry so a typo is an error rather than a silent no-op.
 * New      - A domain left out on purpose reads "skipped by choice" in verify and in the "What was imported" table, never as a shortfall.
