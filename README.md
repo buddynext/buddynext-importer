@@ -5,11 +5,34 @@ Move an existing BuddyPress or BuddyBoss community into [BuddyNext](https://gith
 > One-time transition tool. Install it, run the migration, verify it, then delete it. BuddyNext core never carries migration code.
 
 > [!WARNING]
-> **Run this on a staging copy first, not on your live community.** An import writes
-> real members, spaces, posts and messages through BuddyNext's services. It never
-> duplicates on a re-run, but it cannot be undone from inside the plugin - reversing
-> it means restoring a backup. Migrate on staging, check the result with
-> `wp buddynext-import verify`, and only then repeat it on production.
+> **Rehearse on a staging site or a local copy first. Never run this on a live
+> community you have not already migrated somewhere else.** An import writes real
+> members, spaces, posts and messages through BuddyNext's services. It never
+> duplicates on a re-run, but it cannot be undone from inside the plugin, and
+> reversing it means restoring a backup.
+
+## Before you run it
+
+The rehearsal is the point. A migration is a one-way door, and the only way to
+know what your community looks like on the other side is to open it somewhere
+that does not matter yet.
+
+1. **Take a copy of the live site.** A host staging environment, or a local one -
+   LocalWP, DevKinsta, wp-env and Docker all work, and a local copy is usually
+   faster to throw away and rebuild than a staging slot. Whatever is easiest to
+   destroy and recreate is the right choice.
+2. **Migrate there**, with the domains you actually want.
+3. **Check it**, with `wp buddynext-import verify` or the "Check the migration"
+   button. Read the reasons under any shortfall rather than the totals alone.
+4. **Look at the community as a member would.** Open a private space, a migrated
+   discussion, a member's profile. Counts reconciling is not the same as the
+   community feeling right.
+5. **Only then repeat it on production**, once you know what you are going to get
+   and you have a backup you have actually tested restoring.
+
+If you skip straight to production and the result is wrong, the fix is a database
+restore. There is no undo button in this plugin, and adding one is not on the
+roadmap - a migration touches too many services to unwind safely.
 
 **Current version: 1.1.0** - see [readme.txt](readme.txt) for the changelog.
 

@@ -48,11 +48,11 @@ defined( 'ABSPATH' ) || exit;
 			</svg>
 		</span>
 		<div class="bni-standing__body">
-			<p class="bni-standing__title"><?php esc_html_e( 'Run this on a staging copy first, not on your live community.', 'buddynext-importer' ); ?></p>
+			<p class="bni-standing__title"><?php esc_html_e( 'Rehearse this on a staging site or a local copy first, not on your live community.', 'buddynext-importer' ); ?></p>
 			<p>
 				<?php
 				esc_html_e(
-					'An import writes real members, spaces, posts and messages into BuddyNext. It never duplicates on a re-run, but it cannot be undone from here - reversing it means restoring a backup. Copy your site to staging, migrate there, check the result with the migration checks below, and only then repeat it on production.',
+					'An import writes real members, spaces, posts and messages into BuddyNext. It never duplicates on a re-run, but it cannot be undone from here, and reversing it means restoring a backup. Take a copy of this site - a host staging environment, or a local one with LocalWP, DevKinsta or Docker - migrate there, check the result below, and only then repeat it on production.',
 					'buddynext-importer'
 				);
 				?>

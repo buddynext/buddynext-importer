@@ -1420,7 +1420,7 @@ final class MigrateCommand {
 		// migration actually gets run, and it is the surface with no standing
 		// banner to read - so it says it once, before anything is written.
 		// A warning rather than a log line: it should survive --quiet.
-		\WP_CLI::warning( 'Run this on a staging copy first. An import cannot be undone from here - reversing it means restoring a backup.' );
+		\WP_CLI::warning( 'Rehearse this on a staging site or a local copy first. An import cannot be undone from here, and reversing it means restoring a backup.' );
 
 		if ( array() !== $skipped ) {
 			\WP_CLI::log( sprintf( 'Leaving behind by choice: %s.', implode( ', ', $skipped ) ) );
