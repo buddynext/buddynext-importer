@@ -24,6 +24,7 @@ use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\MessageImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
 use BuddyNextImporter\Pipeline\ReactionImporter;
+use BuddyNextImporter\Pipeline\SkipReasons;
 use BuddyNextImporter\Pipeline\SpaceImporter;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
@@ -684,78 +685,17 @@ final class MigrateCommand {
 	 * @param string            $label   Domain label for the message.
 	 */
 	private function report_skips( array $skipped, int $source, int $written, string $label ): void {
-		$notes = array(
-			'already_imported'      => '%1$d %2$s were already imported by an earlier run.',
-			'multiple_source_types' => '%1$d extra source member types were dropped: a BuddyNext member holds one type.',
-			'target_already_set'    => '%1$d %2$s were left alone: that member or space already had one in BuddyNext, and an import never replaces a picture somebody chose.',
-			// A like whose activity was spam/skipped goes with it - a correct,
-			// expected reduction, not a shortfall to warn about.
-			'activity_not_imported' => '%1$d %2$s were on activities that did not migrate (spam/skipped), so they were dropped with them.',
-			// An album photo in BuddyBoss also has an activity, so it arrived with
-			// that activity and this pass only added it to its album. Nothing was
-			// lost and nothing was written twice - counting it as a write would
-			// report more media than the source holds.
-			'linked_from_activity'  => '%1$d %2$s already arrived with their activity and were added to their album here.',
-			// A relationship one party has BLOCKED is not re-created - the block is
-			// a current safety decision ImportMode deliberately leaves in force.
-			// With the privacy preference lifted for the run, these "not allowed"
-			// codes can only come from a block, so they read as one.
-			'blocked'               => '%1$d %2$s were not re-created because one member blocks the other.',
-			'follow_not_allowed'    => '%1$d %2$s were not re-created because one member blocks the other.',
-			'connect_not_allowed'   => '%1$d %2$s were not re-created because one member blocks the other.',
-			// Malformed source rows that can never be a relationship - a member
-			// cannot follow or connect to themselves. Reported, not alarmed.
-			'self_follow'           => '%1$d self-referential %2$s in the source were skipped (a member cannot follow themselves).',
-			'self_connection'       => '%1$d self-referential %2$s in the source were skipped (a member cannot connect to themselves).',
-			// A source row with neither text nor media is not content; there is
-			// nothing to create from it.
-			'empty_source_row'      => '%1$d %2$s in the source had no text and no media, so there was nothing to create.',
-			// CONTENT WAS DROPPED here, and the wording says so. The group did not
-			// become a space, so its posts have nowhere to go - and the one thing
-			// they must NOT do is fall through to the global feed, which is how a
-			// private group gets republished publicly. Named rather than silent
-			// precisely because the owner has to know before deleting the source.
-			'space_not_imported'    => '%1$d %2$s belonged to a group that did not become a space, so they were dropped rather than published to the global feed.',
-			// The SOURCE withheld this from its own sitewide feed and there is no
-			// space to protect it here. Importing it would publish what the source
-			// deliberately kept back.
-			'withheld_at_source'    => '%1$d %2$s were hidden from the sitewide feed at the source and had no space to land in, so they were not republished.',
-			// The linked post is no longer publicly readable, so a card carrying
-			// its title, excerpt and image would expose it.
-			'blog_post_not_public'  => '%1$d %2$s pointed at a post that is no longer public, so no card was created.',
-			// The parent went, so its replies go with it - the same expected
-			// reduction as activity_not_imported above.
-			'post_not_imported'     => '%1$d %2$s were on a post that did not migrate, so they were dropped with it.',
-			// PostService's "You do not have permission to post in this space":
-			// the author is not a member of the space this content belongs to,
-			// usually because they left the group before the migration. That is
-			// BuddyNext enforcing the space's own rule, and VerifyService already
-			// attributes it the same way per space, so warning about it would cry
-			// wolf on every clean migration.
-			//
-			// Safe to read this narrowly: the only OTHER 'forbidden' PostService
-			// returns is on announcements, and this importer never creates one
-			// (it writes text, media and article types only).
-			'forbidden'             => '%1$d %2$s were refused because their author is not a member of the space they belong to.',
-		);
+		// Wording lives in SkipReasons so the admin screen says the same thing
+		// this does. It used to be a private array right here, which is why an
+		// owner on the admin screen read "17 forbidden" while a developer running
+		// the CLI read the full sentence.
+		$described = SkipReasons::describe( $skipped, $label );
 
-		foreach ( $notes as $reason => $wording ) {
-			$count = 0;
-
-			// Match the bare reason AND its per-kind variants ("avatar_already_imported",
-			// "cover_already_imported"), so a clean re-run of the images domain
-			// reports one note instead of two phantom losses.
-			foreach ( array_keys( $skipped ) as $key ) {
-				if ( $key === $reason || str_ends_with( (string) $key, '_' . $reason ) ) {
-					$count += (int) $skipped[ $key ];
-					unset( $skipped[ $key ] );
-				}
-			}
-
-			if ( $count > 0 ) {
-				\WP_CLI::log( '  ' . sprintf( $wording, $count, $label ) );
-			}
+		foreach ( $described['notes'] as $note ) {
+			\WP_CLI::log( '  ' . $note );
 		}
+
+		$skipped = $described['unexplained'];
 
 		if ( empty( $skipped ) ) {
 			return;

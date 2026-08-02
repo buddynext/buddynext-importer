@@ -1083,6 +1083,102 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Reactions whose activity did not migrate, so they had nothing to attach to.
+	 *
+	 * The companion to orphaned_importable_comment_count(), and here for the same
+	 * reason: verify printed a bare "reactions short by N" and a silent shortfall
+	 * is the worst thing this tool can report, because the operator reads that
+	 * screen before deleting their old community.
+	 *
+	 * It reads BOTH shapes the way every other reaction path in this class does -
+	 * BuddyBoss's bb_user_reactions when present, else BuddyPress core's
+	 * usermeta favourites. Putting the branch here rather than in the verifier is
+	 * the whole point of the card: the verifier previously gated its reason on
+	 * bb_user_reactions existing, so on a BuddyPress source the reason simply
+	 * never appeared.
+	 *
+	 * Unlike the comment counter this does NOT narrow to importable activity
+	 * types, and the difference is deliberate. The comment total already excludes
+	 * roots this importer never carries, so counting those would have reported a
+	 * reason larger than its gap. The reaction total does not exclude anything -
+	 * favorites_count() and the bb_user_reactions count both take every row - so
+	 * a favourite on a system notice IS inside the expected total and belongs in
+	 * the explanation.
+	 *
+	 * @param string $source Source key, for the id-map lookup.
+	 */
+	public function orphaned_importable_reaction_count( string $source ): int {
+		global $wpdb;
+
+		$map = $wpdb->prefix . 'bni_id_map';
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		if ( $this->table_exists( 'bb_user_reactions' ) ) {
+			return (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COUNT(*) FROM {$wpdb->prefix}bb_user_reactions r
+					  WHERE r.item_type = 'activity'
+					    AND NOT EXISTS (
+					        SELECT 1 FROM `{$map}` m
+					         WHERE m.source = %s AND m.domain IN ( 'post', 'comment' ) AND m.source_id = r.item_id
+					    )",
+					$source
+				)
+			);
+		}
+
+		// BuddyPress core: one usermeta row per USER holding a serialized list of
+		// activity ids, so the ids have to be unpacked before they can be checked.
+		// The meta_value filter MUST match favorites_count() exactly or the reason
+		// is measured against a different total than the gap it explains.
+		$rows = $wpdb->get_col( "SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'bp_favorite_activities' AND meta_value NOT IN ( '', 'a:0:{}' )" );
+
+		$ids = array();
+		foreach ( (array) $rows as $raw ) {
+			$list = maybe_unserialize( (string) $raw );
+			if ( ! is_array( $list ) ) {
+				continue;
+			}
+			foreach ( $list as $activity_id ) {
+				$activity_id = (int) $activity_id;
+				if ( $activity_id > 0 ) {
+					// Not deduplicated: two members favouriting the same activity
+					// are two reactions in the total, so they are two here too.
+					$ids[] = $activity_id;
+				}
+			}
+		}
+
+		if ( array() === $ids ) {
+			return 0;
+		}
+
+		// One query for the whole set rather than one per favourite - a large
+		// community has tens of thousands, and this runs inside `verify`.
+		$unique       = array_values( array_unique( $ids ) );
+		$placeholders = implode( ',', array_fill( 0, count( $unique ), '%d' ) );
+
+		$mapped = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT m.source_id FROM `{$map}` m
+				  WHERE m.source = %s AND m.domain = 'post' AND m.source_id IN ( {$placeholders} )",
+				array_merge( array( $source ), $unique )
+			)
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+		$mapped  = array_flip( array_map( 'intval', (array) $mapped ) );
+		$orphans = 0;
+		foreach ( $ids as $activity_id ) {
+			if ( ! isset( $mapped[ $activity_id ] ) ) {
+				++$orphans;
+			}
+		}
+
+		return $orphans;
+	}
+
+	/**
 	 * Referential integrity of this source. {@see SourceAdapter::relationship_report()}
 	 *
 	 * @return array<int,array{relation:string,total:int,broken:int,fatal:bool,note:string}>

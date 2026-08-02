@@ -20,6 +20,7 @@ use BuddyNextImporter\Pipeline\Checkpoint;
 use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\DomainSelection;
 use BuddyNextImporter\Pipeline\ImportLedger;
+use BuddyNextImporter\Pipeline\SkipReasons;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
@@ -456,21 +457,39 @@ final class ProgressController {
 			$domain = (string) $step['domain'];
 			$stat   = (string) ( $step['stat'] ?? '' );
 
+			$described = SkipReasons::describe(
+				(array) ( $skips[ $domain ] ?? array() ),
+				(string) $step['label']
+			);
+
 			$rows[] = array(
-				'label'     => (string) $step['label'],
-				'domain'    => $domain,
-				'imported'  => (int) ( $ledger[ $domain ] ?? 0 ),
+				'label'              => (string) $step['label'],
+				'domain'             => $domain,
+				'imported'           => (int) ( $ledger[ $domain ] ?? 0 ),
 				// Null means the source has no comparable count for this stage -
 				// better than printing a 0 that reads as "none found".
-				'source'    => self::source_total( $stat, $stats ),
-				'available' => (bool) ( $step['available'] )(),
+				'source'             => self::source_total( $stat, $stats ),
+				'available'          => (bool) ( $step['available'] )(),
 				// Left behind on purpose. The table has to distinguish this from a
 				// domain that tried and came up short, or a selective import reads
 				// as a failed one.
-				'skipped'   => ! in_array( (string) $step['phase'], $selected, true ),
+				'skipped'            => ! in_array( (string) $step['phase'], $selected, true ),
 				// Reason-coded account of everything this domain did NOT write.
 				// A bare "412 of 500" is the failure this plugin exists to avoid.
-				'reasons'   => (array) ( $skips[ $domain ] ?? array() ),
+				// Kept whole and unfiltered: it is the machine-readable form, and
+				// other consumers read it.
+				'reasons'            => (array) ( $skips[ $domain ] ?? array() ),
+				// The same account in sentences, from the SAME map the CLI prints
+				// from. `reasons` alone gave the client bare codes, and the client
+				// rendered them by swapping underscores for spaces - so the admin
+				// screen said "17 forbidden" where the CLI explained who was
+				// refused and why.
+				'reason_notes'       => $described['notes'],
+				// Codes this build has no wording for. Split out on the SERVER so
+				// the client never has to work out which codes a sentence already
+				// covered - it cannot do that reliably (two reasons can share a
+				// count) and a wrong guess silently drops a shortfall.
+				'reason_unexplained' => $described['unexplained'],
 			);
 		}
 

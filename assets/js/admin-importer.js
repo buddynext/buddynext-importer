@@ -495,15 +495,28 @@
 			// Why anything was left out, on its own row under the domain. The CLI
 			// has always printed this; without it the admin screen reported a bare
 			// "412 of 500" and left the owner to guess at the other 88.
-			var reasons = row.reasons && Object.keys( row.reasons );
-			if ( ! row.skipped && reasons && reasons.length ) {
+			//
+			// Prefer the server's sentences (reason_notes), which come from the same
+			// map the CLI prints from. This used to render row.reasons by swapping
+			// underscores for spaces, which produced "17 forbidden" on the screen a
+			// site owner reads before deleting their community, while the CLI said
+			// "17 posts were refused because their author is not a member of the
+			// space they belong to". Codes with no known wording are not dropped -
+			// they stay in row.reasons and are still rendered, raw, below.
+			var notes = ( row.reason_notes || [] ).slice();
+			var leftover = row.reason_unexplained || {};
+			var unexplained = Object.keys( leftover );
+
+			if ( ! row.skipped && ( notes.length || unexplained.length ) ) {
 				var note = document.createElement( 'tr' );
 				note.className = 'bni-summary__reasons';
 				var cell = document.createElement( 'td' );
 				cell.colSpan = 3;
-				cell.textContent = reasons.map( function ( key ) {
-					return row.reasons[ key ] + ' ' + key.replace( /_/g, ' ' );
-				} ).join( ', ' );
+				cell.textContent = notes.concat(
+					unexplained.map( function ( key ) {
+						return leftover[ key ] + ' ' + key.replace( /_/g, ' ' );
+					} )
+				).join( ' ' );
 				note.appendChild( cell );
 				body.appendChild( note );
 			}

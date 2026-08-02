@@ -263,20 +263,17 @@ final class VerifyService {
 		// Reactions hang off an activity. One whose activity was not imported has
 		// nothing to attach to, and that is the whole of the gap on every source
 		// seen so far - system notices people reacted to.
-		if ( 'reaction' === $domain && $this->table_exists( $wpdb->prefix . 'bb_user_reactions' ) ) {
-			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $map is $wpdb->prefix . 'bni_id_map', not input.
-			$orphaned = (int) $wpdb->get_var(
-				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$wpdb->prefix}bb_user_reactions r
-					  WHERE r.item_type = 'activity'
-					    AND NOT EXISTS (
-					        SELECT 1 FROM `{$map}` m
-					         WHERE m.source = %s AND m.domain IN ( 'post', 'comment' ) AND m.source_id = r.item_id
-					    )", // phpcs:ignore WordPress.DB
-					$source
-				)
-			);
-			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		//
+		// The count lives on the ADAPTER, like the comment one below, and that is
+		// the fix rather than an incidental tidy-up. This branch used to run its
+		// own query gated on `bb_user_reactions` existing - a BuddyBoss table. On
+		// a BuddyPress source, where reactions come from `bp_favorite_activities`
+		// usermeta, the gate never opened and verify printed a bare "short by N"
+		// while the admin screen explained the very same run. Asking the adapter
+		// means whichever shape the source keeps its reactions in, the reason is
+		// measured against the same total the shortfall was.
+		if ( 'reaction' === $domain && method_exists( $adapter, 'orphaned_importable_reaction_count' ) ) {
+			$orphaned = (int) $adapter->orphaned_importable_reaction_count( $source );
 
 			if ( $orphaned > 0 ) {
 				return sprintf(
