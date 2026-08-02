@@ -28,6 +28,22 @@ DIST="${1:-$HOME/Documents/work-artifacts/scratch}"
 RUNTIME=( buddynext-importer.php includes templates assets )
 OPTIONAL=( languages uninstall.php readme.txt LICENSE )
 
+# The lint gate derives its file list from bin/shipped-php-files.sh, which carries
+# its own copy of this allowlist. Two lists that must agree is exactly the drift
+# that let includes/Plugin.php go unlinted, so assert they agree rather than
+# trusting a comment. Entries that cannot contain PHP are exempt.
+NO_PHP=( readme.txt LICENSE )
+for item in "${RUNTIME[@]}" "${OPTIONAL[@]}"; do
+	skip=0
+	for n in "${NO_PHP[@]}"; do [ "$item" = "$n" ] && skip=1; done
+	[ "$skip" -eq 1 ] && continue
+	if ! grep -q "SHIPPED_PATHS=(.*[( ]${item}[ )]" bin/shipped-php-files.sh; then
+		echo "build FAILED: '$item' ships but is absent from SHIPPED_PATHS in bin/shipped-php-files.sh," >&2
+		echo "              so its PHP would never be linted. Add it there." >&2
+		exit 1
+	fi
+done
+
 # 0. Release gate. This plugin has no PHPUnit suite (correctness is established by
 #    running a real migration against the docker fixture, see CLAUDE.md), so the
 #    static gates are what can run unattended: PHP lint over everything that will
@@ -35,16 +51,33 @@ OPTIONAL=( languages uninstall.php readme.txt LICENSE )
 #    error in a migration tool is discovered on a customer's community.
 #    Set SKIP_RELEASE_GATE=1 to bypass (e.g. a docs-only re-zip).
 if [ "${SKIP_RELEASE_GATE:-0}" != 1 ]; then
-	echo "release gate: php -l over shipped PHP…"
+	# The file list comes from bin/shipped-php-files.sh, NOT from a pathspec written
+	# here. This gate used to build its own list with 'includes/**/*.php', which
+	# requires at least one directory level and so silently skipped
+	# includes/Plugin.php and includes/Autoloader.php — 44 of 46 shipped files
+	# linted, and the two omitted were the boot class and the autoloader. A second
+	# hand-written list of "what ships" drifts from the allowlist; one derived list
+	# cannot. See the header of that script for the full account.
+	LINT_COUNT=0
 	LINT_FAIL=0
-	while IFS= read -r f; do
+	echo "release gate: php -l over shipped PHP…"
+	while IFS= read -r -d '' f; do
+		LINT_COUNT=$(( LINT_COUNT + 1 ))
 		if ! php -l "$f" >/dev/null 2>&1; then
 			echo "release gate FAILED: parse error in $f" >&2
 			php -l "$f" >&2 || true
 			LINT_FAIL=1
 		fi
-	done < <(git ls-files 'includes/**/*.php' 'templates/**/*.php' 'buddynext-importer.php' 2>/dev/null)
+	done < <(bin/shipped-php-files.sh)
 	[ "$LINT_FAIL" -eq 0 ] || exit 1
+
+	# A gate that inspects nothing passes. Assert it actually saw files — a broken
+	# allowlist or a pathspec typo would otherwise read as success.
+	if [ "$LINT_COUNT" -eq 0 ]; then
+		echo "release gate FAILED: linted 0 files — bin/shipped-php-files.sh returned nothing." >&2
+		exit 1
+	fi
+	echo "release gate: php -l OK ($LINT_COUNT file(s))"
 
 	# WPCS. There is no composer.json here, so borrow BuddyNext's vendor binary —
 	# the same thing CLAUDE.md tells a developer to do. Skipped, not failed, when
@@ -57,11 +90,17 @@ if [ "${SKIP_RELEASE_GATE:-0}" != 1 ]; then
 	# tells you to check a finding is yours before fixing it). Blocking on those
 	# would mean every release either bypasses the gate or carries an unrelated
 	# cleanup, and a gate people routinely bypass is not a gate.
+	#
+	# No explicit path is passed. .phpcs.xml.dist already declares <file>.</file>
+	# with docker/ and vendor/ excluded, so the ruleset decides the scope. Passing
+	# `includes/` here overrode it and left the entry file and templates/
+	# unchecked — the same class of defect as the lint pathspec above, one scope
+	# written twice and drifting.
 	PHPCS="${PHPCS:-../buddynext/vendor/bin/phpcs}"
 	if [ -x "$PHPCS" ]; then
 		echo "release gate: WPCS…"
-		if ! "$PHPCS" --standard=.phpcs.xml.dist --runtime-set ignore_warnings_on_exit 1 includes/ >/dev/null 2>&1; then
-			echo "release gate FAILED: WPCS errors — run: $PHPCS --standard=.phpcs.xml.dist includes/" >&2
+		if ! "$PHPCS" --standard=.phpcs.xml.dist --runtime-set ignore_warnings_on_exit 1 >/dev/null 2>&1; then
+			echo "release gate FAILED: WPCS errors — run: $PHPCS --standard=.phpcs.xml.dist" >&2
 			exit 1
 		fi
 	else

@@ -215,8 +215,28 @@ because raw SQL creates rows the services themselves would refuse.
 
 | Gate | Command |
 |---|---|
-| PHP lint | `php -l <file>` |
-| WPCS | `php ../buddynext/vendor/bin/phpcs --standard=.phpcs.xml.dist includes/` |
+| PHP lint, every shipped file | `bin/shipped-php-files.sh \| xargs -0 -n1 php -l` |
+| WPCS | `../buddynext/vendor/bin/phpcs --standard=.phpcs.xml.dist` |
+| Both, plus packaging | `bin/build-release.sh` |
+| CI (same gates, PHP 8.1-8.4) | `.github/workflows/ci.yml` |
+| Browser smoke | `/wp-plugin-smoke` → `docs/qa/AGENT_SMOKE_RUNBOOK.md` |
+
+**Do not pass a path to `phpcs`.** `.phpcs.xml.dist` declares `<file>.</file>`
+with `docker/` excluded, so the ruleset owns the scope. Passing `includes/` (as
+this table used to) overrides it and silently drops the entry file and
+`templates/`.
+
+**Do not write your own list of "what ships".** `bin/shipped-php-files.sh` is the
+single source of truth, and both the release gate and CI read it. The release
+gate previously built its own with `git ls-files 'includes/**/*.php'`, which
+requires at least one directory level and so never matched `includes/Plugin.php`
+or `includes/Autoloader.php` — 44 of 46 shipped files linted, the two omitted
+being the boot class and the autoloader. It read as green because the verify step
+that was meant to catch it ("introduce a parse error, confirm the build aborts")
+aborted from WPCS instead, which names no file and is skipped rather than failed
+when the sibling `phpcs` is absent. `build-release.sh` now asserts its allowlist
+matches that script's, and fails the build if they drift. This is the same
+single-source-of-truth rule as `StepRegistry`, applied to packaging.
 
 There is no `composer.json` here, so borrow BuddyNext's `vendor/bin/phpcs`. Some
 pre-existing violations live in `VerifyService`, `SpaceImporter`, `ImporterPage` and
