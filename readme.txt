@@ -3,7 +3,7 @@ Contributors: wbcomdesigns
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 
 Move an existing BuddyPress or BuddyBoss community into BuddyNext, then remove this plugin.
@@ -28,6 +28,35 @@ WPMediaVerse. A domain whose engine is absent is skipped and said so, never
 skipped silently.
 
 == Changelog ==
+
+= 1.1.0 - August 2026 =
+
+The owner chooses what to import, and every surface now explains a shortfall in the same words.
+
+* New      - "What to import" panel on the importer screen: 12 domains, all selected by default, with parents pulled in automatically so comments can never be imported without their posts.
+* New      - CLI parity for the same choice, --only and --skip on migrate-all, validated against the step registry so a typo is an error rather than a silent no-op.
+* New      - A domain left out on purpose reads "skipped by choice" in verify and in the "What was imported" table, never as a shortfall.
+* New      - BuddyBoss album contents are imported from the album side and keep the order the member arranged them in.
+* New      - A BuddyBoss group album becomes a space-owned album in BuddyNext instead of arriving as one member's personal album.
+* New      - bbPress topic tags are carried onto the topics they belong to.
+* New      - rtMedia photos and videos migrate with the activity that holds them.
+* New      - The source panel names content this importer cannot carry, per kind and before a run starts.
+* New      - Migration checks run from the admin screen, so an owner never needs WP-CLI to verify a migration.
+* New      - Blog activity migrates as BuddyNext's article type and brings its comment thread with it.
+* Improve  - Skip reasons are full sentences on every surface. The admin table read "17 forbidden" where the CLI explained the same rows in full; both now read from one shared list.
+* Improve  - The activity domain reports source against written plus a reason for every row it did not write, instead of a bare total.
+* Improve  - migrate-all runs from the step registry like every other surface, so a domain added once is picked up everywhere.
+* Improve  - Threads folded into an existing conversation are reported by migrate-all, not only by the standalone messages command.
+* Improve  - verify no longer invents a shortfall for a space owner it added itself, and attributes the comment and reaction gaps it does report.
+* Fix      - A fatal at the avatars step ended every browser-run import partway through.
+* Fix      - A background job that died reported "running" forever; it is now noticed and restarted.
+* Fix      - Source counts for forums, follows and comments disagreed with what the readers import, so a complete migration reported a gap.
+* Fix      - Member cover images were written straight to user meta and did not appear.
+* Dev      - One source of truth for what ships, read by both the release build and CI. The lint gate previously missed the boot class and the autoloader.
+* Dev      - CI runs PHP lint on 8.1 to 8.4, WPCS, and a packaging job that rejects fixture material.
+* Dev      - The Docker fixture fetches its community generator on first use instead of failing mid-seed on a fresh clone.
+* Dev      - reconcile reads the importer's own activity-type list and works against a BuddyBoss source.
+* Compat   - Requires WordPress 6.9 and declares BuddyNext as a required plugin, so it can no longer activate where BuddyNext cannot run.
 
 = 1.0.0 - July 2026 =
 
