@@ -1,0 +1,545 @@
+# Copyright (C) 2026 Wbcom Designs
+# This file is distributed under the GPL-2.0-or-later.
+msgid ""
+msgstr ""
+"Project-Id-Version: BuddyNext Importer 1.1.0\n"
+"Report-Msgid-Bugs-To: https://github.com/buddynext/buddynext-importer/issues\n"
+"Last-Translator: Wbcom Designs\n"
+"Language-Team: Wbcom Designs\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-08-02T16:48:34+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: buddynext-importer\n"
+
+#. Plugin Name of the plugin
+#: buddynext-importer.php
+msgid "BuddyNext Importer"
+msgstr ""
+
+#. Plugin URI of the plugin
+#: buddynext-importer.php
+msgid "https://github.com/buddynext/buddynext-importer"
+msgstr ""
+
+#. Description of the plugin
+#: buddynext-importer.php
+msgid "Migrate a BuddyPress or BuddyBoss community into BuddyNext - members, profile fields, groups/spaces and activity - through the BuddyNext service layer."
+msgstr ""
+
+#. Author of the plugin
+#: buddynext-importer.php
+msgid "Wbcom Designs"
+msgstr ""
+
+#. Author URI of the plugin
+#: buddynext-importer.php
+msgid "https://wbcomdesigns.com"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:68
+#: includes/Admin/ImporterPage.php:80
+#: includes/Admin/ImporterPage.php:81
+#: templates/admin/importer-page.php:14
+#: templates/admin/importer-page.php:74
+msgid "Import to BuddyNext"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:137
+msgid "No BuddyPress or BuddyBoss data was found on this site."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:138
+msgid "BuddyNext is not active. Activate it before importing."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:139
+msgid "Could not load source statistics."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:140
+msgid "Importing"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:141
+msgid "Import complete. You can now deactivate and remove this importer."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:142
+msgid "The import stopped on an error. It is safe to run again - it resumes where it left off."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:143
+#: templates/admin/importer-page.php:226
+msgid "Domain"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:144
+msgid "Fewer rows than the source holds. Some content cannot migrate - see the note below the table."
+msgstr ""
+
+#. translators: 1: number of comments, 2: list of activity types with counts.
+#: includes/Admin/ImporterPage.php:146
+#, php-format
+msgid "%1$d comment(s) will not be migrated. They sit on system notices - joining a group, making a friend - which are not content and have no BuddyNext equivalent to attach to: %2$s."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:147
+msgid "Records"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:151
+#: includes/Verify/VerifyService.php:230
+msgid "skipped by choice"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:152
+msgid "not available on this site"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:153
+msgid "Cannot migrate"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:154
+msgid "Source relationships"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:155
+msgid "broken in the source, these cannot migrate"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:156
+msgid "Privacy"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:157
+msgid "post(s) from a private or secret space are PUBLICLY SEARCHABLE"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:158
+msgid "No private or secret space content is publicly searchable."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:159
+msgid "Spot-check: spaces"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:160
+msgid "Spot-check: posts"
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:161
+msgid "Every domain accounted for and every sampled object correct."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:162
+msgid "finding(s) to read. A shortfall is not automatically a fault - check it against the coverage note above."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:163
+msgid "Checking..."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:164
+msgid "The checks could not be run."
+msgstr ""
+
+#: includes/Admin/ImporterPage.php:165
+msgid "The import stopped unexpectedly and is being resumed automatically..."
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:103
+msgid "Profiles"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:104
+msgid "Member types"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:105
+msgid "Space categories"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:106
+msgid "Spaces and members"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:107
+msgid "Activity"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:108
+msgid "Connections"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:109
+msgid "Follows"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:110
+msgid "Reactions"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:111
+msgid "Forums"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:112
+msgid "Avatars and covers"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:113
+msgid "Photos and albums"
+msgstr ""
+
+#: includes/Pipeline/DomainSelection.php:114
+msgid "Private messages"
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:45
+#, php-format
+msgid "%1$d %2$s were already imported by an earlier run."
+msgstr ""
+
+#. translators: %1$d: number of rows.
+#: includes/Pipeline/SkipReasons.php:47
+#, php-format
+msgid "%1$d extra source member types were dropped: a BuddyNext member holds one type."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:49
+#, php-format
+msgid "%1$d %2$s were left alone: that member or space already had one in BuddyNext, and an import never replaces a picture somebody chose."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:53
+#, php-format
+msgid "%1$d %2$s were on activities that did not migrate (spam/skipped), so they were dropped with them."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:59
+#, php-format
+msgid "%1$d %2$s already arrived with their activity and were added to their album here."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:65
+#: includes/Pipeline/SkipReasons.php:67
+#: includes/Pipeline/SkipReasons.php:69
+#, php-format
+msgid "%1$d %2$s were not re-created because one member blocks the other."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:73
+#, php-format
+msgid "%1$d self-referential %2$s in the source were skipped (a member cannot follow themselves)."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:75
+#, php-format
+msgid "%1$d self-referential %2$s in the source were skipped (a member cannot connect to themselves)."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:79
+#, php-format
+msgid "%1$d %2$s in the source had no text and no media, so there was nothing to create."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:86
+#, php-format
+msgid "%1$d %2$s belonged to a group that did not become a space, so they were dropped rather than published to the global feed."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:91
+#, php-format
+msgid "%1$d %2$s were hidden from the sitewide feed at the source and had no space to land in, so they were not republished."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:95
+#, php-format
+msgid "%1$d %2$s pointed at a post that is no longer public, so no card was created."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:99
+#, php-format
+msgid "%1$d %2$s were on a post that did not migrate, so they were dropped with it."
+msgstr ""
+
+#. translators: 1: number of rows, 2: domain label such as "posts".
+#: includes/Pipeline/SkipReasons.php:111
+#, php-format
+msgid "%1$d %2$s were refused because their author is not a member of the space they belong to."
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:62
+msgid "profile fields"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:93
+msgid "member types"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:126
+msgid "space categories"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:138
+msgid "spaces and members"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:160
+msgid "posts"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:177
+msgid "comments"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:194
+msgid "connections"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:206
+msgid "follows"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:221
+msgid "reactions"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:240
+msgid "forums"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:252
+msgid "forum topics"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:264
+msgid "forum replies"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:279
+msgid "member images"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:291
+msgid "space images"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:306
+msgid "albums"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:324
+msgid "album photos"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:336
+msgid "media"
+msgstr ""
+
+#: includes/Pipeline/StepRegistry.php:348
+msgid "messages"
+msgstr ""
+
+#: includes/Rest/ProgressController.php:260
+msgid "You are not allowed to run the importer."
+msgstr ""
+
+#: includes/Rest/ProgressController.php:550
+#: includes/Rest/ProgressController.php:649
+msgid "BuddyNext must be active before importing."
+msgstr ""
+
+#: includes/Rest/ProgressController.php:561
+#: includes/Rest/ProgressController.php:664
+msgid "No source community was found on this site."
+msgstr ""
+
+#: includes/Rest/ProgressController.php:607
+msgid "Removing the import data has to be confirmed."
+msgstr ""
+
+#: includes/Rest/ProgressController.php:618
+msgid "An import is still running. Cancel it or let it finish before removing the import data."
+msgstr ""
+
+#: includes/Rest/ProgressController.php:629
+msgid "Removed the importer working tables. You can deactivate and delete this plugin now."
+msgstr ""
+
+#. translators: %s: phase name.
+#: includes/Rest/ProgressController.php:675
+#, php-format
+msgid "Unknown import phase: %s"
+msgstr ""
+
+#. translators: %s: step label, e.g. "forums".
+#: includes/Rest/ProgressController.php:685
+#, php-format
+msgid "This site cannot import %s - the source reader or the target engine for that domain is not active. GET /stats lists what this site can import."
+msgstr ""
+
+#: includes/Source/BuddyBoss/BuddyBossAdapter.php:36
+msgid "BuddyBoss Platform"
+msgstr ""
+
+#: includes/Source/BuddyPress/BuddyPressAdapter.php:73
+msgid "BuddyPress"
+msgstr ""
+
+#: includes/Source/BuddyPress/BuddyPressAdapter.php:1029
+msgid "rtMedia photos and videos that were never posted to activity - they live only in an album, which this importer does not read yet"
+msgstr ""
+
+#: includes/Source/BuddyPress/BuddyPressAdapter.php:1036
+msgid "rtMedia albums - the albums themselves are not carried, so their contents have nowhere to land"
+msgstr ""
+
+#. translators: %s: source activity type.
+#: includes/Verify/VerifyService.php:97
+#, php-format
+msgid "comments on a %s activity - a system notice the importer does not carry, so there is no post to attach them to"
+msgstr ""
+
+#. translators: %d: number of reactions.
+#: includes/Verify/VerifyService.php:281
+#, php-format
+msgid "%d were on activity that is not imported, so they have no post to attach to"
+msgstr ""
+
+#. translators: %d: number of comments.
+#: includes/Verify/VerifyService.php:302
+#, php-format
+msgid "%d were on posts that did not migrate, so they were dropped with them"
+msgstr ""
+
+#: includes/Writer/ForumWriter.php:80
+msgid "Imported Forums"
+msgstr ""
+
+#. translators: %d: source album id.
+#: includes/Writer/MediaWriter.php:112
+#, php-format
+msgid "Imported album %d"
+msgstr ""
+
+#: templates/admin/importer-page.php:51
+msgid "Run this on a staging copy first, not on your live community."
+msgstr ""
+
+#: templates/admin/importer-page.php:54
+msgid "An import writes real members, spaces, posts and messages into BuddyNext. It never duplicates on a re-run, but it cannot be undone from here - reversing it means restoring a backup. Copy your site to staging, migrate there, check the result with the migration checks below, and only then repeat it on production."
+msgstr ""
+
+#: templates/admin/importer-page.php:76
+msgid "Migrate an existing BuddyPress or BuddyBoss community into BuddyNext. This is a one-time tool: review what will be imported, run the migration, then deactivate and remove this plugin."
+msgstr ""
+
+#: templates/admin/importer-page.php:85
+msgid "Source community"
+msgstr ""
+
+#: templates/admin/importer-page.php:89
+msgid "Detecting source community..."
+msgstr ""
+
+#: templates/admin/importer-page.php:111
+msgid "What to import"
+msgstr ""
+
+#: templates/admin/importer-page.php:113
+msgid "Select all"
+msgstr ""
+
+#: templates/admin/importer-page.php:118
+msgid "Everything is selected. Clear anything you would rather not bring across - your old community is not changed either way."
+msgstr ""
+
+#: templates/admin/importer-page.php:135
+msgid "You can run the import again later with more selected - anything already imported is recognised and never duplicated. That protection lives in the importer's own mapping tables, so add whatever you skipped BEFORE you use \"Remove import data\" below."
+msgstr ""
+
+#: templates/admin/importer-page.php:141
+msgid "Progress"
+msgstr ""
+
+#: templates/admin/importer-page.php:147
+msgid "Idle."
+msgstr ""
+
+#: templates/admin/importer-page.php:153
+msgid "Start import"
+msgstr ""
+
+#: templates/admin/importer-page.php:156
+msgid "Run in background"
+msgstr ""
+
+#: templates/admin/importer-page.php:159
+msgid "Cancel"
+msgstr ""
+
+#: templates/admin/importer-page.php:163
+msgid "The import is running on the server. You can leave this page - it will keep going, and reopening this screen will show its progress."
+msgstr ""
+
+#: templates/admin/importer-page.php:181
+#: templates/admin/importer-page.php:203
+msgid "Remove import data"
+msgstr ""
+
+#: templates/admin/importer-page.php:197
+msgid "Remove the importer working tables?"
+msgstr ""
+
+#: templates/admin/importer-page.php:198
+msgid "This drops the id-map and resume checkpoint. Your migrated community is untouched, but the record of what was already imported is gone - so running the import again afterwards would re-create everything from scratch, with no duplicate protection. Do this once the migration is complete and checked."
+msgstr ""
+
+#: templates/admin/importer-page.php:206
+msgid "Keep it"
+msgstr ""
+
+#: templates/admin/importer-page.php:222
+msgid "What was imported"
+msgstr ""
+
+#: templates/admin/importer-page.php:227
+msgid "In source"
+msgstr ""
+
+#: templates/admin/importer-page.php:228
+msgid "Imported"
+msgstr ""
+
+#: templates/admin/importer-page.php:234
+msgid "A domain can be legitimately short - private content its author cannot post into, or content whose parent was not migrated. A domain marked unavailable needs the plugin that owns it (Jetonomy for forums, WPMediaVerse for media and messages)."
+msgstr ""
+
+#: templates/admin/importer-page.php:255
+msgid "Check the migration"
+msgstr ""
+
+#: templates/admin/importer-page.php:257
+msgid "Run checks"
+msgstr ""
+
+#: templates/admin/importer-page.php:262
+msgid "Counts your source community again, independently, and walks a random sample of migrated spaces and posts end to end - checking that each one landed in the right place and is visible to the right people. Worth running before you delete anything."
+msgstr ""
