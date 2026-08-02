@@ -35,6 +35,68 @@ $count = static function ( string $sql ) use ( $wpdb ): ?int {
 	return (int) $out;
 };
 
+/**
+ * Whether a table exists, without asking MySQL a question it will complain about.
+ *
+ * $count() already tolerates a missing table, but only AFTER the query has failed
+ * and printed "WordPress database error ... doesn't exist" into the log. Against a
+ * BuddyBoss source - which has no bp_messages_threads - that error was the first
+ * thing a tester saw, on a run that was otherwise fine.
+ *
+ * @param string $table Table name including prefix.
+ */
+$has_table = static function ( string $table ) use ( $wpdb ): bool {
+	// phpcs:ignore WordPress.DB
+	return (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+};
+
+/**
+ * Count only when the table is there; null (rendered "n/a") when it is not.
+ *
+ * @param string $table Table name including prefix.
+ * @param string $sql   Full SQL statement.
+ */
+$count_if = static function ( string $table, string $sql ) use ( $count, $has_table ): ?int {
+	return $has_table( $table ) ? $count( $sql ) : null;
+};
+
+/**
+ * The activity types this importer actually carries, read from the adapter.
+ *
+ * Hardcoding 'activity_update' here made reconcile disagree with the importer the
+ * moment the importer learned a new type: new_blog_post has been carried for a
+ * while and rtmedia_update was added in 1.1.1, so a CORRECT migration reported
+ * "activity updates -> posts GAP -2" and, worse, a gap on the "of which
+ * importable" row that this script's own README says must match EXACTLY.
+ *
+ * Read rather than copied, for the same reason the importer keeps that list in
+ * one place: a second copy is how a count and a fetch drift apart.
+ *
+ * @return string[] Activity type slugs.
+ */
+$imported_types = static function (): array {
+	$class = '\BuddyNextImporter\Source\BuddyPress\BuddyPressAdapter';
+	if ( class_exists( $class ) ) {
+		try {
+			$ref = new ReflectionClass( $class );
+			if ( $ref->hasConstant( 'IMPORTED_ACTIVITY_TYPES' ) ) {
+				$types = (array) $ref->getConstant( 'IMPORTED_ACTIVITY_TYPES' );
+				if ( array() !== $types ) {
+					return array_map( 'strval', $types );
+				}
+			}
+		} catch ( \Throwable $e ) {
+			// Fall through to the literal below.
+		}
+	}
+
+	// Only reached when the importer is not loaded, in which case nothing has
+	// migrated anyway and the numbers are informational.
+	return array( 'activity_update', 'new_blog_post', 'rtmedia_update' );
+};
+
+$types_sql = "'" . implode( "','", array_map( 'esc_sql', $imported_types() ) ) . "'";
+
 $rows = array();
 
 /**
@@ -84,27 +146,29 @@ $cmp(
 
 // ---------------------------------------------------------------- activity --
 $cmp(
-	'activity updates -> posts',
-	$count( "SELECT COUNT(*) FROM {$p}bp_activity WHERE type='activity_update' AND is_spam=0" ),
-	$count( "SELECT COUNT(*) FROM {$p}bn_posts" )
+	'carried activity -> posts',
+	$count_if( "{$p}bp_activity", "SELECT COUNT(*) FROM {$p}bp_activity WHERE type IN ( {$types_sql} ) AND is_spam=0" ),
+	$count( "SELECT COUNT(*) FROM {$p}bn_posts" ),
+	'source counts every type the importer carries'
 );
 
 $cmp(
 	'activity comments',
-	$count( "SELECT COUNT(*) FROM {$p}bp_activity WHERE type='activity_comment' AND is_spam=0" ),
+	$count_if( "{$p}bp_activity", "SELECT COUNT(*) FROM {$p}bp_activity WHERE type='activity_comment' AND is_spam=0" ),
 	$count( "SELECT COUNT(*) FROM {$p}bn_comments" ),
-	'gap = comments whose root is not an activity_update'
+	'gap = comments whose root is a type we do not carry'
 );
 $cmp(
 	'  of which importable',
-	$count(
+	$count_if(
+		"{$p}bp_activity",
 		"SELECT COUNT(*) FROM {$p}bp_activity c
 		   JOIN {$p}bp_activity r ON r.id = c.item_id
 		  WHERE c.type='activity_comment' AND c.is_spam=0
-		    AND r.type='activity_update'  AND r.is_spam=0"
+		    AND r.type IN ( {$types_sql} ) AND r.is_spam=0"
 	),
 	$count( "SELECT COUNT(*) FROM {$p}bn_comments" ),
-	'THIS pair must match exactly'
+	'gap here = comments whose ROOT POST was refused; verify names the count'
 );
 
 // -------------------------------------------------------------------- rest --
@@ -119,7 +183,36 @@ $cmp(
 );
 $cmp( 'reactions', null, $count( "SELECT COUNT(*) FROM {$p}bn_reactions" ), 'source is usermeta bp_favorite_activities' );
 $cmp( 'member type assignments', null, $count( "SELECT COUNT(*) FROM {$p}bn_member_type_assignments" ) );
-$cmp( 'DM threads', $count( "SELECT COUNT(*) FROM {$p}bp_messages_threads" ), $count( "SELECT COUNT(*) FROM {$p}mvs_conversations" ) );
+// There is no bp_messages_threads table on EITHER platform - BuddyPress and
+// BuddyBoss both keep the thread id as a column on bp_messages_messages. Asking
+// for it printed a database error on BuddyBoss and, on BuddyPress, a silent
+// "n/a" that looked like a source with no DMs rather than a broken query. Count
+// it the way the adapter's own message_thread_count() does.
+$cmp(
+	'DM threads',
+	$count_if( "{$p}bp_messages_messages", "SELECT COUNT(DISTINCT thread_id) FROM {$p}bp_messages_messages" ),
+	$count( "SELECT COUNT(*) FROM {$p}mvs_conversations" ),
+	'a gap here should equal the folded threads on the row below'
+);
+// The source keeps one thread per SUBJECT; BuddyNext keeps one conversation per
+// SET OF PARTICIPANTS. Two source threads between the same people are therefore
+// one conversation, and the difference is a fold rather than a loss - but only
+// this row can prove that, so it sits directly under the count it explains.
+// Verified on the BuddyPress fixture: 200 threads, 194 distinct participant sets,
+// 194 conversations.
+$cmp(
+	'  of which distinct participant sets',
+	$count_if(
+		"{$p}bp_messages_recipients",
+		"SELECT COUNT(DISTINCT parts) FROM (
+			SELECT GROUP_CONCAT( DISTINCT user_id ORDER BY user_id ) parts
+			  FROM {$p}bp_messages_recipients
+			 GROUP BY thread_id
+		) folded"
+	),
+	$count( "SELECT COUNT(*) FROM {$p}mvs_conversations" ),
+	'THIS pair must match: one conversation per set of people'
+);
 
 echo "\n";
 printf( "%-30s %10s %10s   %s\n", 'DOMAIN', 'SOURCE', 'BUDDYNEXT', 'NOTE' );
@@ -147,7 +240,7 @@ foreach ( $rows as $r ) {
 // sitewide post does not change any row count, so no total above can catch it.
 // This is the only check here that looks at placement rather than volume.
 $src_group_activities = (int) $wpdb->get_var(
-	"SELECT COUNT(*) FROM {$p}bp_activity WHERE component='groups' AND type='activity_update' AND is_spam=0"
+	"SELECT COUNT(*) FROM {$p}bp_activity WHERE component='groups' AND type IN ( {$types_sql} ) AND is_spam=0"
 ); // phpcs:ignore WordPress.DB
 $dst_spaced           = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}bn_posts WHERE space_id > 0" ); // phpcs:ignore WordPress.DB
 
@@ -159,7 +252,7 @@ $leaked_rows = $wpdb->get_results(
 	   JOIN {$p}bni_id_map m ON m.domain='post' AND m.source_id = bp.id
 	   JOIN {$p}bn_posts   bn ON bn.id = m.bn_id
 	   LEFT JOIN {$p}bp_groups g ON g.id = bp.item_id
-	  WHERE bp.component='groups' AND bp.type='activity_update' AND bp.is_spam=0
+	  WHERE bp.component='groups' AND bp.type IN ( {$types_sql} ) AND bp.is_spam=0
 	    AND bn.space_id = 0",
 	ARRAY_A
 ); // phpcs:ignore WordPress.DB

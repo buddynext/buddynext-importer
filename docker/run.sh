@@ -29,6 +29,35 @@ cd "$( dirname "${BASH_SOURCE[0]}" )"
 DC="docker compose"
 WP="$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html"
 
+# The community generator is a separate repo, mounted into the container from
+# .playground (see docker-compose.yml). It is gitignored, so a fresh clone of this
+# plugin has an EMPTY directory there and every seeding command dies mid-run with
+# "The 'buddypress-playground-cli' plugin could not be found" - after building a
+# site, installing BuddyPress and bbPress, and looking like it was working.
+#
+# Fetch it rather than document it: a prerequisite you have to read about is one
+# you discover by hitting it.
+ensure_playground() {
+	if [ -f .playground/buddypress-playground-cli.php ]; then
+		return 0
+	fi
+
+	echo "== fetching buddypress-playground-cli (the community generator) =="
+	rm -rf .playground
+	if command -v gh >/dev/null 2>&1; then
+		gh repo clone vapvarun/buddypress-playground-cli .playground -- --depth 1 --quiet
+	else
+		git clone --depth 1 --quiet https://github.com/vapvarun/buddypress-playground-cli.git .playground
+	fi
+
+	if [ ! -f .playground/buddypress-playground-cli.php ]; then
+		echo "could not fetch buddypress-playground-cli into docker/.playground" >&2
+		echo "clone it by hand, then re-run:" >&2
+		echo "  gh repo clone vapvarun/buddypress-playground-cli docker/.playground -- --depth 1" >&2
+		exit 1
+	fi
+}
+
 case "${1:-all}" in
 	down)
 		$DC down -v
@@ -94,6 +123,10 @@ case "${1:-all}" in
 esac
 
 if [ "${1:-all}" = "all" ]; then
+	# Before the teardown, so a missing generator costs nothing rather than
+	# destroying a working fixture and then failing.
+	ensure_playground
+
 	echo "== tearing down any previous fixture =="
 	$DC down -v >/dev/null 2>&1 || true
 	$DC up -d

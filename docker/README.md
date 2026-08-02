@@ -13,6 +13,11 @@ can be run against source data and every domain reconciled source-vs-destination
 Nothing here touches a Local site, and the database lives in tmpfs, so `down`
 leaves no state behind.
 
+Needs Docker and `git` (or `gh`). The community generator,
+[`buddypress-playground-cli`](https://github.com/vapvarun/buddypress-playground-cli),
+is a separate repo mounted from `.playground/` — `run.sh` clones it on first use,
+so there is nothing to install by hand.
+
 ## Why a fixture, not a Local site
 
 `buddynext.local` is the migration TARGET: it has no BuddyPress and no `wp_bp_*`
@@ -44,8 +49,15 @@ here.
 
 Two rows matter most:
 
-- **`of which importable` vs `bn_comments`** must match EXACTLY. A gap there is a
-  comment lost for a reason other than a missing root.
+- **`of which importable` vs `bn_comments`.** A gap here is a comment whose ROOT
+  POST did not migrate — most often because the post's author is not a member of
+  the space it belongs to, which is BuddyNext enforcing the space's own rule.
+  `wp buddynext-import verify` names that count on the comments row, so the two
+  should agree; a gap that verify does NOT account for is a real loss.
+
+  This row used to be documented as "must match EXACTLY". That was true only on a
+  source where every post migrated, and it sent testers hunting for data loss on
+  clean runs — a refused post legitimately takes its comments with it.
 - **the PRIVACY block** is the only check that looks at placement rather than
   volume. A group post republished to the global feed does not change any total,
   so no count above can catch it.
