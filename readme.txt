@@ -54,6 +54,7 @@ skipped silently.
 
 The owner chooses what to import, and every surface now explains a shortfall in the same words.
 
+* New      - A standing advisory to run the importer on a staging copy first, on the admin screen and before every migrate-all. An import cannot be undone from inside the plugin, and nothing said so before.
 * New      - "What to import" panel on the importer screen: 12 domains, all selected by default, with parents pulled in automatically so comments can never be imported without their posts.
 * New      - CLI parity for the same choice, --only and --skip on migrate-all, validated against the step registry so a typo is an error rather than a silent no-op.
 * New      - A domain left out on purpose reads "skipped by choice" in verify and in the "What was imported" table, never as a shortfall.
@@ -73,6 +74,7 @@ The owner chooses what to import, and every surface now explains a shortfall in 
 * Fix      - A background job that died reported "running" forever; it is now noticed and restarted.
 * Fix      - Source counts for forums, follows and comments disagreed with what the readers import, so a complete migration reported a gap.
 * Fix      - Member cover images were written straight to user meta and did not appear.
+* Fix      - An icon on the importer screen could expand to fill the whole page as a solid black shape whenever its stylesheet was unavailable or stale.
 * Dev      - One source of truth for what ships, read by both the release build and CI. The lint gate previously missed the boot class and the autoloader.
 * Dev      - CI runs PHP lint on 8.1 to 8.4, WPCS, and a packaging job that rejects fixture material.
 * Dev      - The Docker fixture fetches its community generator on first use instead of failing mid-seed on a fresh clone.
