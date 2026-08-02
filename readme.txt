@@ -19,9 +19,24 @@ everything it did not write. A silent shortfall is the worst thing a migration
 tool can do, because the operator deletes the old community believing everything
 moved.
 
-Domains covered: profile fields and values, profile types, space categories,
-spaces and their members, activity posts and comments, connections, follows,
-reactions, forums, avatars and covers, albums and media, and private messages.
+Domains covered: profile fields and values, member types, space categories,
+spaces and their members, activity posts and comments, blog-post articles with
+their comment threads, connections, follows, reactions, forums with their topics,
+replies and tags, avatars and covers, albums and media, and private messages.
+
+You choose what comes across. Everything is selected by default, so an owner who
+ignores the panel gets the whole community. Deselecting is safe: a later run adds
+the missing domains rather than duplicating what already arrived, and a domain left
+out on purpose is reported as skipped by choice rather than as a shortfall.
+
+Before a run it names what it cannot carry, so nothing is discovered afterwards.
+After a run, "wp buddynext-import verify" and the Check the migration button walk
+the result end to end: coverage, per-domain totals against an independent count,
+randomly sampled objects, and a check that no private or secret space content
+became publicly searchable.
+
+The migration is resumable and safe to re-run. Every write is keyed, so a second
+full run writes nothing and duplicates nothing.
 
 Requires BuddyNext. Forums need Jetonomy; media and private messages need
 WPMediaVerse. A domain whose engine is absent is skipped and said so, never
@@ -83,3 +98,11 @@ First stable release. Every domain now reports what moved and why anything did n
 * Security - A blog post that is private or password protected no longer produces a link card exposing its title, excerpt and image.
 * Dev      - Source adapters expose a relationship report, so referential integrity is checked before the source is blamed for a shortfall.
 * Dev      - New filter buddynext_importer_tick_budget sets the per-tick wall-clock budget for the background runner, for hosts with a short max_execution_time.
+
+== Upgrade Notice ==
+
+= 1.1.0 =
+You can now choose which domains to import. BuddyBoss album contents keep their
+order, bbPress topic tags and rtMedia photos come across, and every surface
+explains a shortfall in the same words. Re-running an earlier migration adds the
+new domains without duplicating anything already imported.
