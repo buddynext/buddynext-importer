@@ -653,14 +653,7 @@ final class MigrateCommand {
 			)
 		);
 
-		if ( $merged > 0 ) {
-			\WP_CLI::log(
-				sprintf(
-					'  %d source threads were folded into an existing conversation: the source keeps one thread per subject, BuddyNext keeps one conversation per pair of members. Every message is preserved, in date order.',
-					$merged
-				)
-			);
-		}
+		$this->report_folds( $merged, 'messages' );
 
 		$this->report_skips( $skipped, $source_messages, $messages, 'messages' );
 	}
@@ -1207,6 +1200,40 @@ final class MigrateCommand {
 	}
 
 	/**
+	 * Explain source rows that folded into a target row an earlier one opened.
+	 *
+	 * A fold is not a loss, but it is a GAP: the source thread count and the
+	 * destination conversation count legitimately differ, and `reconcile` now
+	 * prints that difference ("DM threads 200 / 194"). Without this line an
+	 * owner reads a six-row shortfall on the screen they check before deleting
+	 * their old community, and has no way to tell a correct fold from six lost
+	 * threads. That is the silent-shortfall failure this tool exists to avoid.
+	 *
+	 * Lives here, in one method, because BOTH surfaces have to say the same
+	 * thing: `migrate-all` (which drives every domain through run_step) and the
+	 * standalone `migrate-messages`. It was previously written inline in
+	 * migrate_messages() only, so moving migrate-all onto StepRegistry silently
+	 * orphaned it - the counter was always right, nothing printed it.
+	 *
+	 * @param int    $merged Source rows folded into an existing target row.
+	 * @param string $label  Domain label.
+	 */
+	private function report_folds( int $merged, string $label ): void {
+		if ( $merged <= 0 ) {
+			return;
+		}
+
+		\WP_CLI::log(
+			sprintf(
+				/* translators: 1: number of folded source threads, 2: domain label. */
+				'  %1$d source threads were folded into an existing conversation (%2$s): the source keeps one thread per subject, BuddyNext keeps one conversation per pair of members. Every message is preserved, in date order.',
+				$merged,
+				$label
+			)
+		);
+	}
+
+	/**
 	 * Drive one registry step to completion, and report what it did.
 	 *
 	 * The reporting is uniform because the step results are: every importer
@@ -1232,9 +1259,15 @@ final class MigrateCommand {
 			return;
 		}
 
+		// `merged` is optional in a step result, like `existing`. Only the
+		// messages domain folds today, but any domain that maps several source
+		// rows onto one target row has to be able to say so from here - saying
+		// it only in its own subcommand is what made the fold invisible to
+		// migrate-all. See report_folds().
 		$cursor   = Checkpoint::get( $source, $domain );
 		$written  = 0;
 		$existing = 0;
+		$merged   = 0;
 		$seen     = 0;
 		$skipped  = array();
 
@@ -1244,6 +1277,7 @@ final class MigrateCommand {
 			$fetched   = (int) ( $result['fetched'] ?? 0 );
 			$written  += (int) ( $result['count'] ?? 0 );
 			$existing += (int) ( $result['existing'] ?? 0 );
+			$merged   += (int) ( $result['merged'] ?? 0 );
 			$seen     += $fetched;
 
 			foreach ( (array) ( $result['skipped'] ?? array() ) as $reason => $count ) {
@@ -1264,6 +1298,7 @@ final class MigrateCommand {
 
 		\WP_CLI::log( sprintf( '%d %s imported.', $written, $label ) );
 		$this->report_existing( $existing, $label );
+		$this->report_folds( $merged, $label );
 		$this->report_skips( $skipped, $seen, $written, $label );
 	}
 
