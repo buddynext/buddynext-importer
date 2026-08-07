@@ -41,12 +41,43 @@ final class MessageWriter {
 	private string $source;
 
 	/**
+	 * Attachments beyond the first that an mvs_messages row cannot hold.
+	 *
+	 * Reset per thread and folded into that thread's skip map.
+	 *
+	 * @var int
+	 */
+	private int $extra_media_dropped = 0;
+
+	/**
 	 * Construct for a source.
 	 *
 	 * @param string $source Source key.
 	 */
 	public function __construct( string $source ) {
 		$this->source = $source;
+	}
+
+	/**
+	 * Lazily-built media ingester, shared across a run.
+	 *
+	 * MediaIngest is idempotent by source attachment id through the id-map, so a
+	 * photo reachable from both an activity and a DM resolves to one target
+	 * media record rather than two.
+	 *
+	 * @var MediaIngest|null
+	 */
+	private ?MediaIngest $media = null;
+
+	/**
+	 * The media ingester for this source.
+	 */
+	private function media(): MediaIngest {
+		if ( null === $this->media ) {
+			$this->media = new MediaIngest( $this->source );
+		}
+
+		return $this->media;
 	}
 
 	/**
@@ -115,8 +146,26 @@ final class MessageWriter {
 			}
 		}
 
-		$written = 0;
-		$skipped = array();
+		$written                   = 0;
+		$skipped                   = array();
+		$this->extra_media_dropped = 0;
+
+		// MediaIngest reads each attachment's file path per message. Warm the
+		// whole thread's attachments in one query first, so a thread of photo DMs
+		// costs one lookup instead of one per message - the same reason activity
+		// media is resolved a page at a time rather than per row.
+		$attachment_ids = array();
+		foreach ( $messages as $message ) {
+			foreach ( (array) ( $message['media'] ?? array() ) as $attachment_id ) {
+				$attachment_id = (int) $attachment_id;
+				if ( $attachment_id > 0 ) {
+					$attachment_ids[ $attachment_id ] = $attachment_id;
+				}
+			}
+		}
+		if ( ! empty( $attachment_ids ) ) {
+			_prime_post_caches( array_values( $attachment_ids ), false, true );
+		}
 
 		foreach ( $messages as $message ) {
 			$reason = $this->import_message( $service, (int) $conv_id, $message );
@@ -127,6 +176,14 @@ final class MessageWriter {
 			}
 
 			$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + 1;
+		}
+
+		// An mvs_messages row holds one media reference, so a source DM carrying
+		// several photos keeps the first and loses the rest. Counted, never
+		// silent: this is a real shortfall and belongs in the report, not in a
+		// code comment nobody reads after the migration is done.
+		if ( $this->extra_media_dropped > 0 ) {
+			$skipped['message_extra_media_dropped'] = $this->extra_media_dropped;
 		}
 
 		return $this->outcome( $created, $written, $skipped, $merged );
@@ -209,10 +266,48 @@ final class MessageWriter {
 			return 'no_sender';
 		}
 
+		// Attachments the source hung off this message (BuddyBoss DM photos and
+		// videos). Resolved BEFORE the empty-content check, because a photo-only
+		// DM is legitimate history with no text at all - refusing it as empty
+		// would drop the whole message, not just its picture.
+		//
+		// These go through MediaIngest and ride the message as `media_id` with
+		// message_type 'media_share', NOT as a bare attachment_id. That is what
+		// BuddyNext actually renders: MessagesData::… builds the bubble's media
+		// from the `media_share` payload, and only that branch sets an `id` -
+		// the attachment_id branch omits it, so parts/dm-message.php (which
+		// gates its image tile on `$bn_m_id > 0`) can never draw an attachment
+		// inline and always falls through to the paperclip file link. BN's own
+		// comment calls attachment_id a legacy fallback.
+		//
+		// Verified in the browser both ways round: attachment_id rendered as
+		// "bi-comment-image" with a paperclip; media_share renders the picture.
+		$media_id    = 0;
+		$attachments = array_values( array_filter( array_map( 'intval', (array) ( $message['media'] ?? array() ) ) ) );
+		foreach ( $attachments as $candidate ) {
+			// privacy 'dm' is a conversation SCOPE, not a preference: MVS excludes
+			// it from every library, explore, moderation and webhook query. Without
+			// it a migrated conversation photo is published as public media - the
+			// migration would leak private history into Explore Media.
+			$media_id = $this->media()->ingest( $candidate, $sender, array( 'privacy' => 'dm' ) );
+			if ( $media_id > 0 ) {
+				break;
+			}
+		}
+
+		if ( $media_id > 0 ) {
+			// An mvs_messages row holds ONE media reference, so a multi-photo DM
+			// keeps the first and loses the rest. Counted, never silent.
+			$this->extra_media_dropped += max( 0, count( $attachments ) - 1 );
+		}
+
 		// A source message whose body is only markup MVS strips (an inline image,
 		// an embed) sanitizes down to nothing and is refused as empty. It is a
-		// real loss, so it is reported rather than passed off as written.
-		if ( '' === $content ) {
+		// real loss, so it is reported rather than passed off as written. A
+		// message carrying media is NOT empty in that sense - MVS itself accepts
+		// an attachment with no text (send_message() allows empty content when
+		// attachment_id or media_id is set).
+		if ( '' === $content && $media_id <= 0 ) {
 			return 'empty_content';
 		}
 
@@ -222,15 +317,18 @@ final class MessageWriter {
 		// API, no MVS internals touched.
 		delete_transient( 'mvs_dm_dup_' . $sender );
 
+		$payload = array(
+			'content'    => $content,
+			'created_at' => (string) ( $message['date_sent'] ?? '' ),
+		);
+
+		if ( $media_id > 0 ) {
+			$payload['media_id']     = $media_id;
+			$payload['message_type'] = 'media_share';
+		}
+
 		$result = ImportMode::run(
-			fn() => $service->send_message(
-				$conv_id,
-				$sender,
-				array(
-					'content'    => $content,
-					'created_at' => (string) ( $message['date_sent'] ?? '' ),
-				)
-			)
+			fn() => $service->send_message( $conv_id, $sender, $payload )
 		);
 
 		if ( empty( $result['success'] ) ) {

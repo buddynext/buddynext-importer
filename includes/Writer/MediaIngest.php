@@ -87,14 +87,28 @@ final class MediaIngest {
 	 * A copy of the file is handed to the upload service so the original
 	 * attachment survives the import intact.
 	 *
-	 * @param int $attachment_id WP attachment id.
-	 * @param int $user_id       Owner of the imported media.
+	 * $args passes straight through to the upload service (title, privacy,
+	 * description). `privacy` matters for more than presentation: MVS treats
+	 * 'dm' as a conversation SCOPE rather than a user preference, and every
+	 * library, explore, moderation and webhook query excludes it. A private
+	 * message attachment ingested without it lands as public media, i.e. a
+	 * conversation photo published to Explore Media by the migration.
+	 *
+	 * @param int                 $attachment_id WP attachment id.
+	 * @param int                 $user_id       Owner of the imported media.
+	 * @param array<string,mixed> $args          Optional upload args (title, privacy, description).
 	 */
-	public function ingest( int $attachment_id, int $user_id ): int {
+	public function ingest( int $attachment_id, int $user_id, array $args = array() ): int {
 		if ( $attachment_id <= 0 || ! self::available() ) {
 			return 0;
 		}
 
+		// The id-map is keyed on the SOURCE attachment id only, so a re-use
+		// returns whatever privacy the first ingest chose. That is safe here
+		// because the platforms give a DM upload its own bp_media row and its own
+		// WP attachment - no attachment is reachable both from a conversation and
+		// from a public activity. If a future source ever shares one, this lookup
+		// must become scope-aware before it hands a 'dm' caller public media.
 		$existing = IdMap::get( $this->source, self::DOMAIN, $attachment_id );
 		if ( null !== $existing ) {
 			return $existing;
@@ -132,7 +146,7 @@ final class MediaIngest {
 		);
 
 		$upload   = \BuddyNext\Media\MediaClient::upload();
-		$result   = ImportMode::run( fn() => $upload->handle( $file, $user_id ) );
+		$result   = ImportMode::run( fn() => $upload->handle( $file, $user_id, $args ) );
 		$media_id = self::extract_media_id( $result );
 
 		if ( $media_id > 0 ) {
