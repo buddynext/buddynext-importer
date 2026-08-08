@@ -12,11 +12,26 @@ set -euo pipefail
 
 USERS="${USERS:-200}"
 GROUPS="${GROUPS:-20}"
-# Which BuddyBoss build to install. Overridable because the release filename
-# changes between versions (bb-platform-free-X.zip vs buddyboss-platform-X.zip)
-# and because only some builds carry the media component - albums and bp_media
-# exist there, and they are the whole point of the BuddyBoss-only paths.
-BB_ZIP="${BB_ZIP:-/dist/buddyboss-platform-3.3.0.zip}"
+# Which BuddyBoss build to install. Overridable because only some builds carry
+# the media component - albums and bp_media exist there, and they are the whole
+# point of the BuddyBoss-only paths.
+#
+# The default is RESOLVED, not hard-coded: the release filename changes between
+# versions (bb-platform-free-X.zip vs buddyboss-platform-X.zip), and a literal
+# default goes stale the moment a different build is dropped into .dist - which
+# is exactly what happened (the default named 3.3.0 while .dist held the 3.2.0
+# free build, so `./run.sh bb` aborted on a zip nobody had). Take the
+# newest-sorting BuddyBoss zip actually present instead.
+#
+# The `|| true` is load-bearing: `ls` returns non-zero when ANY operand does not
+# match, and under `set -euo pipefail` that non-zero propagates out of the
+# command substitution and kills the script before its first echo - a silent
+# exit 1 with no output at all. Only one of the two filename shapes is ever
+# present, so a partial match is the NORMAL case here, not an error.
+if [ -z "${BB_ZIP:-}" ]; then
+	BB_ZIP="$( { ls -1 /dist/bb-platform-free-*.zip /dist/buddyboss-platform-*.zip 2>/dev/null || true; } | sort -V | tail -1 )"
+fi
+BB_ZIP="${BB_ZIP:-/dist/buddyboss-platform.zip}"
 
 WP="php -d memory_limit=1024M /usr/local/bin/wp --allow-root --path=/var/www/html"
 
@@ -108,6 +123,104 @@ fi
 # The BuddyBoss-only shapes: album media, and a mention stored as an id
 # placeholder rather than a handle. Neither exists on a BuddyPress source, and
 # both are what the newest importer commit addressed.
+# --------------------------------------------------------------------------- #
+# Re-assert the components ONCE MORE, and verify FUNCTIONALLY this time.
+#
+# The two-pass block above is necessary but NOT sufficient. Its readback reads
+# `bp-active-components` immediately, and BuddyBoss's install/upgrade routines
+# keep running on later requests - so the option can be reset AFTER the readback
+# has already reported success. Observed directly: the seed reported groups,
+# friends, messages and media active, and BuddyBoss's own Features screen then
+# showed Social Groups, Private Messaging and Media Uploading switched OFF, with
+# a real photo upload failing at admin-ajax with a bare `0` (no handler
+# registered).
+#
+# That is the difference between a fixture that LOOKS seeded and one that can
+# actually be exercised: with media off, bp_media_add() below still writes rows,
+# but they land with activity_id = 0 and NO bp_media_ids activity meta - which is
+# exactly the shape BuddyBossAdapter::activity_media_for() reads. The activity
+# media path then has nothing to read, and the fixture silently proves nothing.
+#
+# So: assert again here, at the point it matters, and verify through the same
+# gate the front end uses rather than through the option.
+echo "== re-asserting components before seeding media =="
+for c in $COMPONENTS; do
+	$WP bp component activate "$c" >/dev/null 2>&1 || true
+done
+
+# Turning the COMPONENT on is not enough - BuddyBoss gates each upload surface
+# behind its own setting, and they are OFF by default. Observed on this fixture:
+# every one of these was unset, the composer offered only "Attach photo", and
+# messages/documents/videos/follow could not be produced at all. These are the
+# same option names BuddyBoss's own settings screens write (verified by toggling
+# each in wp-admin and reading the option back).
+echo "== enabling the per-surface upload + follow settings =="
+$WP eval '
+	$opts = array(
+		// Photos.
+		"bp_media_profile_media_support"     => 1,
+		"bp_media_profile_albums_support"    => 1,
+		"bp_media_group_media_support"       => 1,
+		"bp_media_group_albums_support"      => 1,
+		"bp_media_messages_media_support"    => 1,
+		// Documents.
+		"bp_media_profile_document_support"  => 1,
+		"bp_media_group_document_support"    => 1,
+		"bp_media_messages_document_support" => 1,
+		// Videos.
+		"bp_video_profile_video_support"     => 1,
+		"bp_video_group_video_support"       => 1,
+		"bp_video_messages_video_support"    => 1,
+		// Follow - the whole of the follows domain depends on this one.
+		"_bp_enable_activity_follow"         => 1,
+	);
+	foreach ( $opts as $k => $v ) {
+		bp_update_option( $k, $v );
+	}
+	printf( "  %d upload/follow settings written" . PHP_EOL, count( $opts ) );
+' 2>/dev/null || echo "  WARNING: could not write upload settings"
+
+# A FRESH wp invocation, so the check sees a bootstrap that ran after every
+# BuddyBoss install pass - not the one this script started with.
+GATES=$($WP eval '
+	$need = array( "groups", "messages", "media", "document", "friends" );
+	$off  = array();
+	foreach ( $need as $c ) {
+		if ( ! bp_is_active( $c ) ) { $off[] = $c; }
+	}
+	// The front end gates uploads on THESE, not on the component alone. The
+	// activity composer is governed by the *profile* gates - BuddyBoss labels
+	// that setting "in profiles and activity posts" and there is no
+	// bp_is_activity_*_support_enabled() function at all. Guessing that name
+	// gives a check that function_exists() skips silently, i.e. a gate that
+	// always passes. Assert the functions exist rather than tolerate absence.
+	$gates = array(
+		"profile-media"     => "bp_is_profile_media_support_enabled",
+		"profile-document"  => "bp_is_profile_document_support_enabled",
+		"profile-video"     => "bp_is_profile_video_support_enabled",
+		"group-media"       => "bp_is_group_media_support_enabled",
+		"messages-media"    => "bp_is_messages_media_support_enabled",
+		"messages-document" => "bp_is_messages_document_support_enabled",
+		"follow"            => "bp_is_activity_follow_active",
+	);
+	foreach ( $gates as $label => $fn ) {
+		if ( ! function_exists( $fn ) ) {
+			$off[] = $label . "(no-such-function:" . $fn . ")";
+		} elseif ( ! $fn() ) {
+			$off[] = $label;
+		}
+	}
+	echo implode( " ", $off );
+' 2>/dev/null || echo "eval-failed" )
+
+if [ -n "$GATES" ]; then
+	echo "  ERROR: still gated off:$GATES"
+	echo "         Media seeded now would land with activity_id = 0 and no"
+	echo "         bp_media_ids meta, and the fixture would prove nothing."
+	exit 1
+fi
+echo "  all component + upload gates open"
+
 echo "== media, albums, group types and their comments =="
 # Goes through BuddyBoss's own APIs, so each object is created the way an upload
 # creates it - with a real file, an attachment and its activity.

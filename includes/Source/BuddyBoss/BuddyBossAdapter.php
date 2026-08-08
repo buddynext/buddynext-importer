@@ -108,12 +108,82 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 	 * @return array<int,array<int,int>> Activity id => attachment ids.
 	 */
 	public function activity_media_for( array $activity_ids ): array {
+		return $this->media_attachments_by_owner( 'bp_activity_meta', 'activity_id', $activity_ids );
+	}
+
+	/**
+	 * Thread messages, carrying any attachments BuddyBoss hung off them.
+	 *
+	 * The BuddyPress base reads the message rows only, which is right for a
+	 * BuddyPress source - core has no message attachments. BuddyBoss does: an
+	 * uploaded photo in a DM writes a bp_media row with `message_id` set AND a
+	 * `bp_media_ids` row in bp_messages_meta. Reading just the message table
+	 * dropped every one of them silently (Basecamp #10180645758): the message
+	 * arrived with its text and the picture was simply gone, with no shortfall
+	 * reported, because nothing had asked for it.
+	 *
+	 * One extra query per thread, not one per message: the whole thread's ids go
+	 * into a single meta lookup.
+	 *
+	 * @param int $thread_id Source thread id.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function thread_messages( int $thread_id ): array {
+		$messages = parent::thread_messages( $thread_id );
+		if ( empty( $messages ) ) {
+			return $messages;
+		}
+
+		$media = $this->media_attachments_by_owner(
+			'bp_messages_meta',
+			'message_id',
+			array_map(
+				static function ( array $message ): int {
+					return (int) $message['source_id'];
+				},
+				$messages
+			)
+		);
+
+		if ( empty( $media ) ) {
+			return $messages;
+		}
+
+		foreach ( $messages as $i => $message ) {
+			$messages[ $i ]['media'] = $media[ (int) $message['source_id'] ] ?? array();
+		}
+
+		return $messages;
+	}
+
+	/**
+	 * Resolve BuddyBoss media/video attachments for a batch of owning rows.
+	 *
+	 * BuddyBoss stores attachments the same way whatever they hang off: an id
+	 * list in a `bp_media_ids` / `bp_video_ids` meta row keyed to the owner, and
+	 * the ids point at bp_media / bp_video rows whose `attachment_id` is the WP
+	 * attachment. Only the meta TABLE and its owner COLUMN differ - activities
+	 * use bp_activity_meta.activity_id, private messages use
+	 * bp_messages_meta.message_id.
+	 *
+	 * That is why this is one helper and not two near-identical copies: the
+	 * activity version already handled the awkward parts (bp_video collapsing
+	 * into bp_media on 2.x+, one media row shared by several owners, de-duping
+	 * when a media and a video row name the same file), and a second copy would
+	 * have had to re-learn each of them.
+	 *
+	 * @param string         $meta_table Unprefixed meta table (bp_activity_meta, bp_messages_meta).
+	 * @param string         $id_column  Owner id column in that table (activity_id, message_id).
+	 * @param array<int,int> $owner_ids  Source owner ids.
+	 * @return array<int,array<int,int>> Owner id => attachment ids.
+	 */
+	protected function media_attachments_by_owner( string $meta_table, string $id_column, array $owner_ids ): array {
 		global $wpdb;
 
 		$ids = array_values(
 			array_unique(
 				array_filter(
-					array_map( 'intval', $activity_ids ),
+					array_map( 'intval', $owner_ids ),
 					static function ( $id ) {
 						return $id > 0;
 					}
@@ -121,7 +191,7 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 			)
 		);
 
-		if ( empty( $ids ) || ! $this->table_exists( 'bp_activity_meta' ) ) {
+		if ( empty( $ids ) || ! $this->table_exists( $meta_table ) ) {
 			return array();
 		}
 
@@ -135,18 +205,19 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 			'bp_video_ids' => $this->table_exists( 'bp_video' ) ? 'bp_video' : 'bp_media',
 		);
 
-		$meta_table   = $wpdb->prefix . 'bp_activity_meta';
-		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
+		$meta_table_sql = $wpdb->prefix . $meta_table;
+		$id_column      = preg_replace( '/[^a-z0-9_]/', '', strtolower( $id_column ) );
+		$placeholders   = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
 
 		// 1) Every media/video id-list for the whole batch, in one query.
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-		$meta_rows = $wpdb->get_results( $wpdb->prepare( "SELECT activity_id, meta_key, meta_value FROM `{$meta_table}` WHERE activity_id IN ( {$placeholders} ) AND meta_key IN ( 'bp_media_ids', 'bp_video_ids' )", $ids ), ARRAY_A );
+		$meta_rows = $wpdb->get_results( $wpdb->prepare( "SELECT `{$id_column}` AS owner_id, meta_key, meta_value FROM `{$meta_table_sql}` WHERE `{$id_column}` IN ( {$placeholders} ) AND meta_key IN ( 'bp_media_ids', 'bp_video_ids' )", $ids ), ARRAY_A );
 
-		// 2) Group each source row id by its table, remembering every activity it
-		// belongs to (the same media row can be shared across activities).
+		// 2) Group each source row id by its table, remembering every owner it
+		// belongs to (the same media row can be shared across owners).
 		$rows_by_table = array();
 		foreach ( (array) $meta_rows as $meta ) {
-			$aid   = (int) $meta['activity_id'];
+			$aid   = (int) $meta['owner_id'];
 			$table = $sources[ (string) $meta['meta_key'] ] ?? '';
 			if ( '' === $table || $aid <= 0 || ! $this->table_exists( $table ) ) {
 				continue;

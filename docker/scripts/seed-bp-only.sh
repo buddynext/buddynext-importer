@@ -34,9 +34,16 @@ echo "== BuddyX theme =="
 # them run - a theme that registers its own BuddyPress surfaces.
 $WP theme install buddyx --activate 2>/dev/null || echo "  (buddyx unavailable - staying on the default theme)"
 
-echo "== BuddyPress + bbPress =="
+echo "== BuddyPress + bbPress + rtMedia =="
 $WP plugin install buddypress --activate
 $WP plugin install bbpress --activate 2>/dev/null || echo "  (bbpress unavailable)"
+
+# rtMedia is the media layer on a BuddyPress source - BuddyPress core has none.
+# Without it there is no rt_rtm_media table, so BuddyPressAdapter's rtMedia
+# reads (activity_media_for(), media_albums(), standalone_media(), the coverage
+# counts) have nothing to run against and the whole BuddyPress media story is
+# untested. The wp.org slug is `buddypress-media`, not `rtmedia`.
+$WP plugin install buddypress-media --activate 2>/dev/null || echo "  (rtMedia unavailable - rt_rtm_media paths will be untested)"
 
 # Activating BuddyPress resets its component settings, so these go on AFTER
 # activation or the community has no groups, friends or messages to build.

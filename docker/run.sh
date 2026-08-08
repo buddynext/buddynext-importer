@@ -29,6 +29,37 @@ cd "$( dirname "${BASH_SOURCE[0]}" )"
 DC="docker compose"
 WP="$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html"
 
+# Which source adapter the migration runs through.
+#
+# This used to be hard-coded to `buddypress` at BOTH call sites, which meant the
+# BuddyBoss fixture (./run.sh bb) migrated through the BuddyPress adapter - so
+# every BuddyBoss-only read path had NO coverage while appearing to be covered.
+# Concretely: BuddyPressAdapter::activity_media_for() reads rtMedia's
+# rt_rtm_media, while the BuddyBoss shape lives in the bp_media_ids activity
+# meta. A BuddyBoss photo therefore migrated to a post with media_ids = NULL and
+# nothing reported a shortfall, because the adapter it ran through was never
+# looking for it.
+#
+# Ask the plugin instead of assuming. AdapterRegistry::detect_active_key()
+# already prefers BuddyBoss over BuddyPress (a superset on the same bp_* tables),
+# and it is what the admin screen uses - so the fixture now exercises the same
+# selection a real site does. SOURCE=... still overrides, for testing one
+# adapter deliberately.
+detect_source() {
+	if [ -n "${SOURCE:-}" ]; then
+		echo "$SOURCE"
+		return 0
+	fi
+	local key
+	key=$( $WP eval 'echo (string) \BuddyNextImporter\Source\AdapterRegistry::detect_active_key();' 2>/dev/null | tr -d "\r\n" )
+	if [ -z "$key" ]; then
+		echo "could not detect a source adapter - is BuddyNext + the importer active?" >&2
+		echo "run ./run.sh target-on first, or set SOURCE=buddypress|buddyboss" >&2
+		exit 1
+	fi
+	echo "$key"
+}
+
 # The community generator is a separate repo, mounted into the container from
 # .playground (see docker-compose.yml). It is gitignored, so a fresh clone of this
 # plugin has an EMPTY directory there and every seeding command dies mid-run with
@@ -98,7 +129,9 @@ case "${1:-all}" in
 		exit 0
 		;;
 	migrate)
-		$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html buddynext-import migrate-all --source=buddypress
+		SRC=$( detect_source )
+		echo "== migrate (source: $SRC) =="
+		$DC exec -T wp php -d memory_limit=512M /usr/local/bin/wp --allow-root --path=/var/www/html buddynext-import migrate-all --source="$SRC"
 		exit 0
 		;;
 	reconcile)
@@ -156,9 +189,10 @@ if [ "$MIGRATE" = "no" ]; then
 	exit 0
 fi
 
+SRC=$( detect_source )
 echo
-echo "== migrate =="
-$WP buddynext-import migrate-all --source=buddypress
+echo "== migrate (source: $SRC) =="
+$WP buddynext-import migrate-all --source="$SRC"
 
 echo
 echo "== reconcile =="

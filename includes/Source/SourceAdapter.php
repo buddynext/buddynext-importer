@@ -329,7 +329,11 @@ interface SourceAdapter {
 	/**
 	 * Every message in one thread, oldest first.
 	 *
-	 * Row shape: source_id, sender_id, content, date_sent.
+	 * Row shape: source_id, sender_id, content, date_sent, and OPTIONALLY
+	 * `media` (int[] of WP attachment ids) where the platform supports message
+	 * attachments. BuddyPress core has none, so the key is absent there;
+	 * BuddyBoss sets it. A writer must treat a missing key as an empty list, and
+	 * must not treat a message with media but no text as empty.
 	 *
 	 * @param int $thread_id Source thread id.
 	 * @return array<int,array<string,mixed>>
