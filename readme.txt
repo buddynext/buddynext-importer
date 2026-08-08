@@ -106,6 +106,7 @@ First stable release. Every domain now reports what moved and why anything did n
 * Improve  - Every shortfall is attributed. A reaction on unimported activity, a post refused because its author is not a member of the space, and media with no file behind it each report their own reason.
 * Fix      - A migrated BuddyBoss video lost its preview frame on any destination server without ffmpeg, leaving a bare player. The source platform already generated that frame at upload time, so it is carried across instead of re-derived.
 * Fix      - Avatars and cover images migrated as zero on any host using Imagick. The copy handed to the image editor carried a .tmp name and Imagick reads the format from the extension, so every valid image was refused; the copy now keeps its own extension.
+* Improve  - BuddyBoss documents are declared before a run instead of passing unnoticed. The media engine does not support documents yet, so they are not carried - an owner is now told how many, rather than discovering it afterwards.
 * Fix      - "Start import" ran 5 of 16 domains and reported success. It now runs all of them.
 * Fix      - Checkbox and file profile fields were mapped to types BuddyNext does not have, so their values were dropped on write.
 * Fix      - Comments were lost mid-run to the comment rate limit. A bulk replay trips it by definition, so it is lifted for the duration of an import.

@@ -484,6 +484,40 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 	}
 
 	/**
+	 * BuddyPress's declarations plus the one shape only BuddyBoss has: documents.
+	 *
+	 * BuddyBoss stores uploaded files - PDFs, docs, spreadsheets - in bp_document,
+	 * pointed at by a `bp_document_ids` activity meta row. The importer reads
+	 * neither, and deliberately so: the media engine refuses document uploads
+	 * outright (UploadService rejects application/pdf and any 'document' media
+	 * type, an explicit owner decision), so there is nowhere for them to land.
+	 * Document support is being built; until it exists, reading them would only
+	 * produce a run of rejected ingests.
+	 *
+	 * DECLARED rather than silently skipped, which is the whole point of this
+	 * method. An owner told "your source has 40 documents this importer does not
+	 * carry" before a run can decide what to do about them; one who finds out
+	 * afterwards, with the old site already gone, cannot. Documents were
+	 * previously invisible here - counted by no step, compared against nothing,
+	 * and absent from every shortfall (Basecamp #10180625434).
+	 *
+	 * @return array<int,array{reason:string,rows:int}>
+	 */
+	public function unsupported_content(): array {
+		$out = parent::unsupported_content();
+
+		$documents = $this->table_count( 'bp_document' );
+		if ( $documents > 0 ) {
+			$out[] = array(
+				'reason' => __( 'BuddyBoss documents (PDFs and other files) - the media engine does not support documents yet, so they are not carried', 'buddynext-importer' ),
+				'rows'   => $documents,
+			);
+		}
+
+		return $out;
+	}
+
+	/**
 	 * BuddyPress's relations plus the media ones only BuddyBoss has.
 	 *
 	 * @return array<int,array{relation:string,total:int,broken:int,fatal:bool,note:string}>
