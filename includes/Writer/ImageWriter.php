@@ -203,8 +203,34 @@ final class ImageWriter {
 			require_once ABSPATH . 'wp-admin/includes/file.php';
 		}
 
-		$copy = wp_tempnam( wp_basename( $path ) );
-		if ( ! $copy || ! copy( $path, $copy ) ) {
+		$placeholder = wp_tempnam( wp_basename( $path ) );
+		if ( ! $placeholder ) {
+			return array(
+				'url'    => '',
+				'reason' => 'copy_failed',
+			);
+		}
+
+		/*
+		 * KEEP THE SOURCE EXTENSION on the copy. wp_tempnam() always returns a
+		 * `.tmp` name, and WP_Image_Editor_Imagick decides an image's format from
+		 * the FILE EXTENSION, not its bytes - so a perfectly valid JPEG handed
+		 * over as `.tmp` is rejected with
+		 * "NoDecodeDelegateForThisImageFormat", surfacing here as
+		 * `avatar_invalid_image` / `cover_invalid_image` for EVERY avatar and
+		 * cover on the site (Basecamp #10135432239, the "images 0%" leg).
+		 *
+		 * It is environment-dependent, which is why this leg kept failing to
+		 * reproduce: WP_Image_Editor_GD loads through getimagesize() and does not
+		 * care about the extension, so a GD-only host migrates images fine while
+		 * an Imagick host - the default wherever the extension is installed, i.e.
+		 * most real hosting - loses all of them.
+		 */
+		$extension = strtolower( (string) pathinfo( $path, PATHINFO_EXTENSION ) );
+		$copy      = '' !== $extension ? $placeholder . '.' . $extension : $placeholder;
+
+		if ( ! copy( $path, $copy ) ) {
+			wp_delete_file( $placeholder );
 			return array(
 				'url'    => '',
 				'reason' => 'copy_failed',
@@ -217,6 +243,13 @@ final class ImageWriter {
 
 		if ( file_exists( $copy ) ) {
 			wp_delete_file( $copy );
+		}
+
+		// The placeholder is a SECOND file whenever an extension was appended -
+		// wp_tempnam() creates it on the spot to reserve the name. Deleting only
+		// $copy would leak one empty file per image, per run.
+		if ( $placeholder !== $copy && file_exists( $placeholder ) ) {
+			wp_delete_file( $placeholder );
 		}
 
 		if ( is_wp_error( $stored ) ) {
