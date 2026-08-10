@@ -3,7 +3,7 @@ Contributors: wbcomdesigns
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 
 Move an existing BuddyPress or BuddyBoss community into BuddyNext, then remove this plugin.
@@ -56,6 +56,19 @@ WPMediaVerse. A domain whose engine is absent is skipped and said so, never
 skipped silently.
 
 == Changelog ==
+
+= 1.2.0 - August 2026 =
+
+More of a BuddyBoss or rtMedia community survives the move.
+
+* New      - Photos sent in BuddyBoss private messages migrate with the conversation. They stay scoped to that conversation and never appear in anyone's media library.
+* New      - rtMedia albums migrate with their contents, and a group album becomes a space-owned album rather than one member's personal one.
+* New      - rtMedia photos and videos that were never posted to activity now migrate instead of being left behind in the library.
+* Improve  - BuddyBoss documents are named on the source panel as content this importer does not carry, so an owner reads it before the run rather than after.
+* Fix      - A migrated video keeps the preview image the member already had, so a missing preview no longer depends on the destination server having ffmpeg installed.
+* Fix      - Avatars and cover images migrate on hosts using Imagick, which previously refused the copy because it arrived without a file extension.
+* Fix      - Photo posts from rtMedia no longer arrive with a run of blank lines and the file name sitting in the body text.
+* Dev      - The disposable test community generates media for both BuddyBoss and rtMedia, covering album, group, never-posted and message attachments.
 
 = 1.1.0 - August 2026 =
 
@@ -120,6 +133,11 @@ First stable release. Every domain now reports what moved and why anything did n
 * Dev      - New filter buddynext_importer_tick_budget sets the per-tick wall-clock budget for the background runner, for hosts with a short max_execution_time.
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+BuddyBoss private-message photos and rtMedia albums now come across, and a
+migrated video keeps the preview it already had. Re-running an earlier migration
+adds the new content without duplicating anything already imported.
 
 = 1.1.0 =
 You can now choose which domains to import. BuddyBoss album contents keep their

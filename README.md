@@ -82,12 +82,12 @@ If you skip straight to production and the result is wrong, the fix is a databas
 restore. There is no undo button in this plugin, and adding one is not on the
 roadmap - a migration touches too many services to unwind safely.
 
-**Current version: 1.1.0** - see [readme.txt](readme.txt) for the changelog.
+**Current version: 1.2.0** - see [readme.txt](readme.txt) for the changelog.
 
 ## Supported sources
 
-- **BuddyPress** (including bbPress forums and rtMedia activity photos)
-- **BuddyBoss Platform** (including its media, albums and DMs)
+- **BuddyPress** (including bbPress forums, and rtMedia photos, albums and library media)
+- **BuddyBoss Platform** (including its media, albums, documents notice and DM attachments)
 
 FluentCommunity, PeepSo and Ultimate Member are v2. The adapter architecture below
 is built to take them, but no adapter for them ships today. See
@@ -145,10 +145,18 @@ Adding a domain is now one entry in the registry, never four edits kept in sync.
 | Forums, topics and replies | Jetonomy (`jt_*`), including bbPress topic tags |
 | Avatars and cover images | BuddyNext member and space media |
 | Albums and media | WPMediaVerse (`mvs_media_index`, `mvs_album_items`), preserving album order |
-| Private messages | WPMediaVerse DM engine (`mvs_conversations` + `mvs_messages`) |
+| Private messages | WPMediaVerse DM engine (`mvs_conversations` + `mvs_messages`), with their photo attachments |
 
-A BuddyBoss group album becomes a space-owned album. Notifications are deliberately
-not imported - they are transient.
+A BuddyBoss group album becomes a space-owned album, and so does an rtMedia album
+whose context is a group. Media that was never posted to activity - a photo sitting
+only in someone's library - comes across too, rather than being left behind because
+no activity referenced it.
+
+A photo sent inside a private message stays scoped to that conversation: it is
+migrated as conversation media, so it never surfaces in a member's media library or
+in Explore Media.
+
+Notifications are deliberately not imported - they are transient.
 
 ### Choosing what to import
 
