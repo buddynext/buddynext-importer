@@ -12,7 +12,42 @@
 
 if ( ! class_exists( 'RTMediaAlbum' ) || ! class_exists( 'RTMediaModel' ) ) {
 	echo "rtMedia classes unavailable - is buddypress-media active?\n";
-	return;
+	exit( 1 );
+}
+
+global $wpdb;
+
+/**
+ * Make sure rtMedia's own tables exist before anything tries to write to them.
+ *
+ * On a FRESH install under WP-CLI they do not, and rtMedia does not notice.
+ * RTDBUpdate::do_upgrade() is gated on
+ * `version_compare( db_version, install_db_version, '>' )`, and the install
+ * option is already stamped at the current version by the time the schema
+ * would be built - so the upgrade path runs (ALTERing tables that were never
+ * created, which is what fills the log with "Table wp_rt_rtm_media doesn't
+ * exist") while the create path never does. rtMedia's own self-heal in
+ * update_db() calls do_upgrade() again, and that lands on dbDelta, which
+ * silently creates nothing here and reports no error.
+ *
+ * Observed exactly once as a silent failure: this script printed three "rt id 0"
+ * lines and an empty table dump, the seed exited 0, and the fixture looked
+ * built. That is the failure mode this whole fixture exists to prevent, so the
+ * tables are built from rtMedia's OWN schema files and then VERIFIED.
+ */
+$rtm_media_table = $wpdb->prefix . 'rt_rtm_media';
+if ( (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $rtm_media_table ) ) !== $rtm_media_table ) {
+	echo "  rtMedia tables missing - building them from its own schema files\n";
+
+	$updater = new RTDBUpdate( false, RTMEDIA_PATH . 'index.php', RTMEDIA_PATH . 'app/schema/', true );
+	foreach ( (array) glob( RTMEDIA_PATH . 'app/schema/*.schema' ) as $schema ) {
+		$wpdb->query( $updater->genrate_sql( basename( $schema ), (string) file_get_contents( $schema ) ) ); // phpcs:ignore WordPress.DB
+	}
+}
+
+if ( (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $rtm_media_table ) ) !== $rtm_media_table ) {
+	echo "ERROR: rt_rtm_media still does not exist - every rtMedia path would be untested.\n";
+	exit( 1 );
 }
 
 $admin  = 1;
@@ -94,8 +129,108 @@ printf( "  photo in group album: rt id %d (attachment %d)\n", $in_album, $att_a 
 list( $loose, $att_b ) = bi_attach( $loose_img, $admin, 0, 'profile', $admin, $model );
 printf( "gallery-only photo: rt id %d (attachment %d) - no album, no activity\n", $loose, $att_b );
 
+// ------------------------------------- profile album + a photo ON an activity
+//
+// The shape Phase 1 of the card is about: rtMedia uploads are `rtmedia_update`
+// activities, and the photo rides that activity into a post. A fresh fixture had
+// none of these - the only one that ever existed came from a browser upload by
+// hand - so activity_media_for()'s rtMedia path and the whole "photos ride their
+// activity" claim had nothing proving them on a rebuilt fixture.
+//
+// The activity content is rtMedia's REAL wrapper markup, copied from a genuine
+// upload rather than simplified. That matters twice over: it is what
+// activity_media_for() reads around, and it is what ActivityWriter's
+// clean_content() has to strip - the indentation and the media-list title are
+// precisely what used to leak into migrated post bodies (#10185722422). A
+// tidied-up sample would quietly stop testing the fix.
+$wall_img  = $make( $dir . '/bi-wall-post-photo.png', 600, 400, array( 30, 120, 200 ) );
+$wall      = new RTMediaAlbum();
+$wall_id   = $wall->add( 'Wall Posts', $admin, true, false, 'profile', $admin );
+$wall_att  = wp_insert_attachment(
+	array(
+		'post_mime_type' => 'image/png',
+		'post_title'     => 'bi-wall-post-photo',
+		'post_status'    => 'inherit',
+		'post_author'    => $admin,
+	),
+	$wall_img
+);
+require_once ABSPATH . 'wp-admin/includes/image.php';
+wp_update_attachment_metadata( $wall_att, wp_generate_attachment_metadata( $wall_att, $wall_img ) );
+
+$media_url   = wp_get_attachment_url( $wall_att );
+$rtm_content = '<div class="rtmedia-activity-container"><div class="rtmedia-activity-text">' . "\n\t\t\t\t\t"
+	. '<span>A photo posted through rtMedia</span>' . "\n\t\t\t\t"
+	. '</div><ul class="rtmedia-list rtm-activity-media-list rtmedia-activity-media-length-1 rtm-activity-photo-list">'
+	. '<li class="rtmedia-list-item media-type-photo"><a href="' . esc_url( home_url( '/members/admin/media/' ) ) . '">' . "\n\t\t\t\t\t\t"
+	. '<div class="rtmedia-item-thumbnail">' . "\n\t\t\t\t\t\t\t"
+	. '<img alt="bi-wall-post-photo" src="' . esc_url( (string) $media_url ) . '" />' . "\n\t\t\t\t\t\t"
+	. '</div>' . "\n\t\t\t\t\t\t"
+	. '<div class="rtmedia-item-title">' . "\n\t\t\t\t\t\t\t"
+	. '<h4 title="bi-wall-post-photo">' . "\n\t\t\t\t\t\t\t\t"
+	. 'bi-wall-post-photo' . "\n\t\t\t\t\t\t\t"
+	. '</h4>' . "\n\t\t\t\t\t\t"
+	. '</div>' . "\n\t\t\t\t\t"
+	. '</a></li></ul></div>';
+
+$activity_id = bp_activity_add(
+	array(
+		'user_id'   => $admin,
+		'component' => 'activity',
+		'type'      => 'rtmedia_update',
+		'content'   => $rtm_content,
+		'recorded_time' => current_time( 'mysql', true ),
+	)
+);
+
+$wall_row = $model->insert(
+	array(
+		'blog_id'      => get_current_blog_id(),
+		'media_id'     => $wall_att,
+		'album_id'     => (int) $wall_id,
+		'media_author' => $admin,
+		'media_title'  => 'bi-wall-post-photo',
+		'media_type'   => 'photo',
+		'context'      => 'profile',
+		'context_id'   => $admin,
+		'activity_id'  => (int) $activity_id,
+		'privacy'      => 0,
+		'upload_date'  => current_time( 'mysql' ),
+		'file_size'    => filesize( $wall_img ),
+	)
+);
+printf(
+	"profile album: rt id %d | photo on activity %d: rt id %d (attachment %d)\n",
+	(int) $wall_id,
+	(int) $activity_id,
+	(int) $wall_row,
+	(int) $wall_att
+);
+
+// Assert, rather than trust the printed ids. An insert that returns 0 leaves a
+// fixture that looks seeded and proves nothing - which is exactly how this
+// script failed the first time it ran on a clean build.
+$expected = array(
+	'group album'            => (int) $album_id,
+	'photo in group album'   => $in_album,
+	'gallery-only photo'     => $loose,
+	'profile album'          => (int) $wall_id,
+	'rtmedia_update activity' => (int) $activity_id,
+	'photo on that activity' => (int) $wall_row,
+);
+$missing  = array();
+foreach ( $expected as $label => $id ) {
+	if ( $id <= 0 ) {
+		$missing[] = $label;
+	}
+}
+if ( ! empty( $missing ) ) {
+	printf( "ERROR: rtMedia seeding produced no row for: %s\n", implode( ', ', $missing ) );
+	echo "       standalone_media() and the group-album routing would be untested.\n";
+	exit( 1 );
+}
+
 echo "\n== rt_rtm_media now ==\n";
-global $wpdb;
 $rows = $wpdb->get_results( "SELECT id, media_id, media_type, album_id, context, context_id, activity_id FROM {$wpdb->prefix}rt_rtm_media ORDER BY id", ARRAY_A );
 foreach ( $rows as $r ) {
 	printf(
