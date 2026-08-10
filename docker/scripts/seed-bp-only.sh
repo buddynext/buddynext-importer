@@ -95,12 +95,16 @@ $WP bp playground forums     --forums=8 --topics=15 --replies=8 2>/dev/null || e
 echo "== realistic blog-post activities =="
 $WP eval-file /scripts/seed-blog-posts.php
 
-# The rtMedia shapes the generators never produce: a GROUP album, and media that
-# was never posted to activity. Without them media_albums(), album_media() and
-# standalone_media() have nothing to read on a BuddyPress source, and the group
-# routing path (context/context_id) is never exercised at all.
-echo "== rtMedia group album + gallery-only media =="
-$WP eval-file /scripts/seed-rtmedia-gaps.php
+# Media. BuddyPress core has none, so this is rtMedia's rows: albums (profile
+# AND group), photos that carry an activity, photos that do not, and media in no
+# album at all. Without them media_albums(), album_media() and standalone_media()
+# have nothing to read and the group/space routing path is never exercised.
+#
+# Generating source-platform CONTENT is the playground's job, not this fixture's
+# - this repo migrates a community, it does not know how to build one. Keeping it
+# here meant the importer carried knowledge of a plugin it only reads.
+echo "== rtMedia albums + media =="
+$WP bp playground media --count=2 --albums=1 --group-albums=1 --standalone=1
 
 echo
 echo "== relationship baseline (before any migration) =="
