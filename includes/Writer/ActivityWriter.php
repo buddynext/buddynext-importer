@@ -465,13 +465,73 @@ final class ActivityWriter {
 		// and that text is the source platform's handle, not this site's.
 		$html = $this->rewrite_mentions( $html );
 
+		// And before that text is harvested: drop the markup that DESCRIBES an
+		// attachment. Its visible text is the filename, and the attachment itself
+		// migrates properly as media on the post, so keeping it duplicates the
+		// file name into the body as if the member had typed it.
+		$html = $this->strip_attachment_markup( $html );
+
 		$text = preg_replace( '#</(p|div|h[1-6]|li|tr|blockquote)>#i', "\n", $html );
 		$text = preg_replace( '#<br\s*/?>#i', "\n", (string) $text );
 		$text = wp_strip_all_tags( (string) $text );
 		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		// Source HTML is indented, and that indentation is TEXT once the tags are
+		// gone: a pretty-printed wrapper leaves lines of tabs between the real
+		// words. Collapsing runs of newlines alone does not touch them, because
+		// they are not consecutive - they are newlines separated by tabs. So
+		// horizontal whitespace around every break goes first, and only then do
+		// blank lines collapse.
+		$text = preg_replace( '/[ \t]*\R[ \t]*/', "\n", (string) $text );
 		$text = preg_replace( "/\n{3,}/", "\n\n", (string) $text );
 
 		return trim( (string) $text );
+	}
+
+	/**
+	 * Remove source markup that renders an attachment, leaving only what the
+	 * member actually wrote.
+	 *
+	 * An rtMedia source does not store a photo post as plain text with an
+	 * attachment beside it. It stores a rendered widget:
+	 *
+	 *   <div class="rtmedia-activity-container">
+	 *     <div class="rtmedia-activity-text"><span>the caption</span></div>
+	 *     <ul class="rtmedia-list rtm-activity-media-list">
+	 *       <li><a href="…">
+	 *         <div class="rtmedia-item-thumbnail"><img alt="beach" src="…"></div>
+	 *         <div class="rtmedia-item-title"><h4 title="beach">beach</h4></div>
+	 *       </a></li>
+	 *     </ul>
+	 *   </div>
+	 *
+	 * Stripping that wholesale is not wrong about the tags - nothing leaks as
+	 * literal markup - but the list's visible text is the FILENAME, so every
+	 * migrated photo post ended up reading "the caption", a gap, then "beach".
+	 * The file is not missing from the post; it is imported properly as media
+	 * through activity_media_for(). Keeping its name in the body just states it
+	 * twice, in the one place that looks like the member typed it.
+	 *
+	 * Targeting the media list specifically (rather than extracting the text node)
+	 * keeps this safe on a source that has customised the wrapper: an unrecognised
+	 * shape loses nothing, because the caption is still harvested by the normal
+	 * strip below.
+	 *
+	 * @param string $html Source content (HTML).
+	 * @return string The same content with attachment widgets removed.
+	 */
+	private function strip_attachment_markup( string $html ): string {
+		if ( false === strpos( $html, 'rtmedia-list' ) ) {
+			return $html;
+		}
+
+		// Non-greedy to the first closing </ul>. rtMedia nests no list inside its
+		// media list, so this cannot swallow following content; if a future shape
+		// ever did nest one, the worst case is that MORE attachment markup is
+		// removed, never that real text is.
+		$stripped = preg_replace( '#<ul[^>]*class="[^"]*rtmedia-list[^"]*"[^>]*>.*?</ul>#is', '', $html );
+
+		return is_string( $stripped ) ? $stripped : $html;
 	}
 
 	/**
