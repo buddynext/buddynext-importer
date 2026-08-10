@@ -1,43 +1,34 @@
 <?php
 /**
- * Seed a BuddyBoss source with REAL media, albums, group types and comments.
+ * Seed a BuddyBoss source with group types, and comments on its media activity.
  *
  * Every relation the importer reads needs data, or a green migration only means
- * the populated half worked. The previous BuddyBoss fixture wrote bp_media rows
- * by hand with no file behind them, so ingestion correctly refused all four -
- * proving the refusal path and nothing else.
+ * the populated half worked.
  *
- * This goes through BuddyBoss's OWN APIs instead, so each object is created the
- * way an upload would create it:
+ * MEDIA IS NOT CREATED HERE ANY MORE. Albums, photos and their activities come
+ * from `wp bp playground media`, which seed-bb-only.sh runs before this script.
+ * Building a source community is the generator's job; this plugin only READS
+ * BuddyBoss, and keeping an uploader here meant the importer carried working
+ * knowledge of a platform it never writes to - while every other consumer of the
+ * playground still got a community with no media at all.
  *
- *   bp_album_add()  -> an album, and the activity announcing it
- *   bp_media_add()  -> a photo in that album, its attachment, and its activity
+ * What is left is the part that IS migration-specific:
+ *
  *   bp_groups_register_group_type() / set_group_type()
  *                   -> the bp_group_type TAXONOMY rows the importer reads,
  *                      which is the path no generator has ever exercised
+ *   comments on media activity
+ *                   -> the comment thread hanging off an upload, which is
+ *                      exactly the shape that was never migrated or checked
  *
- * Files are generated with GD rather than downloaded: an offline fixture cannot
- * depend on a stock-photo host being up, and the importer only cares that a real
- * file exists behind the attachment.
+ * The comment pass depends on the media activities the playground has already
+ * created, so ORDER MATTERS: media first, this second.
  *
  * @package BuddyNextImporter
  */
 
 global $wpdb;
 $p = $wpdb->prefix;
-
-if ( ! function_exists( 'bp_media_add' ) ) {
-	echo "  BuddyBoss media API is unavailable - is the Media component active?\n";
-	return;
-}
-if ( ! function_exists( 'imagecreatetruecolor' ) ) {
-	echo "  GD is unavailable, cannot generate image files\n";
-	return;
-}
-
-require_once ABSPATH . 'wp-admin/includes/file.php';
-require_once ABSPATH . 'wp-admin/includes/media.php';
-require_once ABSPATH . 'wp-admin/includes/image.php';
 
 $members = get_users(
 	array(
@@ -49,127 +40,6 @@ if ( count( $members ) < 5 ) {
 	echo "  need more members first\n";
 	return;
 }
-
-/**
- * Write a real JPEG into the uploads dir and attach it to a member.
- *
- * @param int    $user_id Owner.
- * @param string $label   Drawn on the image so the fixture is legible.
- * @return int Attachment id, or 0.
- */
-$make_image = static function ( int $user_id, string $label ): int {
-	$w  = 1200;
-	$h  = 800;
-	$im = imagecreatetruecolor( $w, $h );
-
-	// A flat colour block per image, so they are visually distinguishable in the
-	// feed without shipping binary fixtures in the repo.
-	$seed = crc32( $label );
-	$bg   = imagecolorallocate( $im, 60 + ( $seed % 150 ), 60 + ( ( $seed >> 8 ) % 150 ), 60 + ( ( $seed >> 16 ) % 150 ) );
-	imagefilledrectangle( $im, 0, 0, $w, $h, $bg );
-	$fg = imagecolorallocate( $im, 255, 255, 255 );
-	imagestring( $im, 5, 40, 40, $label, $fg );
-
-	$upload = wp_upload_dir();
-	$file   = trailingslashit( $upload['path'] ) . sanitize_file_name( $label ) . '-' . wp_generate_password( 6, false ) . '.jpg';
-	imagejpeg( $im, $file, 82 );
-	imagedestroy( $im );
-
-	$attachment = wp_insert_attachment(
-		array(
-			'post_mime_type' => 'image/jpeg',
-			'post_title'     => $label,
-			'post_status'    => 'inherit',
-			'post_author'    => $user_id,
-		),
-		$file
-	);
-
-	if ( is_wp_error( $attachment ) || ! $attachment ) {
-		return 0;
-	}
-
-	wp_update_attachment_metadata( $attachment, wp_generate_attachment_metadata( $attachment, $file ) );
-
-	return (int) $attachment;
-};
-
-// ---------------------------------------------------------------- albums --- //
-
-echo "== albums + media, through BuddyBoss's own API ==\n";
-
-$album_titles = array( 'Summer meetup', 'Studio session', 'Trail weekend', 'Community day' );
-$albums       = 0;
-$photos       = 0;
-
-foreach ( $album_titles as $i => $title ) {
-	$owner = (int) $members[ $i % count( $members ) ];
-
-	// Act as the member, so BuddyBoss attributes the album and its activity to
-	// them rather than to whoever is running the CLI.
-	wp_set_current_user( $owner );
-
-	$album_id = bp_album_add(
-		array(
-			'user_id' => $owner,
-			'title'   => $title,
-			'privacy' => 'public',
-		)
-	);
-
-	if ( ! $album_id || is_wp_error( $album_id ) ) {
-		continue;
-	}
-	++$albums;
-
-	foreach ( range( 1, 3 ) as $n ) {
-		$uploader   = (int) $members[ ( $i + $n ) % count( $members ) ];
-		$attachment = $make_image( $uploader, $title . ' photo ' . $n );
-		if ( ! $attachment ) {
-			continue;
-		}
-
-		wp_set_current_user( $uploader );
-		$media_id = bp_media_add(
-			array(
-				'attachment_id' => $attachment,
-				'user_id'       => $uploader,
-				'title'         => $title . ' photo ' . $n,
-				'album_id'      => (int) $album_id,
-				'privacy'       => 'public',
-			)
-		);
-
-		if ( $media_id && ! is_wp_error( $media_id ) ) {
-			++$photos;
-		}
-	}
-}
-
-// Standalone photos, not in any album - a different code path from album media.
-$standalone = 0;
-foreach ( range( 1, 5 ) as $n ) {
-	$uploader   = (int) $members[ ( $n * 3 ) % count( $members ) ];
-	$attachment = $make_image( $uploader, 'Standalone ' . $n );
-	if ( ! $attachment ) {
-		continue;
-	}
-	wp_set_current_user( $uploader );
-	$media_id = bp_media_add(
-		array(
-			'attachment_id' => $attachment,
-			'user_id'       => $uploader,
-			'title'         => 'Standalone ' . $n,
-			'privacy'       => 'public',
-		)
-	);
-	if ( $media_id && ! is_wp_error( $media_id ) ) {
-		++$standalone;
-	}
-}
-
-wp_set_current_user( 0 );
-printf( "  %d album(s), %d album photo(s), %d standalone photo(s)\n", $albums, $photos, $standalone );
 
 // ----------------------------------------------------------- group types --- //
 
