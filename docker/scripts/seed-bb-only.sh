@@ -233,7 +233,11 @@ echo "== media + albums (via the playground generator) =="
 # and a fixture with no media - which is the silence this whole file exists to
 # stop.
 $WP plugin activate buddypress-playground-cli >/dev/null 2>&1 || true
-$WP bp playground media --count=2 --albums=2 --group-albums=1 --standalone=1
+# --messages matters as much as the rest: a DM photo is stored on the MESSAGE
+# (bp_media.message_id plus a bp_media_ids row in bp_messages_meta), a different
+# path from activity and album media, and the one a fixture most easily omits
+# because nothing else breaks when it is missing.
+$WP bp playground media --count=2 --albums=2 --group-albums=1 --standalone=1 --messages=2
 
 echo "== group types, and comments on the media activity =="
 # Order matters: the comment pass hangs comments off the media activities the
