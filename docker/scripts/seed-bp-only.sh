@@ -95,6 +95,13 @@ $WP bp playground forums     --forums=8 --topics=15 --replies=8 2>/dev/null || e
 echo "== realistic blog-post activities =="
 $WP eval-file /scripts/seed-blog-posts.php
 
+# The rtMedia shapes the generators never produce: a GROUP album, and media that
+# was never posted to activity. Without them media_albums(), album_media() and
+# standalone_media() have nothing to read on a BuddyPress source, and the group
+# routing path (context/context_id) is never exercised at all.
+echo "== rtMedia group album + gallery-only media =="
+$WP eval-file /scripts/seed-rtmedia-gaps.php
+
 echo
 echo "== relationship baseline (before any migration) =="
 # Captured now so what the migration moved is compared against a fixed
