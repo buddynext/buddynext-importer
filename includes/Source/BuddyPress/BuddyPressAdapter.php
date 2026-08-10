@@ -134,6 +134,14 @@ class BuddyPressAdapter implements SourceAdapter {
 			// BuddyBoss overrides activity_media differently (bp_media); this is
 			// the plain-BP path, 0 when rtMedia is absent.
 			'activity_media'               => $this->rtmedia_activity_count(),
+			// rtMedia albums and their contents. Each predicate MUST match its
+			// reader character for character - this is the source side of the
+			// source-vs-written comparison, so drift here reports a phantom
+			// shortfall (or hides a real one) on a migration that is fine.
+			// {@see media_albums()}, {@see album_media()}, {@see standalone_media()}.
+			'media_albums'                 => $this->table_count( 'rt_rtm_media', "media_type = 'album'" ),
+			'album_media'                  => $this->table_count( 'rt_rtm_media', "media_type <> 'album' AND media_id > 0 AND COALESCE( album_id, 0 ) > 0" ),
+			'standalone_media'             => $this->table_count( 'rt_rtm_media', "media_type <> 'album' AND media_id > 0 AND COALESCE( album_id, 0 ) = 0 AND COALESCE( activity_id, 0 ) = 0" ),
 			'member_types'                 => count( $this->member_types() ),
 			'member_type_users'            => $this->member_type_assignment_count(),
 			'member_images'                => $this->image_owner_count( 'avatars', 'members' ),
@@ -714,48 +722,116 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
-	 * Media albums. BuddyPress core has no album feature; the BuddyBoss adapter
-	 * overrides this.
+	 * Media albums, from rtMedia.
+	 *
+	 * BuddyPress core has no album feature. rtMedia adds one, and stores albums
+	 * as rows in its own single table rather than a separate album table: an
+	 * album IS an `rt_rtm_media` row with `media_type = 'album'`, whose
+	 * `media_id` points at the `rtmedia_album` post that carries its name.
+	 *
+	 * Two column meanings were confirmed against a real rtMedia 4.7.11 install
+	 * rather than assumed, because both are easy to get backwards:
+	 *
+	 * - **`album_id` self-references `rt_rtm_media.id`**, NOT the album's
+	 *   `media_id` post. RTMediaMedia::generate_post_array() looks the parent up
+	 *   with `$model->get( array( 'id' => $uploaded['album_id'] ) )` and only
+	 *   then resolves it to `media_id` for the WP post_parent, while the row it
+	 *   inserts stores the original `album_id` untouched. Keying album contents
+	 *   on the post id would match nothing.
+	 * - **`media_id` IS the WP attachment id** for real media, which is what
+	 *   makes rtMedia rows feed the same ingest path BuddyBoss media uses.
+	 *
+	 * Album rows carry no privacy, context or upload_date of their own in
+	 * practice (rtMedia leaves them NULL, and the auto-created "Wall Posts"
+	 * album has a zero date), so those are defaulted rather than trusted.
 	 *
 	 * @param int $after Exclusive lower-bound album id.
 	 * @param int $limit Batch size.
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function media_albums( int $after, int $limit ): array {
-		return array();
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'rt_rtm_media' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'rt_rtm_media';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, media_id, media_author, media_title, context, context_id, privacy, upload_date FROM `{$table}` WHERE media_type = 'album' AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$albums = array();
+		foreach ( (array) $rows as $row ) {
+			$albums[] = array(
+				'source_id'    => (int) $row['id'],
+				'user_id'      => (int) $row['media_author'],
+				'group_id'     => $this->rtmedia_group_id( $row ),
+				'title'        => (string) wp_unslash( (string) $row['media_title'] ),
+				'privacy'      => $this->rtmedia_privacy( $row['privacy'] ),
+				'date_created' => $this->rtmedia_date( (string) ( $row['upload_date'] ?? '' ) ),
+			);
+		}
+
+		return $albums;
 	}
 
 	/**
-	 * Standalone media. BuddyPress core has no media feature; the BuddyBoss
-	 * adapter overrides this.
+	 * The rtMedia this pass is responsible for: media in no album that no activity
+	 * carries either.
+	 *
+	 * The predicate MUST stay character-for-character in step with the
+	 * `standalone_media` count in stats() - that pairing is the source side of
+	 * the source-vs-written comparison, so a mismatch invents a shortfall or
+	 * hides one.
+	 *
+	 * A photo posted through rtMedia rides its `rtmedia_update` activity into a
+	 * post (see IMPORTED_ACTIVITY_TYPES and activity_media_for()), so it is
+	 * excluded here. What is left is media that only ever existed in the media
+	 * library - uploaded from a profile gallery, never posted.
 	 *
 	 * @param int $after Exclusive lower-bound media id.
 	 * @param int $limit Batch size.
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function standalone_media( int $after, int $limit ): array {
-		return array();
+		return $this->rtmedia_rows(
+			$after,
+			$limit,
+			'COALESCE( album_id, 0 ) = 0 AND COALESCE( activity_id, 0 ) = 0'
+		);
 	}
 
 	/**
-	 * BuddyPress core has no albums, so no media belongs to one.
+	 * The rtMedia that belongs to an album.
 	 *
-	 * Note that rtMedia albums exist on some BuddyPress sites and are NOT read
-	 * here - they are declared in unsupported_content() instead, so an owner is
-	 * told rather than left to discover it. {@see SourceAdapter::album_media()}
+	 * Deliberately NOT filtered on `activity_id = 0`, for the same reason the
+	 * BuddyBoss reader is not: rtMedia files an uploaded photo under an album
+	 * AND gives it an activity, so excluding activity-carrying rows would empty
+	 * every album while its photos arrived through the activity path. Verified
+	 * on a real upload - one row came back with `activity_id` and `album_id`
+	 * both set.
+	 *
+	 * This does not re-import the file. MediaIngest keys on the source
+	 * attachment id through the id-map and returns whatever the activity pass
+	 * already created, so this pass only adds the album membership that pass
+	 * could not know about; import_media() reports those as
+	 * `linked_from_activity` rather than counting them as fresh writes.
 	 *
 	 * @param int $after Exclusive lower-bound media row id.
 	 * @param int $limit Batch size.
 	 * @return array<int,array<string,mixed>>
 	 */
 	public function album_media( int $after, int $limit ): array {
-		unset( $after, $limit );
-
-		return array();
+		return $this->rtmedia_rows( $after, $limit, 'COALESCE( album_id, 0 ) > 0' );
 	}
 
 	/**
-	 * No albums here, so nothing to order. {@see SourceAdapter::album_media_order()}
+	 * There is no explicit rtMedia ordering column, so album contents keep their
+	 * natural upload order and the writer is told nothing.
+	 *
+	 * Returning an empty list is the honest answer here, not a stub: there is no
+	 * member-chosen order in the source to preserve.
 	 *
 	 * @param int $source_album_id Source album id.
 	 * @return array<int,int>
@@ -764,6 +840,115 @@ class BuddyPressAdapter implements SourceAdapter {
 		unset( $source_album_id );
 
 		return array();
+	}
+
+	/**
+	 * Shared reader for non-album rtMedia rows.
+	 *
+	 * The standalone_media() and album_media() readers differ only in one WHERE clause, and
+	 * both must return the identical row shape the media writer consumes - so
+	 * the shape lives in one place rather than being kept in step by hand.
+	 *
+	 * `media_id > 0` guards against rtMedia rows whose attachment has been
+	 * deleted underneath them; without it those arrive as an ingest of
+	 * attachment 0 and are reported as a failure rather than as absent source.
+	 *
+	 * @param int    $after Exclusive lower-bound media row id.
+	 * @param int    $limit Batch size.
+	 * @param string $where Additional predicate, already safe (no user input).
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function rtmedia_rows( int $after, int $limit, string $where ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'rt_rtm_media' ) ) {
+			return array();
+		}
+
+		$table = $wpdb->prefix . 'rt_rtm_media';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, media_id, media_author, media_title, media_type, album_id, context, context_id, privacy, upload_date FROM `{$table}` WHERE media_type <> 'album' AND media_id > 0 AND {$where} AND id > %d ORDER BY id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$media = array();
+		foreach ( (array) $rows as $row ) {
+			$media[] = array(
+				'source_id'     => (int) $row['id'],
+				'attachment_id' => (int) $row['media_id'],
+				'user_id'       => (int) $row['media_author'],
+				'title'         => (string) wp_unslash( (string) $row['media_title'] ),
+				'description'   => '',
+				'album_id'      => (int) $row['album_id'],
+				'group_id'      => $this->rtmedia_group_id( $row ),
+				'privacy'       => $this->rtmedia_privacy( $row['privacy'] ),
+				'type'          => (string) $row['media_type'],
+				'menu_order'    => 0,
+				'date_created'  => $this->rtmedia_date( (string) ( $row['upload_date'] ?? '' ) ),
+			);
+		}
+
+		return $media;
+	}
+
+	/**
+	 * The group an rtMedia row belongs to, or 0.
+	 *
+	 * An rtMedia row carries ownership in a (context, context_id) pair rather than a
+	 * dedicated column: 'profile' means context_id is a USER id, 'group' means
+	 * it is a group id. Reading context_id without checking context would route
+	 * a member's own gallery into whichever space happens to share that number.
+	 *
+	 * @param array<string,mixed> $row rt_rtm_media row.
+	 */
+	private function rtmedia_group_id( array $row ): int {
+		return 'group' === (string) ( $row['context'] ?? '' ) ? (int) ( $row['context_id'] ?? 0 ) : 0;
+	}
+
+	/**
+	 * Map an rtMedia privacy level to the vocabulary the media writer maps from.
+	 *
+	 * The rtMedia levels are integers: 0 public, 20 logged-in, 40 friends, 60
+	 * private (RTMedia::$privacy_settings). The writer collapses everything that
+	 * is not exactly 'public' to private, so the safe direction is to name the
+	 * restricted levels rather than pass a number through - an unrecognised
+	 * value must never read as public.
+	 *
+	 * NULL is the common case on album rows and means "not set", which rtMedia
+	 * treats as the site default. Public is the wrong default for a value that
+	 * was never chosen, so it is not used.
+	 *
+	 * @param mixed $privacy Raw privacy column.
+	 */
+	private function rtmedia_privacy( $privacy ): string {
+		if ( null === $privacy || '' === $privacy ) {
+			return 'default';
+		}
+
+		switch ( (int) $privacy ) {
+			case 0:
+				return 'public';
+			case 20:
+				return 'loggedin';
+			case 40:
+				return 'friends';
+			default:
+				return 'onlyme';
+		}
+	}
+
+	/**
+	 * A usable date, or an empty string.
+	 *
+	 * An rtMedia install leaves `upload_date` as the MySQL zero date on rows it creates
+	 * itself - the auto-created "Wall Posts" album is the one every site has.
+	 * Passing that through produces a 1970 timestamp on migrated content, so an
+	 * absent date is reported as absent and the writer falls back to its own
+	 * default.
+	 *
+	 * @param string $date Raw upload_date.
+	 */
+	private function rtmedia_date( string $date ): string {
+		return ( '' === $date || 0 === strpos( $date, '0000-00-00' ) ) ? '' : $date;
 	}
 
 	/**
@@ -1015,26 +1200,25 @@ class BuddyPressAdapter implements SourceAdapter {
 			return $out;
 		}
 
-		$albums = $this->table_count( 'rt_rtm_media', "media_type = 'album'" );
+		// rtMedia albums and their contents ARE carried now - media_albums(),
+		// album_media() and standalone_media() read them, so the two notices
+		// that used to stand here would be telling an owner they had lost
+		// content that is sitting in their new community. That is the opposite
+		// failure to the one this notice exists to prevent, and just as
+		// corrosive.
+		//
+		// What remains genuinely uncarried is media whose attachment is already
+		// gone at the source: rtMedia keeps the row when the underlying WP
+		// attachment is deleted, and there is no file left to ingest. Every
+		// reader guards on `media_id > 0`, so these are excluded from the source
+		// counts as well - which is exactly why they need naming here, or they
+		// would vanish from the report entirely rather than being declared.
+		$orphaned = $this->table_count( 'rt_rtm_media', "media_type <> 'album' AND COALESCE( media_id, 0 ) = 0" );
 
-		// ONLY the media no activity carries. A photo posted through rtMedia
-		// rides its rtmedia_update activity into a post and does migrate, so
-		// counting every rtMedia row here would warn an owner about content that
-		// is sitting in their new community - the opposite failure to the one
-		// this notice exists to prevent, and just as corrosive.
-		$stranded = $this->table_count( 'rt_rtm_media', "media_type <> 'album' AND COALESCE( activity_id, 0 ) = 0" );
-
-		if ( $stranded > 0 ) {
+		if ( $orphaned > 0 ) {
 			$out[] = array(
-				'reason' => __( 'rtMedia photos and videos that were never posted to activity - they live only in an album, which this importer does not read yet', 'buddynext-importer' ),
-				'rows'   => $stranded,
-			);
-		}
-
-		if ( $albums > 0 ) {
-			$out[] = array(
-				'reason' => __( 'rtMedia albums - the albums themselves are not carried, so their contents have nowhere to land', 'buddynext-importer' ),
-				'rows'   => $albums,
+				'reason' => __( 'rtMedia rows whose attachment no longer exists on the source - there is no file left to migrate', 'buddynext-importer' ),
+				'rows'   => $orphaned,
 			);
 		}
 
