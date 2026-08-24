@@ -256,14 +256,15 @@ class BuddyPressAdapter implements SourceAdapter {
 		$fields = array();
 		foreach ( (array) $rows as $row ) {
 			$fields[] = array(
-				'source_id'   => (int) $row['id'],
-				'group_id'    => (int) $row['group_id'],
-				'name'        => (string) wp_unslash( $row['name'] ),
-				'type'        => (string) $row['type'],
-				'is_required' => (int) $row['is_required'],
-				'sort_order'  => (int) $row['field_order'],
-				'visibility'  => $this->field_visibility( (int) $row['id'] ),
-				'options'     => $this->field_options( (int) $row['id'] ),
+				'source_id'        => (int) $row['id'],
+				'group_id'         => (int) $row['group_id'],
+				'name'             => (string) wp_unslash( $row['name'] ),
+				'type'             => (string) $row['type'],
+				'is_required'      => (int) $row['is_required'],
+				'sort_order'       => (int) $row['field_order'],
+				'visibility'       => $this->field_visibility( (int) $row['id'] ),
+				'options'          => $this->field_options( (int) $row['id'] ),
+				'show_on_register' => $this->field_on_signup( (int) $row['id'] ),
 			);
 		}
 
@@ -1983,6 +1984,32 @@ class BuddyPressAdapter implements SourceAdapter {
 		$value = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM `{$table}` WHERE object_type = 'field' AND object_id = %d AND meta_key = 'default_visibility'", $field_id ) );
 
 		return is_string( $value ) && '' !== $value ? $value : 'public';
+	}
+
+	/**
+	 * Whether a source field is shown on the BuddyPress registration form.
+	 *
+	 * BuddyPress includes a field on the signup form when bp_xprofile_meta holds
+	 * a `signup_position` row for it; fields without that row are register-only
+	 * absent. BuddyNext gates the same behaviour on bn_profile_fields.show_on_register,
+	 * so the flag must cross the migration or the field silently drops off the
+	 * destination register form.
+	 *
+	 * @param int $field_id Source field id.
+	 */
+	protected function field_on_signup( int $field_id ): bool {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_xprofile_meta' ) ) {
+			return false;
+		}
+
+		$table = $wpdb->prefix . 'bp_xprofile_meta';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$value = $wpdb->get_var( $wpdb->prepare( "SELECT meta_value FROM `{$table}` WHERE object_type = 'field' AND object_id = %d AND meta_key = 'signup_position'", $field_id ) );
+
+		return null !== $value && '' !== (string) $value;
 	}
 
 	/**

@@ -121,13 +121,14 @@ final class ProfileWriter {
 		}
 
 		$data = array(
-			'group_id'    => $bn_group_id,
-			'field_key'   => $this->field_key( $source_id, (string) $field['name'] ),
-			'label'       => (string) $field['name'],
-			'type'        => FieldTypeMap::to_bn_type( $type ),
-			'is_required' => (int) $field['is_required'],
-			'sort_order'  => (int) $field['sort_order'],
-			'visibility'  => PrivacyMap::field_visibility( (string) ( $field['visibility'] ?? 'public' ) ),
+			'group_id'         => $bn_group_id,
+			'field_key'        => $this->field_key( $source_id, (string) $field['name'] ),
+			'label'            => (string) $field['name'],
+			'type'             => FieldTypeMap::to_bn_type( $type ),
+			'is_required'      => (int) $field['is_required'],
+			'sort_order'       => (int) $field['sort_order'],
+			'visibility'       => PrivacyMap::field_visibility( (string) ( $field['visibility'] ?? 'public' ) ),
+			'show_on_register' => empty( $field['show_on_register'] ) ? 0 : 1,
 		);
 
 		if ( FieldTypeMap::has_options( $type ) && ! empty( $field['options'] ) ) {
