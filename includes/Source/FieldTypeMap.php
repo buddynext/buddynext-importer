@@ -99,6 +99,13 @@ final class FieldTypeMap {
 		'wordpress',
 		'wordpress-textbox',
 		'wordpress-biography',
+		// BuddyPress core registers its WP-synced field types as wp-textbox and
+		// wp-biography (bp_xprofile_get_field_types()); their value lives in
+		// wp_usermeta, never in bp_xprofile_data, and BuddyNext reads it from WP
+		// core. The wordpress-* aliases above never matched a real source slug,
+		// so these were imported as bogus empty text fields.
+		'wp-textbox',
+		'wp-biography',
 		'member-types',
 		'placeholder',
 	);
