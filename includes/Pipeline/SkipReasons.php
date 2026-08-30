@@ -51,6 +51,12 @@ final class SkipReasons {
 			// expected reduction, not a shortfall to warn about.
 			/* translators: 1: number of rows, 2: domain label such as "posts". */
 			'activity_not_imported' => __( '%1$d %2$s were on activities that did not migrate (spam/skipped), so they were dropped with them.', 'buddynext-importer' ),
+			// A structural limit, not a failure: BuddyNext bookmarks are keyed
+			// (user_id, post_id) with no object type, so a bookmark on a comment
+			// has nowhere to land. Named separately from
+			// activity_not_imported so nobody goes hunting for a missing post.
+			'comment_not_bookmarkable' => __( '%1$d %2$s were saved against a comment. BuddyNext bookmarks apply to posts, so these could not be carried over.', 'buddynext-importer' ),
+			'user_missing'          => __( '%1$d %2$s belonged to a member who no longer exists on this site, so there was nobody to save them for.', 'buddynext-importer' ),
 			// An album photo in BuddyBoss also has an activity, so it arrived with
 			// that activity and this pass only added it to its album. Nothing was
 			// lost and nothing was written twice - counting it as a write would

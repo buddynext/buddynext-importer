@@ -315,6 +315,32 @@ interface SourceAdapter {
 	public function reactions( int $after, int $limit ): array;
 
 	/**
+	 * One keyset batch of activity bookmarks.
+	 *
+	 * Separate from reactions(): a favourite and a bookmark are different acts
+	 * in both platforms, and BuddyNext keeps them in different tables
+	 * (bn_reactions vs bn_bookmarks). Folding one into the other would tell a
+	 * member they had liked things they had only saved.
+	 *
+	 * The keyset is the bookmark record's own source id, ascending and
+	 * exclusive, so a batch that yields no writable rows still advances.
+	 *
+	 * Each record:
+	 *   source_id   - keyset cursor value
+	 *   user_id     - member who bookmarked
+	 *   activity_id - source activity the bookmark points at
+	 *
+	 * No date: the source stores a bookmark as a meta row, and meta rows carry
+	 * no timestamp, so there is nothing to preserve. Implementations must not
+	 * invent one.
+	 *
+	 * @param int $after Exclusive lower-bound source id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array{source_id:int,user_id:int,activity_id:int}>
+	 */
+	public function bookmarks( int $after, int $limit ): array;
+
+	/**
 	 * Private-message threads, keyset-paginated by thread id.
 	 *
 	 * Row shape: thread_id, participants (int[]), subject, date_sent (of the

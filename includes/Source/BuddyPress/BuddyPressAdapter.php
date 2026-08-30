@@ -113,6 +113,12 @@ class BuddyPressAdapter implements SourceAdapter {
 			// wrote, which reads as the importer inventing connections.
 			'friendships'                  => $this->table_count( 'bp_friends' ),
 			'follows'                      => $this->table_count( 'bp_follow', $this->follow_type_where() ),
+			// Bookmarks were absent from stats AND from the pipeline, so the
+			// coverage banner reported nothing for them and no shortfall in them
+			// could ever surface - 112 in the source, 0 imported, and the run
+			// still read as clean. Counted the same way bookmarks() reads them,
+			// so source and target are comparable.
+			'bookmarks'                    => $this->bookmark_meta_count(),
 			// bbPress forums on a plain BuddyPress source. These readers and the
 			// ForumImporter have always existed here, but stats() carried no
 			// forum key at all - so on BP + bbPress the coverage banner and the
@@ -2156,6 +2162,155 @@ class BuddyPressAdapter implements SourceAdapter {
 			}
 		}
 		return $out;
+	}
+
+
+	/**
+	 * Bookmark meta keys to read from the source activity meta table.
+	 *
+	 * Bookmarking is not a BuddyPress core feature - it arrives via an add-on,
+	 * and different add-ons name the meta key differently. `bp_bookmark` is what
+	 * the reported source used. The filter exists because this reads a THIRD
+	 * PARTY's schema that we neither own nor version: a site running a different
+	 * bookmark add-on can point the importer at its key without a code change,
+	 * which is the difference between a migration that carries the data and one
+	 * that silently drops it.
+	 *
+	 * @return string[]
+	 */
+	protected function bookmark_meta_keys(): array {
+		$keys = apply_filters( 'buddynext_importer_bookmark_meta_keys', array( 'bp_bookmark' ), $this->key() );
+
+		$keys = array_values( array_unique( array_filter( array_map( 'strval', (array) $keys ) ) ) );
+
+		return array() === $keys ? array( 'bp_bookmark' ) : $keys;
+	}
+
+	/**
+	 * One keyset batch of activity bookmarks.
+	 *
+	 * Read from the activity meta table, keyed on the meta row's own id, which
+	 * is a dense ascending integer and therefore a sound keyset.
+	 *
+	 * Two value shapes are handled because add-ons disagree: one meta row per
+	 * bookmarking member (meta_value is that member's id), or one row per
+	 * activity holding a serialised array of member ids. Guessing wrong would
+	 * not error - it would import zero and report success, which is exactly the
+	 * failure this method exists to fix.
+	 *
+	 * Rows that cannot yield a member are excluded IN SQL rather than skipped in
+	 * the loop. The bookmarks step finishes on an empty batch, so a page made
+	 * entirely of unusable rows would otherwise read as "domain complete" and
+	 * silently truncate every bookmark above it - the same trap the reactions
+	 * fallback documents a few lines up.
+	 *
+	 * @param int $after Exclusive lower-bound meta id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array{source_id:int,user_id:int,activity_id:int}>
+	 */
+	public function bookmarks( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_activity_meta' ) ) {
+			return array();
+		}
+
+		$table        = $wpdb->prefix . 'bp_activity_meta';
+		$keys         = $this->bookmark_meta_keys();
+		$placeholders = implode( ', ', array_fill( 0, count( $keys ), '%s' ) );
+
+		$params = $keys;
+		$params[] = $after;
+		$params[] = $limit;
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- placeholders built from a fixed count above.
+				"SELECT id, activity_id, meta_value FROM `{$table}`
+				  WHERE meta_key IN ( {$placeholders} )
+				    AND meta_value IS NOT NULL
+				    AND meta_value NOT IN ( '', '0', 'a:0:{}' )
+				    AND id > %d
+				  ORDER BY id ASC
+				  LIMIT %d",
+				...$params
+			),
+			ARRAY_A
+		);
+
+		$out = array();
+
+		foreach ( (array) $rows as $row ) {
+			$source_id   = (int) $row['id'];
+			$activity_id = (int) $row['activity_id'];
+
+			foreach ( self::bookmark_user_ids( (string) $row['meta_value'] ) as $user_id ) {
+				$out[] = array(
+					'source_id'   => $source_id,
+					'user_id'     => $user_id,
+					'activity_id' => $activity_id,
+				);
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * How many bookmarks the source holds.
+	 *
+	 * Counts BOOKMARKS, not meta rows: an add-on that stores a serialised array
+	 * of members on one row would otherwise report a single bookmark for a post
+	 * fifty people saved, and the resulting "surplus" would read as the importer
+	 * inventing rows. Same filter and same exclusions as bookmarks(), so the two
+	 * cannot disagree about what counts.
+	 */
+	protected function bookmark_meta_count(): int {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'bp_activity_meta' ) ) {
+			return 0;
+		}
+
+		$table        = $wpdb->prefix . 'bp_activity_meta';
+		$keys         = $this->bookmark_meta_keys();
+		$placeholders = implode( ', ', array_fill( 0, count( $keys ), '%s' ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$values = $wpdb->get_col(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- placeholders built from a fixed count above.
+				"SELECT meta_value FROM `{$table}`
+				  WHERE meta_key IN ( {$placeholders} )
+				    AND meta_value IS NOT NULL
+				    AND meta_value NOT IN ( '', '0', 'a:0:{}' )",
+				...$keys
+			)
+		);
+
+		$total = 0;
+		foreach ( (array) $values as $value ) {
+			$total += count( self::bookmark_user_ids( (string) $value ) );
+		}
+
+		return $total;
+	}
+
+	/**
+	 * Member ids carried by one bookmark meta value.
+	 *
+	 * @param string $meta_value Raw meta value.
+	 * @return int[]
+	 */
+	private static function bookmark_user_ids( string $meta_value ): array {
+		$decoded = maybe_unserialize( $meta_value );
+
+		$ids = is_array( $decoded ) ? $decoded : array( $decoded );
+
+		$ids = array_map( 'intval', $ids );
+
+		return array_values( array_unique( array_filter( $ids, static fn ( int $id ): bool => $id > 0 ) ) );
 	}
 
 	/**

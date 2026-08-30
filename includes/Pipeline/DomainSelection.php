@@ -108,6 +108,7 @@ final class DomainSelection {
 			'friends'          => __( 'Connections', 'buddynext-importer' ),
 			'follows'          => __( 'Follows', 'buddynext-importer' ),
 			'reactions'        => __( 'Reactions', 'buddynext-importer' ),
+			'bookmarks'        => __( 'Bookmarks', 'buddynext-importer' ),
 			'forums'           => __( 'Forums', 'buddynext-importer' ),
 			'images'           => __( 'Avatars and covers', 'buddynext-importer' ),
 			'media'            => __( 'Photos and albums', 'buddynext-importer' ),

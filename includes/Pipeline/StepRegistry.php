@@ -230,6 +230,30 @@ final class StepRegistry {
 			array( 'activity' )
 		);
 
+		// Bookmarks were missing from the pipeline entirely - not broken, never
+		// built - so a migration reported success while every saved post was
+		// left behind (Basecamp 10127920889: 112 in source, 0 imported).
+		//
+		// empty_done, for the same reason reactions is: the keyset is the source
+		// meta row, and one row can carry several bookmarks, so a SHORT batch is
+		// normal and only an EMPTY one means the domain is done.
+		$steps[] = self::step(
+			$source,
+			'bookmarks',
+			null,
+			__( 'bookmarks', 'buddynext-importer' ),
+			'bookmark',
+			static fn (): bool => BookmarkImporter::target_available()
+				&& null !== BookmarkImporter::for_source( $source ),
+			static fn ( int $c, int $b ): array => BookmarkImporter::for_source( $source )->import_batch( $c, $b ),
+			static fn ( array $r ): int => (int) $r['bookmarks'],
+			'bookmarks',
+			true,
+			// A bookmark points at a source activity; without the posts pass
+			// there is no post to attach it to.
+			array( 'activity' )
+		);
+
 		$forums_available = static fn (): bool => ForumImporter::target_available()
 			&& null !== ForumImporter::for_source( $source );
 

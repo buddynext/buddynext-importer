@@ -23,6 +23,7 @@ use BuddyNextImporter\Pipeline\MediaImporter;
 use BuddyNextImporter\Pipeline\MemberTypeImporter;
 use BuddyNextImporter\Pipeline\MessageImporter;
 use BuddyNextImporter\Pipeline\ProfileImporter;
+use BuddyNextImporter\Pipeline\BookmarkImporter;
 use BuddyNextImporter\Pipeline\ReactionImporter;
 use BuddyNextImporter\Pipeline\SkipReasons;
 use BuddyNextImporter\Pipeline\SpaceImporter;
@@ -564,6 +565,86 @@ final class MigrateCommand {
 		\WP_CLI::success( sprintf( 'Reactions imported: %d of %d likes.', $total, $seen ) );
 
 		$this->report_skips( $skipped, $seen, $total, 'likes' );
+	}
+
+	/**
+	 * Import saved activity bookmarks into BuddyNext.
+	 *
+	 * Reads the source's activity bookmark meta (`bp_bookmark` by default;
+	 * override with the `buddynext_importer_bookmark_meta_keys` filter when the
+	 * source site uses a different bookmark add-on). Requires the activity
+	 * import to have run first - a bookmark maps through the activity id-map,
+	 * and bookmarks on unimported activities are dropped with them.
+	 *
+	 * Bookmarks on COMMENTS are reported and skipped: bn_bookmarks is keyed
+	 * (user_id, post_id), so there is nowhere for them to land.
+	 *
+	 * Writes only through the BuddyNext service API; bn_bookmarks' primary key
+	 * makes re-runs idempotent.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--source=<source>]
+	 * : Source platform. Defaults to the detected active source.
+	 *
+	 * [--batch=<batch>]
+	 * : Source meta rows per batch. Default 200.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp buddynext-import migrate-bookmarks
+	 *
+	 * @subcommand migrate-bookmarks
+	 *
+	 * @param array<int,string>    $args       Positional args (unused).
+	 * @param array<string,string> $assoc_args Associative args.
+	 */
+	public function migrate_bookmarks( array $args, array $assoc_args ): void {
+		if ( ! Plugin::buddynext_active() ) {
+			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
+		}
+
+		$source = isset( $assoc_args['source'] )
+			? sanitize_key( $assoc_args['source'] )
+			: AdapterRegistry::detect_active_key();
+
+		if ( null === $source ) {
+			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+		}
+
+		$importer = BookmarkImporter::for_source( $source );
+		if ( null === $importer ) {
+			\WP_CLI::error( sprintf( 'Source %s is not available on this site.', $source ) );
+		}
+
+		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 200;
+
+		// Batches are non-uniform - one source meta row can carry several
+		// bookmarks - so a short batch is normal and only an empty one means the
+		// domain is finished.
+		$after   = Checkpoint::get( $source, 'bookmark' );
+		$total   = 0;
+		$seen    = 0;
+		$skipped = array();
+		do {
+			$result = $importer->import_batch( $after, $batch );
+			$total += $result['bookmarks'];
+			$seen  += $result['fetched'];
+			$after  = $result['last'];
+			Checkpoint::set( $source, 'bookmark', $after );
+
+			foreach ( $result['skipped'] as $reason => $count ) {
+				$skipped[ $reason ] = ( $skipped[ $reason ] ?? 0 ) + (int) $count;
+			}
+		} while ( $result['fetched'] > 0 );
+
+		$this->settle_checkpoint( $source, 'bookmark', $seen, $total + array_sum( $skipped ) );
+
+		ImportLedger::add( $source, 'bookmark', $total );
+
+		\WP_CLI::success( sprintf( 'Bookmarks imported: %d of %d.', $total, $seen ) );
+
+		$this->report_skips( $skipped, $seen, $total, 'bookmarks' );
 	}
 
 	/**
