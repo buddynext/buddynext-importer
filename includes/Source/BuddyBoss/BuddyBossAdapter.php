@@ -59,9 +59,11 @@ class BuddyBossAdapter extends BuddyPressAdapter {
 		$stats = parent::stats();
 
 		// Activity media in scope: photos (bp_media) + videos (bp_video on older
-		// installs; folded into bp_media on 2.x, so it is not double-counted).
+		// installs; folded into bp_media on 2.x, so it is not double-counted),
+		// plus WPMediaVerse links, which the posts pass imports on this source too.
 		$stats['activity_media'] = $this->table_count( 'bp_media', 'COALESCE( activity_id, 0 ) <> 0' )
-			+ ( $this->table_exists( 'bp_video' ) ? $this->table_count( 'bp_video' ) : 0 );
+			+ ( $this->table_exists( 'bp_video' ) ? $this->table_count( 'bp_video' ) : 0 )
+			+ $this->mvs_activity_media_count();
 
 		// Library + album media. The predicate MUST stay in step with
 		// standalone_media()'s WHERE clause: this is the "source" side of the

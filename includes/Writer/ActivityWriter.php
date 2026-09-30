@@ -107,7 +107,7 @@ final class ActivityWriter {
 		$content   = $this->clean_content( (string) $activity['content'] );
 		$media_ids = array_merge(
 			$this->ingest_media( $media_atts, $user_id ),
-			$this->verified_engine_media( $mvs_media_ids )
+			self::verified_engine_media( $mvs_media_ids )
 		);
 
 		// A post needs either content or media.
@@ -643,10 +643,13 @@ final class ActivityWriter {
 	 * pointed at (trashed, deleted), and this drops those rather than attaching
 	 * a dangling id to the migrated post.
 	 *
+	 * Public because VerifyService applies the same rule when it checks a
+	 * migrated post for its photos: a dropped dangling link is not a loss.
+	 *
 	 * @param array<int,int> $media_ids Candidate engine media ids.
 	 * @return array<int,int> The subset that is still usable.
 	 */
-	private function verified_engine_media( array $media_ids ): array {
+	public static function verified_engine_media( array $media_ids ): array {
 		if ( empty( $media_ids ) ) {
 			return array();
 		}

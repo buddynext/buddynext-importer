@@ -40,6 +40,7 @@ use BuddyNextImporter\Pipeline\DomainSelection;
 use BuddyNextImporter\Pipeline\ImportLedger;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Source\AdapterRegistry;
+use BuddyNextImporter\Writer\ActivityWriter;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -73,7 +74,7 @@ final class VerifyService {
 			'domains'   => $this->domains( $source, $adapter ),
 			'samples'   => array(
 				'spaces'     => $this->sample_spaces( $source, $samples ),
-				'activities' => $this->sample_activities( $source, $samples ),
+				'activities' => $this->sample_activities( $source, $samples, $adapter ),
 			),
 		);
 	}
@@ -419,14 +420,15 @@ final class VerifyService {
 	}
 
 	/**
-	 * Spot-check random activities: the space they belong to, and the comments
-	 * and reactions hanging off them.
+	 * Spot-check random activities: the space they belong to, their WPMediaVerse
+	 * photos, and the comments and reactions hanging off them.
 	 *
-	 * @param string $source Source key.
-	 * @param int    $limit  How many to check.
+	 * @param string $source  Source key.
+	 * @param int    $limit   How many to check.
+	 * @param object $adapter Source adapter, for the source side of the photo check.
 	 * @return array<int,array<string,mixed>>
 	 */
-	private function sample_activities( string $source, int $limit ): array {
+	private function sample_activities( string $source, int $limit, object $adapter ): array {
 		global $wpdb;
 
 		$map = $wpdb->prefix . 'bni_id_map';
@@ -484,6 +486,25 @@ final class VerifyService {
 				$problems[] = sprintf( '%d source comments, %d imported', $src_comments, $bn_comments );
 			}
 
+			// WPMediaVerse photos. Totals cannot see these - the post lands with
+			// its text and every count reconciles while each photo is gone, which
+			// is exactly how a run that dropped all of them passed verify. Only
+			// ids that are still published engine media are expected, by the
+			// writer's own rule, so a link to since-deleted media is not a loss.
+			$src_media = ActivityWriter::verified_engine_media( $adapter->mvs_activity_media_for( array( $src ) )[ $src ] ?? array() );
+			$bn_media  = 0;
+			if ( $src_media ) {
+				$bn_media = (int) $wpdb->get_var( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- verify reads what is on disk, uncached (see class docblock).
+					$wpdb->prepare(
+						"SELECT COUNT(*) FROM {$wpdb->prefix}bn_post_media WHERE post_id = %d AND media_id IN ( " . implode( ', ', array_fill( 0, count( $src_media ), '%d' ) ) . ' )', // phpcs:ignore WordPress.DB
+						array_merge( array( $bn ), $src_media )
+					)
+				);
+				if ( $bn_media < count( $src_media ) ) {
+					$problems[] = sprintf( '%d WPMediaVerse photo(s) at source, %d attached', count( $src_media ), $bn_media );
+				}
+			}
+
 			$bn_reactions = $this->table_exists( $wpdb->prefix . 'bn_reactions' )
 				? (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}bn_reactions WHERE object_type = 'post' AND object_id = %d", $bn ) ) // phpcs:ignore WordPress.DB
 				: 0;
@@ -492,7 +513,7 @@ final class VerifyService {
 				'source_id' => $src,
 				'bn_id'     => $bn,
 				'content'   => (string) $row['content'],
-				'detail'    => sprintf( 'space %d, %d comment(s), %d reaction(s)', $actual_space, $bn_comments, $bn_reactions ),
+				'detail'    => sprintf( 'space %d, %d of %d photo(s), %d comment(s), %d reaction(s)', $actual_space, $bn_media, count( $src_media ), $bn_comments, $bn_reactions ),
 				'problems'  => $problems,
 			);
 		}

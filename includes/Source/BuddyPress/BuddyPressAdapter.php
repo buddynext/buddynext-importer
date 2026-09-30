@@ -136,10 +136,12 @@ class BuddyPressAdapter implements SourceAdapter {
 				? $this->table_count( 'bb_user_reactions', "item_type = 'activity'" )
 				: $this->favorites_count(),
 			'message_threads'              => $this->message_thread_count(),
-			// rtMedia activity media (photos/videos/audio) on a BuddyPress source.
-			// BuddyBoss overrides activity_media differently (bp_media); this is
-			// the plain-BP path, 0 when rtMedia is absent.
-			'activity_media'               => $this->rtmedia_activity_count(),
+			// Activity media on a BuddyPress source: rtMedia items plus
+			// WPMediaVerse's own activity linkage. Counting rtMedia alone showed
+			// 0 photos on a WPMediaVerse site, so a run that dropped every one of
+			// them had nothing to fall short against. BuddyBoss overrides the
+			// rtMedia half (bp_media); each half is 0 when its plugin is absent.
+			'activity_media'               => $this->rtmedia_activity_count() + $this->mvs_activity_media_count(),
 			// rtMedia albums and their contents. Each predicate MUST match its
 			// reader character for character - this is the source side of the
 			// source-vs-written comparison, so drift here reports a phantom
@@ -1802,6 +1804,15 @@ class BuddyPressAdapter implements SourceAdapter {
 		}
 
 		return $this->table_count( 'rt_rtm_media', "activity_id > 0 AND media_type <> 'album'" );
+	}
+
+	/**
+	 * Count WPMediaVerse activity-media links (the other BuddyPress
+	 * activity-media source). The predicate matches mvs_activity_media_for()'s,
+	 * so source and imported counts are comparable. 0 when the table is absent.
+	 */
+	protected function mvs_activity_media_count(): int {
+		return $this->table_count( 'mvs_bp_activity_media', "object_type = 'bp_activity' AND media_id > 0" );
 	}
 
 	/**
