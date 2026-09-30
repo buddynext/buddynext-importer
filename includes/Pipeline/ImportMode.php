@@ -203,6 +203,16 @@ final class ImportMode {
 		add_filter( 'buddynext_can_follow', $allow, PHP_INT_MAX );
 		add_filter( 'buddynext_can_connect', $allow, PHP_INT_MAX );
 
+		// The post throttle (buddynext_post_rate_limit per author per minute,
+		// SafeguardService::check_rate_limit()) is the post twin of the comment
+		// throttle above. It counts bn_posts by created_at, and an imported post
+		// keeps its source date, so it only bites on source activity from the
+		// last minute - exactly what a delta/cutover run imports. A real cutover
+		// had 137 of 210 recent posts refused as rate_limited. BuddyNext's own
+		// exemption filter lifts it; the other safeguards (banned words, blocked
+		// domains) still run.
+		add_filter( 'buddynext_rate_limit_exempt', $allow, PHP_INT_MAX );
+
 		// The follow cap (default 5,000) bounds a member's following set for
 		// feed performance - a today's-limit guard, not a privacy choice. Source
 		// history can legitimately exceed it, so it is lifted for the replay like

@@ -119,6 +119,36 @@ final class SkipReasons {
 	}
 
 	/**
+	 * How many skipped rows the resume cursor may step past.
+	 *
+	 * A deterministic refusal (space_not_imported, withheld_at_source, a block...)
+	 * refuses again on every run, so it is ACCOUNTED FOR: counting it keeps a clean
+	 * re-run from re-scanning the domain from row 0. A rate-limit refusal is not -
+	 * the same row writes fine a minute later. Counting it as handled let the
+	 * cursor step permanently past rows that were never written and never mapped,
+	 * so a plain re-run could not bring them back. Leaving it out makes the batch
+	 * report a gap, and every surface that owns a cursor (CLI settle, background
+	 * runner) then clears it so the next run retries those rows.
+	 *
+	 * Matched by suffix, as describe() matches, so Pro's hourly cap
+	 * (bnpro_rate_limited) is caught as well as Free's per-minute throttle.
+	 *
+	 * @param array<string,int> $skipped Skip reason to count.
+	 * @return int Skips that are safe for the cursor to pass.
+	 */
+	public static function accounted( array $skipped ): int {
+		$total = 0;
+
+		foreach ( $skipped as $reason => $count ) {
+			if ( ! str_ends_with( (string) $reason, 'rate_limited' ) ) {
+				$total += (int) $count;
+			}
+		}
+
+		return $total;
+	}
+
+	/**
 	 * Fold a domain's raw skip map into readable sentences.
 	 *
 	 * Matches the bare reason AND its per-kind variants ("avatar_already_imported",

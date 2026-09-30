@@ -520,11 +520,12 @@ final class StepRegistry {
 				//
 				// Reported here rather than acted on, because the caller owns the
 				// cursor. Erring toward a false gap is the safe direction: it
-				// costs a re-scan, never a row.
+				// costs a re-scan, never a row. A transient refusal (a rate
+				// limit) is not accounted for - see SkipReasons::accounted().
 				$seen      = (int) ( $result['fetched'] ?? 0 );
 				$accounted = $rows
 					+ (int) ( $result['existing'] ?? 0 )
-					+ array_sum( array_map( 'intval', (array) ( $result['skipped'] ?? array() ) ) );
+					+ SkipReasons::accounted( (array) ( $result['skipped'] ?? array() ) );
 
 				return array_merge(
 					$result,

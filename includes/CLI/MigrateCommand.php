@@ -320,7 +320,7 @@ final class MigrateCommand {
 		// comparison. Leaving them out made every run look like it had left a gap
 		// behind the cursor, which cleared the checkpoint and re-scanned the whole
 		// activity domain from row 0 on each run.
-		$this->settle_checkpoint( $source, 'post', $posts_seen, $posts + $posts_existing + array_sum( $posts_skipped ) );
+		$this->settle_checkpoint( $source, 'post', $posts_seen, $posts + $posts_existing + SkipReasons::accounted( $posts_skipped ) );
 		\WP_CLI::log( sprintf( '%d posts imported.', $posts ) );
 
 		$after             = Checkpoint::get( $source, 'comment' );
@@ -339,7 +339,7 @@ final class MigrateCommand {
 			}
 			Checkpoint::set( $source, 'comment', $after );
 		} while ( $result['fetched'] === $batch );
-		$this->settle_checkpoint( $source, 'comment', $comments_seen, $comments + $comments_existing + array_sum( $comments_skipped ) );
+		$this->settle_checkpoint( $source, 'comment', $comments_seen, $comments + $comments_existing + SkipReasons::accounted( $comments_skipped ) );
 
 		ImportLedger::add( $source, 'post', $posts );
 		ImportLedger::add( $source, 'comment', $comments );
@@ -415,7 +415,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, 'connection', $seen, $total + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, 'connection', $seen, $total + SkipReasons::accounted( $skipped ) );
 
 		ImportLedger::add( $source, 'connection', $total );
 
@@ -484,7 +484,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, 'follow', $seen, $total + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, 'follow', $seen, $total + SkipReasons::accounted( $skipped ) );
 
 		ImportLedger::add( $source, 'follow', $total );
 
@@ -558,7 +558,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['fetched'] > 0 );
 
-		$this->settle_checkpoint( $source, 'reaction', $seen, $total + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, 'reaction', $seen, $total + SkipReasons::accounted( $skipped ) );
 
 		ImportLedger::add( $source, 'reaction', $total );
 
@@ -638,7 +638,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['fetched'] > 0 );
 
-		$this->settle_checkpoint( $source, 'bookmark', $seen, $total + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, 'bookmark', $seen, $total + SkipReasons::accounted( $skipped ) );
 
 		ImportLedger::add( $source, 'bookmark', $total );
 
@@ -718,7 +718,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, 'dm_thread', $source_messages, $messages + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, 'dm_thread', $source_messages, $messages + SkipReasons::accounted( $skipped ) );
 
 		// Threads accounted for, matching the message_threads source stat. A
 		// merged thread was folded into a conversation that already existed, so
@@ -941,7 +941,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, 'member_type_user', $members, $assignments + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, 'member_type_user', $members, $assignments + SkipReasons::accounted( $skipped ) );
 
 		ImportLedger::add( $source, 'member_type_user', (int) $assignments );
 		\WP_CLI::success(
@@ -1052,7 +1052,7 @@ final class MigrateCommand {
 			Checkpoint::set( $source, 'album_media', $after );
 		} while ( (int) $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, 'album_media', $album_seen, $album_media + array_sum( $album_skipped ) );
+		$this->settle_checkpoint( $source, 'album_media', $album_seen, $album_media + SkipReasons::accounted( $album_skipped ) );
 		ImportLedger::add( $source, 'album_media', $album_media );
 
 		\WP_CLI::log( sprintf( '%d album photos filed.', $album_media ) );
@@ -1075,7 +1075,7 @@ final class MigrateCommand {
 			}
 		} while ( $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, 'standalone_media', $source_media, $media + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, 'standalone_media', $source_media, $media + SkipReasons::accounted( $skipped ) );
 
 		ImportLedger::add( $source, 'media_album', (int) $albums );
 		ImportLedger::add( $source, 'standalone_media', (int) $media );
@@ -1193,7 +1193,7 @@ final class MigrateCommand {
 			Checkpoint::set( $source, $checkpoint, $after );
 		} while ( (int) $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, $checkpoint, $seen, $done + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, $checkpoint, $seen, $done + SkipReasons::accounted( $skipped ) );
 
 		return array(
 			'done'    => $done,
@@ -1235,7 +1235,7 @@ final class MigrateCommand {
 			Checkpoint::set( $source, $checkpoint, $after );
 		} while ( (int) $result['fetched'] === $batch );
 
-		$this->settle_checkpoint( $source, $checkpoint, $seen, $total + $existing + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, $checkpoint, $seen, $total + $existing + SkipReasons::accounted( $skipped ) );
 
 		return array(
 			'done'     => $total,
@@ -1375,7 +1375,7 @@ final class MigrateCommand {
 		// Deterministic refusals are accounted for, so they belong in the settle
 		// comparison - otherwise the gap check fires on every run and re-scans
 		// the domain from row 0 each time.
-		$this->settle_checkpoint( $source, $domain, $seen, $written + $existing + array_sum( $skipped ) );
+		$this->settle_checkpoint( $source, $domain, $seen, $written + $existing + SkipReasons::accounted( $skipped ) );
 
 		\WP_CLI::log( sprintf( '%d %s imported.', $written, $label ) );
 		$this->report_existing( $existing, $label );
