@@ -86,17 +86,23 @@ final class ActivityImporter {
 		$last     = $after;
 
 		// Resolve every activity's media in one query set for the whole page,
-		// instead of one lookup per row (an N+1 that dominated at scale).
+		// instead of one lookup per row (an N+1 that dominated at scale). Two
+		// separate maps: attachment ids that still need ingesting (rtMedia/
+		// bp_media) and engine-native ids that don't (WPMediaVerse) - see
+		// SourceAdapter::mvs_activity_media_for()'s docblock for why they must
+		// never be merged into one array.
 		$source_ids = array();
 		foreach ( $rows as $row ) {
 			$source_ids[] = (int) $row['source_id'];
 		}
-		$media_by_activity = $this->adapter->activity_media_for( $source_ids );
+		$media_by_activity     = $this->adapter->activity_media_for( $source_ids );
+		$mvs_media_by_activity = $this->adapter->mvs_activity_media_for( $source_ids );
 
 		foreach ( $rows as $row ) {
-			$last   = (int) $row['source_id'];
-			$media  = $media_by_activity[ $last ] ?? array();
-			$result = $this->writer->import_post( $row, $media );
+			$last      = (int) $row['source_id'];
+			$media     = $media_by_activity[ $last ] ?? array();
+			$mvs_media = $mvs_media_by_activity[ $last ] ?? array();
+			$result    = $this->writer->import_post( $row, $media, $mvs_media );
 
 			if ( $result['created'] ) {
 				++$posts;

@@ -1737,6 +1737,62 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * {@inheritDoc}
+	 *
+	 * Reads WPMediaVerse's OWN BuddyPress activity-media linkage table
+	 * (`mvs_bp_activity_media`, written by
+	 * `WPMediaVerse\Integrations\BuddyPress\ActivityMediaLinkage`) - the media
+	 * plugin a modern BuddyPress site uses instead of rtMedia. Its `media_id`
+	 * column is a WPMediaVerse engine id, never a WP attachment id (see the
+	 * interface docblock), so this is read entirely separately from
+	 * {@see self::rtmedia_activity_attachments_for()}.
+	 *
+	 * `object_type = 'bp_activity'` scopes the table to BuddyPress activity
+	 * links only: the same table also links media to non-activity objects
+	 * (`bn_post`, spaces, …) since Migrator v16 generalised it, and every
+	 * pre-v16 row defaults to `'bp_activity'` on upgrade, so this filter never
+	 * excludes a legitimate legacy row.
+	 *
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>> Activity id => engine media ids.
+	 */
+	public function mvs_activity_media_for( array $activity_ids ): array {
+		global $wpdb;
+
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map( 'intval', $activity_ids ),
+					static function ( $id ) {
+						return $id > 0;
+					}
+				)
+			)
+		);
+
+		if ( empty( $ids ) || ! $this->table_exists( 'mvs_bp_activity_media' ) ) {
+			return array();
+		}
+
+		$table        = $wpdb->prefix . 'mvs_bp_activity_media';
+		$placeholders = implode( ', ', array_fill( 0, count( $ids ), '%d' ) );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT activity_id, media_id FROM `{$table}` WHERE activity_id IN ( {$placeholders} ) AND object_type = 'bp_activity' AND media_id > 0 ORDER BY activity_id ASC, position ASC", $ids ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$aid = (int) $row['activity_id'];
+			$mid = (int) $row['media_id'];
+			if ( $aid > 0 && $mid > 0 ) {
+				$out[ $aid ][] = $mid;
+			}
+		}
+
+		return $out;
+	}
+
+	/**
 	 * Count rtMedia items attached to activities (the BuddyPress activity-media
 	 * source). 0 when rtMedia is not installed.
 	 */

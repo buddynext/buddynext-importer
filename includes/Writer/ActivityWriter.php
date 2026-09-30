@@ -87,11 +87,12 @@ final class ActivityWriter {
 	 * Reports whether the post was CREATED, not merely resolved, so a resumed run
 	 * does not report rows as imported when the id-map simply already had them.
 	 *
-	 * @param array<string,mixed> $activity   Source activity record.
-	 * @param array<int,int>      $media_atts WP attachment ids attached to the activity.
+	 * @param array<string,mixed> $activity      Source activity record.
+	 * @param array<int,int>      $media_atts    WP attachment ids attached to the activity (rtMedia/bp_media).
+	 * @param array<int,int>      $mvs_media_ids Engine-native media ids attached via WPMediaVerse (already valid, never ingested).
 	 * @return array{id:int,created:bool,reason?:string} BuddyNext post id (0 on failure/skip).
 	 */
-	public function import_post( array $activity, array $media_atts = array() ): array {
+	public function import_post( array $activity, array $media_atts = array(), array $mvs_media_ids = array() ): array {
 		$source_id = (int) $activity['source_id'];
 
 		$existing = IdMap::get( $this->source, 'post', $source_id );
@@ -104,7 +105,10 @@ final class ActivityWriter {
 
 		$user_id   = (int) $activity['user_id'];
 		$content   = $this->clean_content( (string) $activity['content'] );
-		$media_ids = $this->ingest_media( $media_atts, $user_id );
+		$media_ids = array_merge(
+			$this->ingest_media( $media_atts, $user_id ),
+			$this->verified_engine_media( $mvs_media_ids )
+		);
 
 		// A post needs either content or media.
 		if ( '' === $content && empty( $media_ids ) ) {
@@ -628,6 +632,43 @@ final class ActivityWriter {
 	private function utc( string $value ): string {
 		$timestamp = strtotime( $value . ' UTC' );
 		return false === $timestamp ? '' : gmdate( 'Y-m-d H:i:s', $timestamp );
+	}
+
+	/**
+	 * Filter a list of WPMediaVerse engine media ids down to ones that still
+	 * exist and are published, the same guard WPMediaVerse's own activity
+	 * renderer applies (ActivityMediaLinkage::render()). These ids are already
+	 * valid BuddyNext media - not WP attachment ids - so unlike ingest_media()
+	 * there is nothing to upload; a linkage row can simply outlive the media it
+	 * pointed at (trashed, deleted), and this drops those rather than attaching
+	 * a dangling id to the migrated post.
+	 *
+	 * @param array<int,int> $media_ids Candidate engine media ids.
+	 * @return array<int,int> The subset that is still usable.
+	 */
+	private function verified_engine_media( array $media_ids ): array {
+		if ( empty( $media_ids ) ) {
+			return array();
+		}
+
+		$repo = \BuddyNext\Media\MediaClient::repo();
+		if ( ! $repo || ! is_callable( array( $repo, 'exists' ) ) || ! is_callable( array( $repo, 'get' ) ) ) {
+			return array();
+		}
+
+		$verified = array();
+		foreach ( $media_ids as $media_id ) {
+			$media_id = (int) $media_id;
+			if ( $media_id <= 0 || ! $repo->exists( $media_id ) ) {
+				continue;
+			}
+			if ( 'publish' !== (string) $repo->get( $media_id, 'status' ) ) {
+				continue;
+			}
+			$verified[] = $media_id;
+		}
+
+		return $verified;
 	}
 
 	/**

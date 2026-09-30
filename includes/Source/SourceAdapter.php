@@ -171,6 +171,28 @@ interface SourceAdapter {
 	public function activity_media_for( array $activity_ids ): array;
 
 	/**
+	 * Batched activity media for a source whose media plugin IS the BuddyNext
+	 * media engine (WPMediaVerse), not rtMedia/bp_media.
+	 *
+	 * The ids returned here are ALREADY WPMediaVerse/BuddyNext engine media ids
+	 * - never WP attachment ids - because BuddyNext consumes WPMediaVerse as its
+	 * own media engine directly (\BuddyNext\Media\MediaClient), on the SAME
+	 * database this importer runs against. There is nothing to ingest: unlike
+	 * {@see self::activity_media_for()}'s attachment ids, these never pass
+	 * through MediaIngest. Kept as a SEPARATE method (not merged into
+	 * activity_media_for()'s return) so the two id spaces are never silently
+	 * mixed - see ActivityWriter::import_post().
+	 *
+	 * A source with no WPMediaVerse activity-linkage table (plain BuddyPress +
+	 * rtMedia, or WPMediaVerse not installed on the source) returns an empty
+	 * array for every id.
+	 *
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>> Activity id => engine media ids.
+	 */
+	public function mvs_activity_media_for( array $activity_ids ): array;
+
+	/**
 	 * Member avatars and cover images, keyset-paginated by user id.
 	 *
 	 * These are files on disk, not rows: BuddyPress and BuddyBoss both store an
