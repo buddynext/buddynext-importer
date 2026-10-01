@@ -72,6 +72,7 @@ final class VerifyService {
 			'relations' => method_exists( $adapter, 'relationship_report' ) ? $adapter->relationship_report() : array(),
 			'exposure'  => $this->exposure(),
 			'domains'   => $this->domains( $source, $adapter ),
+			'media'     => $this->media_totals( $source, $adapter ),
 			'samples'   => array(
 				'spaces'     => $this->sample_spaces( $source, $samples ),
 				'activities' => $this->sample_activities( $source, $samples, $adapter ),
@@ -517,6 +518,117 @@ final class VerifyService {
 				'problems'  => $problems,
 			);
 		}
+
+		return $out;
+	}
+
+	/**
+	 * WPMediaVerse photos, totalled over EVERY migrated post.
+	 *
+	 * The spot-check only looks at sampled posts, so a large migration that lost
+	 * a handful of photos usually passed (Zoho #41808 lost all of them and
+	 * verify still said every sampled object was correct). This walks the post
+	 * id map in keyset batches and compares the source's published photo links
+	 * (the writer's own rule, via ActivityWriter::published_engine_media())
+	 * with bn_post_media on the mapped post. Any shortfall is reported whatever
+	 * the sample size.
+	 *
+	 * @param string $source  Source key.
+	 * @param object $adapter Source adapter.
+	 * @return array{checked:bool,expected:int,attached:int,missing:int,posts_short:int,examples:array<int,array<string,int>>}
+	 */
+	private function media_totals( string $source, object $adapter ): array {
+		global $wpdb;
+
+		$out = array(
+			'checked'     => false,
+			'expected'    => 0,
+			'attached'    => 0,
+			'missing'     => 0,
+			'posts_short' => 0,
+			'examples'    => array(),
+		);
+
+		$map = $wpdb->prefix . 'bni_id_map';
+		if ( ! method_exists( $adapter, 'mvs_activity_media_for' ) || ! $this->table_exists( $map ) || ! $this->table_exists( $wpdb->prefix . 'bn_post_media' ) ) {
+			return $out;
+		}
+		$out['checked'] = true;
+
+		$after = 0;
+		do {
+			// Keyset on the (source, domain, source_id) unique key: every batch is an
+			// index range read, however deep into the migration it is.
+			$pairs = (array) $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				$wpdb->prepare(
+					"SELECT source_id, bn_id FROM `{$map}` WHERE source = %s AND domain = 'post' AND source_id > %d ORDER BY source_id LIMIT 500", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $map is the prefixed table name.
+					$source,
+					$after
+				),
+				ARRAY_A
+			);
+			$batch = count( $pairs );
+			if ( 0 === $batch ) {
+				break;
+			}
+			$after = (int) end( $pairs )['source_id'];
+
+			$bn_of = array();
+			foreach ( $pairs as $pair ) {
+				$bn_of[ (int) $pair['source_id'] ] = (int) $pair['bn_id'];
+			}
+
+			$links     = (array) $adapter->mvs_activity_media_for( array_keys( $bn_of ) );
+			$all_media = array();
+			foreach ( $links as $ids ) {
+				foreach ( (array) $ids as $mid ) {
+					$all_media[] = (int) $mid;
+				}
+			}
+			$published = ActivityWriter::published_engine_media( $all_media );
+			if ( array() === $published ) {
+				continue;
+			}
+
+			// What each mapped post carries now, one query for the batch.
+			$attached = array();
+			$posts    = array_values( $bn_of );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- placeholder list built from the batch.
+			$rows = (array) $wpdb->get_results( $wpdb->prepare( "SELECT post_id, media_id FROM {$wpdb->prefix}bn_post_media WHERE post_id IN ( " . implode( ', ', array_fill( 0, count( $posts ), '%d' ) ) . ' )', $posts ), ARRAY_A );
+			foreach ( $rows as $row ) {
+				$attached[ (int) $row['post_id'] . ':' . (int) $row['media_id'] ] = true;
+			}
+
+			foreach ( $links as $src => $ids ) {
+				$bn       = $bn_of[ (int) $src ] ?? 0;
+				$expected = 0;
+				$have     = 0;
+				foreach ( array_unique( array_map( 'intval', (array) $ids ) ) as $mid ) {
+					if ( ! isset( $published[ $mid ] ) ) {
+						continue;
+					}
+					++$expected;
+					if ( isset( $attached[ $bn . ':' . $mid ] ) ) {
+						++$have;
+					}
+				}
+				$out['expected'] += $expected;
+				$out['attached'] += $have;
+				if ( $have < $expected ) {
+					++$out['posts_short'];
+					if ( count( $out['examples'] ) < 10 ) {
+						$out['examples'][] = array(
+							'source_id' => (int) $src,
+							'bn_id'     => $bn,
+							'expected'  => $expected,
+							'attached'  => $have,
+						);
+					}
+				}
+			}
+		} while ( 500 === $batch );
+
+		$out['missing'] = $out['expected'] - $out['attached'];
 
 		return $out;
 	}
