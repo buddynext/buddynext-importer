@@ -1845,7 +1845,23 @@ final class MigrateCommand {
 			);
 		}
 
-		// 5. Objects, walked end to end. Totals cannot see placement.
+		// 5. WPMediaVerse photos over every migrated post - not just the sample.
+		$media = (array) ( $report['media'] ?? array() );
+		if ( ! empty( $media['checked'] ) && (int) $media['expected'] > 0 ) {
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== WPMediaVerse photos (all migrated posts) ==' );
+			if ( (int) $media['missing'] > 0 ) {
+				++$problems;
+				\WP_CLI::log( sprintf( '  SHORT %d of %d photo(s) attached - %d missing across %d post(s)', (int) $media['attached'], (int) $media['expected'], (int) $media['missing'], (int) $media['posts_short'] ) );
+				foreach ( (array) $media['examples'] as $ex ) {
+					\WP_CLI::log( sprintf( '        activity %d -> post %d: %d of %d attached', (int) $ex['source_id'], (int) $ex['bn_id'], (int) $ex['attached'], (int) $ex['expected'] ) );
+				}
+			} else {
+				\WP_CLI::log( sprintf( '  ok    all %d photo(s) attached', (int) $media['expected'] ) );
+			}
+		}
+
+		// 6. Objects, walked end to end. Totals cannot see placement.
 		foreach ( array(
 			'spaces'     => 'Spaces',
 			'activities' => 'Activities',
@@ -1892,7 +1908,8 @@ final class MigrateCommand {
 		// Non-zero only for a genuinely wrong OBJECT, never for a shortfall that
 		// Coverage already explained - otherwise every migration with legitimately
 		// unmigratable content would look like a failed one.
-		$broken = 0;
+		// Lost photos are wrongly migrated objects too, whatever the sample saw.
+		$broken = (int) ( $report['media']['missing'] ?? 0 );
 		foreach ( array( 'spaces', 'activities' ) as $kind ) {
 			foreach ( (array) ( $report['samples'][ $kind ] ?? array() ) as $row ) {
 				$broken += count( (array) $row['problems'] );

@@ -675,6 +675,37 @@ final class ActivityWriter {
 	}
 
 	/**
+	 * The batch form of verified_engine_media(): the same rule (the media row
+	 * exists and its status is `publish`) for many ids in one query.
+	 *
+	 * For a pass over a whole migration (verify's photo totals), where
+	 * verified_engine_media()'s two lookups per id would be tens of thousands
+	 * of queries. Keep the two rules in step.
+	 *
+	 * @param int[] $media_ids Candidate media ids.
+	 * @return array<int,true> Published ids as keys.
+	 */
+	public static function published_engine_media( array $media_ids ): array {
+		global $wpdb;
+
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $media_ids ) ) ) );
+		if ( array() === $ids || ! \BuddyNext\Media\MediaClient::repo() ) {
+			return array();
+		}
+
+		$found = array();
+		foreach ( array_chunk( $ids, 1000 ) as $chunk ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- placeholder list built from the chunk size.
+			$rows = $wpdb->get_col( $wpdb->prepare( "SELECT media_id FROM {$wpdb->prefix}mvs_media_index WHERE status = 'publish' AND media_id IN ( " . implode( ', ', array_fill( 0, count( $chunk ), '%d' ) ) . ' )', $chunk ) );
+			foreach ( (array) $rows as $mid ) {
+				$found[ (int) $mid ] = true;
+			}
+		}
+
+		return $found;
+	}
+
+	/**
 	 * Ingest source WP attachments into the BuddyNext media engine, returning the
 	 * resulting media ids. Delegates to the shared MediaIngest so activity photos
 	 * and standalone album photos share one implementation AND one id-map domain -

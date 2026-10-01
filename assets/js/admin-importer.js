@@ -645,6 +645,23 @@
 			out.appendChild( exp );
 		}
 
+		// WPMediaVerse photos over EVERY migrated post, not just the sample: a
+		// handful of lost photos in a large migration is what sampling misses.
+		var media = report.media || {};
+		if ( media.checked && media.expected > 0 ) {
+			var med = verifySection( t( 'verifyPhotos', 'Photos (all migrated posts)' ) );
+			if ( media.missing > 0 ) {
+				problems++;
+				med.appendChild( verifyLine( 'bad', media.attached + ' / ' + media.expected + ' ' + t( 'verifyPhotosShort', 'photos attached' ) + ' - ' + media.missing + ' ' + t( 'verifyPhotosMissing', 'missing across' ) + ' ' + media.posts_short + ' ' + t( 'verifyPhotosPosts', 'post(s)' ) ) );
+				( media.examples || [] ).forEach( function ( ex ) {
+					med.appendChild( verifyLine( 'detail', 'activity ' + ex.source_id + ' -> post ' + ex.bn_id + ': ' + ex.attached + ' / ' + ex.expected ) );
+				} );
+			} else {
+				med.appendChild( verifyLine( 'ok', t( 'verifyPhotosOk', 'Every photo is attached:' ) + ' ' + media.expected ) );
+			}
+			out.appendChild( med );
+		}
+
 		// Objects walked end to end. Totals cannot see placement; this can.
 		[
 			[ 'spaces', t( 'verifySpaces', 'Spot-check: spaces' ) ],
