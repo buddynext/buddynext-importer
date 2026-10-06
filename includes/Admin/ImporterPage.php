@@ -142,7 +142,11 @@ final class ImporterPage {
 					'runFailed'           => __( 'The import stopped on an error. It is safe to run again - it resumes where it left off.', 'buddynext-importer' ),
 					'domain'              => __( 'Domain', 'buddynext-importer' ),
 					'shortfall'           => __( 'Fewer rows than the source holds. Some content cannot migrate - see the note below the table.', 'buddynext-importer' ),
-					'overImport'          => __( 'More rows than the source holds. Usually a run after cleanup imported earlier items a second time.', 'buddynext-importer' ),
+					/* translators: %d: how many more rows were imported than the source holds. */
+					'overImport'          => __( '%d more than the source holds. Usually a run after cleanup imported earlier items a second time.', 'buddynext-importer' ),
+					'verifyTotals'        => __( 'Totals that differ from the source', 'buddynext-importer' ),
+					/* translators: %d: how many fewer rows were imported than the source holds. */
+					'verifyShortBy'       => __( '%d fewer than the source holds.', 'buddynext-importer' ),
 					/* translators: 1: number of comments, 2: list of activity types with counts. */
 					'commentRoots'        => __( '%1$d comment(s) will not be migrated. They sit on system notices - joining a group, making a friend - which are not content and have no BuddyNext equivalent to attach to: %2$s.', 'buddynext-importer' ),
 					'count'               => __( 'Records', 'buddynext-importer' ),

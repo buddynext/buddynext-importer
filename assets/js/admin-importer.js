@@ -473,6 +473,7 @@
 
 			var got = document.createElement( 'td' );
 			got.className = 'bni-summary__num';
+			var overBy = 0;
 
 			if ( row.skipped ) {
 				// Chosen to be left behind. Not a number, and emphatically not a
@@ -488,8 +489,10 @@
 					got.title = ( cfg.i18n && cfg.i18n.shortfall ) || '';
 				} else if ( 'number' === typeof row.source && row.imported > row.source ) {
 					// Imported twice: a run after cleanup has no id map to dedupe against.
+					// Said in words on the row below; a colour and a tooltip alone do
+					// not reach a phone or a keyboard.
 					got.className += ' is-short';
-					got.title = ( cfg.i18n && cfg.i18n.overImport ) || '';
+					overBy = row.imported - row.source;
 				}
 			}
 			tr.appendChild( got );
@@ -508,6 +511,9 @@
 			// space they belong to". Codes with no known wording are not dropped -
 			// they stay in row.reasons and are still rendered, raw, below.
 			var notes = ( row.reason_notes || [] ).slice();
+			if ( overBy > 0 ) {
+				notes.unshift( overNote( overBy ) );
+			}
 			var leftover = row.reason_unexplained || {};
 			var unexplained = Object.keys( leftover );
 
@@ -590,6 +596,11 @@
 		return ( cfg.i18n && cfg.i18n[ key ] ) || fallback;
 	}
 
+	// One sentence for an over-count, used by the summary table and the checks.
+	function overNote( by ) {
+		return t( 'overImport', '%d more than the source holds. Usually a run after cleanup imported earlier items a second time.' ).replace( '%d', String( by ) );
+	}
+
 	function renderVerify( report ) {
 		var out = el( 'bni-verify-out' );
 		if ( ! out ) {
@@ -647,6 +658,23 @@
 				exp.appendChild( verifyLine( 'ok', t( 'verifyNoLeak', 'No private or secret space content is publicly searchable.' ) ) );
 			}
 			out.appendChild( exp );
+		}
+
+		// A total that is short or over is a finding, counted exactly as the
+		// command line counts it, so both give the owner the same number.
+		var differing = ( report.domains || [] ).filter( function ( d ) {
+			return ! d.skipped && null !== d.expected && undefined !== d.expected && d.imported !== d.expected;
+		} );
+		if ( differing.length ) {
+			var tot = verifySection( t( 'verifyTotals', 'Totals that differ from the source' ) );
+			differing.forEach( function ( d ) {
+				problems++;
+				var said = d.over > 0
+					? overNote( d.over )
+					: t( 'verifyShortBy', '%d fewer than the source holds.' ).replace( '%d', String( d.expected - d.imported ) ) + ( d.because ? ' ' + d.because : '' );
+				tot.appendChild( verifyLine( 'bad', d.label + ': ' + said ) );
+			} );
+			out.appendChild( tot );
 		}
 
 		// WPMediaVerse photos over EVERY migrated post, not just the sample: a
