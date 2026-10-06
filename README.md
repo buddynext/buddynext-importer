@@ -21,7 +21,7 @@ progress bar and a total.
 
 ```
 posts       1838   1443
-  395 posts were refused because their author is not a member of the space they belong to.
+  395 posts were refused by BuddyNext's permission checks, for example because the author is not a member of the space, or does not own a photo the post links to.
 comments   11006   8983
   7819 comments were on a post that did not migrate, so they were dropped with it.
 ```
