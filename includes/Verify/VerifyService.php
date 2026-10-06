@@ -65,18 +65,28 @@ final class VerifyService {
 			);
 		}
 
+		global $wpdb;
+
+		$domains = $this->domains( $source, $adapter );
+		// The spot checks pair a source object with its BuddyNext one through the
+		// id map. With the map gone (dropped by `cleanup`) they return nothing,
+		// and nothing sampled must not read as "every sampled object correct".
+		$imported      = array_sum( array_map( 'intval', array_column( $domains, 'imported' ) ) );
+		$samples_state = ( $imported > 0 && ! $this->table_exists( $wpdb->prefix . 'bni_id_map' ) ) ? 'id_map_missing' : '';
+
 		return array(
-			'source'    => $source,
-			'available' => true,
-			'coverage'  => $this->coverage( $adapter ),
-			'relations' => method_exists( $adapter, 'relationship_report' ) ? $adapter->relationship_report() : array(),
-			'exposure'  => $this->exposure(),
-			'domains'   => $this->domains( $source, $adapter ),
-			'media'     => $this->media_totals( $source, $adapter ),
-			'samples'   => array(
+			'source'         => $source,
+			'available'      => true,
+			'coverage'       => $this->coverage( $adapter ),
+			'relations'      => method_exists( $adapter, 'relationship_report' ) ? $adapter->relationship_report() : array(),
+			'exposure'       => $this->exposure(),
+			'domains'        => $domains,
+			'media'          => $this->media_totals( $source, $adapter ),
+			'samples'        => array(
 				'spaces'     => $this->sample_spaces( $source, $samples ),
 				'activities' => $this->sample_activities( $source, $samples, $adapter ),
 			),
+			'samples_reason' => $samples_state,
 		);
 	}
 
