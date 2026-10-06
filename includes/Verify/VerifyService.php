@@ -224,6 +224,10 @@ final class VerifyService {
 				'domain'    => $domain,
 				'expected'  => $expected,
 				'imported'  => (int) ( $ledger[ $domain ] ?? 0 ),
+				// More imported than the source holds: almost always a run after
+				// `cleanup`, which dropped the id map and re-imported what earlier
+				// runs had created. The ledger survives cleanup, so this still shows.
+				'over'      => ( null !== $expected && (int) ( $ledger[ $domain ] ?? 0 ) > $expected ) ? (int) ( $ledger[ $domain ] ?? 0 ) - $expected : 0,
 				'available' => (bool) ( $step['available'] )(),
 				'skipped'   => $skipped,
 				// Why a domain is short, when the answer is knowable from the
@@ -547,10 +551,23 @@ final class VerifyService {
 			'missing'     => 0,
 			'posts_short' => 0,
 			'examples'    => array(),
+			// Why the total could not run, when it should have: '' when it ran or
+			// does not apply (no photo source, no BuddyNext media table).
+			'reason'      => '',
 		);
 
 		$map = $wpdb->prefix . 'bni_id_map';
-		if ( ! method_exists( $adapter, 'mvs_activity_media_for' ) || ! $this->table_exists( $map ) || ! $this->table_exists( $wpdb->prefix . 'bn_post_media' ) ) {
+		if ( ! method_exists( $adapter, 'mvs_activity_media_for' ) || ! $this->table_exists( $wpdb->prefix . 'bn_post_media' ) ) {
+			return $out;
+		}
+		// The map is how a source post is paired with its BuddyNext post; without
+		// it (dropped by `cleanup`) nothing can be compared. Say so: a silent
+		// skip read as "every photo is there".
+		if ( ! $this->table_exists( $map ) ) {
+			// Only a finding when there were photos to compare.
+			if ( method_exists( $adapter, 'mvs_activity_media_count' ) && $adapter->mvs_activity_media_count() > 0 ) {
+				$out['reason'] = 'id_map_missing';
+			}
 			return $out;
 		}
 		$out['checked'] = true;

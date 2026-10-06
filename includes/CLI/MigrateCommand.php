@@ -1823,7 +1823,8 @@ final class MigrateCommand {
 			}
 
 			$short = ( null !== $expected && (int) $row['imported'] < (int) $expected );
-			if ( $short ) {
+			$over  = (int) ( $row['over'] ?? 0 );
+			if ( $short || $over > 0 ) {
 				++$problems;
 			}
 
@@ -1832,6 +1833,8 @@ final class MigrateCommand {
 				$tail  = '   short by ' . ( (int) $expected - (int) $row['imported'] );
 				$why   = (string) ( $row['because'] ?? '' );
 				$tail .= '' !== $why ? ' - ' . $why : '';
+			} elseif ( $over > 0 ) {
+				$tail = sprintf( '   OVER by %d - more than the source holds; usually a run after cleanup re-imported earlier items', $over );
 			}
 
 			\WP_CLI::log(
@@ -1847,7 +1850,12 @@ final class MigrateCommand {
 
 		// 5. WPMediaVerse photos over every migrated post - not just the sample.
 		$media = (array) ( $report['media'] ?? array() );
-		if ( ! empty( $media['checked'] ) && (int) $media['expected'] > 0 ) {
+		if ( 'id_map_missing' === (string) ( $media['reason'] ?? '' ) ) {
+			++$problems;
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== WPMediaVerse photos (all migrated posts) ==' );
+			\WP_CLI::log( '  NOT CHECKED  the id map is missing (removed by cleanup), so photos cannot be compared' );
+		} elseif ( ! empty( $media['checked'] ) && (int) $media['expected'] > 0 ) {
 			\WP_CLI::log( '' );
 			\WP_CLI::log( '== WPMediaVerse photos (all migrated posts) ==' );
 			if ( (int) $media['missing'] > 0 ) {
@@ -1910,6 +1918,14 @@ final class MigrateCommand {
 		// unmigratable content would look like a failed one.
 		// Lost photos are wrongly migrated objects too, whatever the sample saw.
 		$broken = (int) ( $report['media']['missing'] ?? 0 );
+		// A photo total that could not run proves nothing, and content imported
+		// twice is wrong content: neither may end in a clean exit.
+		if ( 'id_map_missing' === (string) ( $report['media']['reason'] ?? '' ) ) {
+			++$broken;
+		}
+		foreach ( (array) $report['domains'] as $row ) {
+			$broken += (int) ( $row['over'] ?? 0 );
+		}
 		foreach ( array( 'spaces', 'activities' ) as $kind ) {
 			foreach ( (array) ( $report['samples'][ $kind ] ?? array() ) as $row ) {
 				$broken += count( (array) $row['problems'] );

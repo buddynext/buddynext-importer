@@ -142,6 +142,7 @@ final class ImporterPage {
 					'runFailed'           => __( 'The import stopped on an error. It is safe to run again - it resumes where it left off.', 'buddynext-importer' ),
 					'domain'              => __( 'Domain', 'buddynext-importer' ),
 					'shortfall'           => __( 'Fewer rows than the source holds. Some content cannot migrate - see the note below the table.', 'buddynext-importer' ),
+					'overImport'          => __( 'More rows than the source holds. Usually a run after cleanup imported earlier items a second time.', 'buddynext-importer' ),
 					/* translators: 1: number of comments, 2: list of activity types with counts. */
 					'commentRoots'        => __( '%1$d comment(s) will not be migrated. They sit on system notices - joining a group, making a friend - which are not content and have no BuddyNext equivalent to attach to: %2$s.', 'buddynext-importer' ),
 					'count'               => __( 'Records', 'buddynext-importer' ),
@@ -163,6 +164,7 @@ final class ImporterPage {
 					'verifyPhotosMissing' => __( 'missing across', 'buddynext-importer' ),
 					'verifyPhotosPosts'   => __( 'post(s)', 'buddynext-importer' ),
 					'verifyPhotosOk'      => __( 'Every photo is attached:', 'buddynext-importer' ),
+					'verifyPhotosNoMap'   => __( 'Not checked: the id map is missing (removed by cleanup), so photos cannot be compared.', 'buddynext-importer' ),
 					'verifyPass'          => __( 'Every domain accounted for and every sampled object correct.', 'buddynext-importer' ),
 					'verifyFindings'      => __( 'finding(s) to read. A shortfall is not automatically a fault - check it against the coverage note above.', 'buddynext-importer' ),
 					'verifyRunning'       => __( 'Checking...', 'buddynext-importer' ),

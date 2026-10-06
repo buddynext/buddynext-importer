@@ -1810,8 +1810,9 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * Count WPMediaVerse activity-media links (the other BuddyPress
 	 * activity-media source). The predicate matches mvs_activity_media_for()'s,
 	 * so source and imported counts are comparable. 0 when the table is absent.
+	 * Public so verify can tell "no photos to check" from "could not check".
 	 */
-	protected function mvs_activity_media_count(): int {
+	public function mvs_activity_media_count(): int {
 		return $this->table_count( 'mvs_bp_activity_media', "object_type = 'bp_activity' AND media_id > 0" );
 	}
 

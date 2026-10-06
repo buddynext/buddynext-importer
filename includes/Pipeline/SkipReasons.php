@@ -103,18 +103,14 @@ final class SkipReasons {
 			// reduction as activity_not_imported above.
 			/* translators: 1: number of rows, 2: domain label such as "posts". */
 			'post_not_imported'     => __( '%1$d %2$s were on a post that did not migrate, so they were dropped with it.', 'buddynext-importer' ),
-			// PostService's "You do not have permission to post in this space":
-			// the author is not a member of the space this content belongs to,
-			// usually because they left the group before the migration. That is
-			// BuddyNext enforcing the space's own rule, and VerifyService already
-			// attributes it the same way per space, so warning about it would cry
-			// wolf on every clean migration.
-			//
-			// Safe to read this narrowly: the only OTHER 'forbidden' PostService
-			// returns is on announcements, and this importer never creates one
-			// (it writes text, media and article types only).
+			// PostService refuses with 'forbidden' for more than one reason: the
+			// author is not a member of the space the content belongs to (usually
+			// they left the group before the migration), or the post links a photo
+			// the author does not own. Naming only the first sent owners looking
+			// for space memberships on posts that were in no space at all, so the
+			// sentence names the rule, with the common cases as examples.
 			/* translators: 1: number of rows, 2: domain label such as "posts". */
-			'forbidden'             => __( '%1$d %2$s were refused because their author is not a member of the space they belong to.', 'buddynext-importer' ),
+			'forbidden'             => __( '%1$d %2$s were refused by BuddyNext\'s permission checks, for example because the author is not a member of the space, or does not own a photo the post links to.', 'buddynext-importer' ),
 		);
 	}
 

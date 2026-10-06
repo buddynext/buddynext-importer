@@ -486,6 +486,10 @@
 				if ( 'number' === typeof row.source && row.imported < row.source ) {
 					got.className += ' is-short';
 					got.title = ( cfg.i18n && cfg.i18n.shortfall ) || '';
+				} else if ( 'number' === typeof row.source && row.imported > row.source ) {
+					// Imported twice: a run after cleanup has no id map to dedupe against.
+					got.className += ' is-short';
+					got.title = ( cfg.i18n && cfg.i18n.overImport ) || '';
 				}
 			}
 			tr.appendChild( got );
@@ -648,7 +652,12 @@
 		// WPMediaVerse photos over EVERY migrated post, not just the sample: a
 		// handful of lost photos in a large migration is what sampling misses.
 		var media = report.media || {};
-		if ( media.checked && media.expected > 0 ) {
+		if ( 'id_map_missing' === media.reason ) {
+			problems++;
+			var noMap = verifySection( t( 'verifyPhotos', 'Photos (all migrated posts)' ) );
+			noMap.appendChild( verifyLine( 'bad', t( 'verifyPhotosNoMap', 'Not checked: the id map is missing (removed by cleanup), so photos cannot be compared.' ) ) );
+			out.appendChild( noMap );
+		} else if ( media.checked && media.expected > 0 ) {
 			var med = verifySection( t( 'verifyPhotos', 'Photos (all migrated posts)' ) );
 			if ( media.missing > 0 ) {
 				problems++;
