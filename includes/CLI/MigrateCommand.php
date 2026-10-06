@@ -1869,6 +1869,15 @@ final class MigrateCommand {
 			}
 		}
 
+		// The spot checks pair objects through the id map; without it nothing is
+		// sampled, and that must be said rather than left to read as a pass.
+		if ( 'id_map_missing' === (string) ( $report['samples_reason'] ?? '' ) ) {
+			++$problems;
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== Spot-check ==' );
+			\WP_CLI::log( '  NOT CHECKED  the id map is missing (removed by cleanup), so no space or post could be walked end to end' );
+		}
+
 		// 6. Objects, walked end to end. Totals cannot see placement.
 		foreach ( array(
 			'spaces'     => 'Spaces',
@@ -1921,6 +1930,10 @@ final class MigrateCommand {
 		// A photo total that could not run proves nothing, and content imported
 		// twice is wrong content: neither may end in a clean exit.
 		if ( 'id_map_missing' === (string) ( $report['media']['reason'] ?? '' ) ) {
+			++$broken;
+		}
+		// Same for the spot checks: nothing sampled is not "every sample correct".
+		if ( 'id_map_missing' === (string) ( $report['samples_reason'] ?? '' ) ) {
 			++$broken;
 		}
 		foreach ( (array) $report['domains'] as $row ) {

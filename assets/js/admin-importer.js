@@ -699,6 +699,15 @@
 			out.appendChild( med );
 		}
 
+		// The spot checks need the id map. Without it nothing was sampled, which
+		// must not end in "every sampled object correct".
+		if ( 'id_map_missing' === report.samples_reason ) {
+			problems++;
+			var noSamples = verifySection( t( 'verifySpotChecks', 'Spot-checks' ) );
+			noSamples.appendChild( verifyLine( 'bad', t( 'verifySamplesNoMap', 'Not checked: the id map is missing (removed by cleanup), so no space or post could be walked end to end.' ) ) );
+			out.appendChild( noSamples );
+		}
+
 		// Objects walked end to end. Totals cannot see placement; this can.
 		[
 			[ 'spaces', t( 'verifySpaces', 'Spot-check: spaces' ) ],
