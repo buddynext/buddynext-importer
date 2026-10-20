@@ -1,5 +1,7 @@
 # PeepSo adapter
 
+The row-by-row checklist, with fixture ids, is [peepso-checklist.md](peepso-checklist.md).
+
 `Source\PeepSo\PeepSoAdapter` is the reader. It is registered as `peepso` and fills the same writers BuddyPress and BuddyBoss use. A PeepSo-only site is detected on its own, so `wp buddynext-import stats` does not need `--source`.
 
 Rehearse on a **copy** of Maple Hill (`http://peepso.local`). The importer writes into the site it is activated on, and it cannot be undone from inside the plugin. Leave the original site alone. Do not re-run its seed.
