@@ -201,7 +201,8 @@ final class MediaWriter {
 			return 'already_imported';
 		}
 
-		if ( $attachment_id <= 0 ) {
+		$path = (string) ( $media['path'] ?? '' );
+		if ( $attachment_id <= 0 && '' === $path ) {
 			return 'no_attachment';
 		}
 
@@ -211,8 +212,11 @@ final class MediaWriter {
 
 		// The source row points at a WP attachment whose file must still exist -
 		// ingest copies the real file. A pruned uploads directory is a real loss
-		// and is reported rather than counted as written.
-		$media_id = $this->ingest->ingest( $attachment_id, $user_id );
+		// and is reported rather than counted as written. A path is the same
+		// file when the source never registered an attachment (PeepSo).
+		$media_id = $attachment_id > 0
+			? $this->ingest->ingest( $attachment_id, $user_id )
+			: $this->ingest->ingest_path( (int) $media['source_id'], $path, $user_id, (string) ( $media['mime'] ?? '' ) );
 		if ( $media_id <= 0 ) {
 			return 'file_missing_or_upload_refused';
 		}
@@ -246,7 +250,8 @@ final class MediaWriter {
 			return 'already_imported';
 		}
 
-		if ( $attachment_id <= 0 ) {
+		$path = (string) ( $media['path'] ?? '' );
+		if ( $attachment_id <= 0 && '' === $path ) {
 			return 'no_attachment';
 		}
 
@@ -262,7 +267,9 @@ final class MediaWriter {
 			return 'album_not_imported';
 		}
 
-		$media_id = $this->ingest->ingest( $attachment_id, $user_id );
+		$media_id = $attachment_id > 0
+			? $this->ingest->ingest( $attachment_id, $user_id )
+			: $this->ingest->ingest_path( (int) $media['source_id'], $path, $user_id, (string) ( $media['mime'] ?? '' ) );
 		if ( $media_id <= 0 ) {
 			return 'file_missing_or_upload_refused';
 		}

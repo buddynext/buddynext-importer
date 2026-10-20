@@ -105,9 +105,12 @@ final class ActivityWriter {
 
 		$user_id   = (int) $activity['user_id'];
 		$content   = $this->clean_content( (string) $activity['content'] );
+		// PeepSo stores photos as files, not WP attachments. BuddyPress and
+		// BuddyBoss never set media_paths, so their path is unchanged.
 		$media_ids = array_merge(
 			$this->ingest_media( $media_atts, $user_id ),
-			self::verified_engine_media( $mvs_media_ids )
+			self::verified_engine_media( $mvs_media_ids ),
+			$this->ingest_paths( (array) ( $activity['media_paths'] ?? array() ), $user_id )
 		);
 
 		// A post needs either content or media.
@@ -690,6 +693,41 @@ final class ActivityWriter {
 		}
 
 		return ( new MediaIngest( $this->source ) )->ingest_many( $attachment_ids, $user_id );
+	}
+
+	/**
+	 * Ingest files the source stored on disk instead of as attachments.
+	 *
+	 * @param array<int,array<string,mixed>> $files   Each with id, path, mime.
+	 * @param int                            $user_id Owner of the imported media.
+	 * @return array<int,int> Media ids that landed.
+	 */
+	private function ingest_paths( array $files, int $user_id ): array {
+		if ( array() === $files ) {
+			return array();
+		}
+
+		$ingest = new MediaIngest( $this->source );
+		$ids    = array();
+
+		foreach ( $files as $file ) {
+			if ( ! is_array( $file ) ) {
+				continue;
+			}
+
+			$media_id = $ingest->ingest_path(
+				(int) ( $file['id'] ?? 0 ),
+				(string) ( $file['path'] ?? '' ),
+				$user_id,
+				(string) ( $file['mime'] ?? '' )
+			);
+
+			if ( $media_id > 0 ) {
+				$ids[] = $media_id;
+			}
+		}
+
+		return $ids;
 	}
 
 	/**
