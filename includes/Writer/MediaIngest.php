@@ -162,6 +162,67 @@ final class MediaIngest {
 	}
 
 	/**
+	 * Ingest a file that was never a WP attachment.
+	 *
+	 * PeepSo keeps photos in its own directory. The id is the source row id
+	 * (a photo id, or a video id offset out of the attachment range) and is
+	 * scoped by the source key, so it does not collide with BuddyPress
+	 * attachment ids.
+	 *
+	 * @param int    $map_id  Stable source id for the id-map.
+	 * @param string $path    Absolute path to the original file.
+	 * @param int    $user_id Owner of the imported media.
+	 * @param string $mime    Mime type, when the caller already knows it.
+	 * @param array<string,mixed> $args Upload args, same as ingest().
+	 */
+	public function ingest_path( int $map_id, string $path, int $user_id, string $mime = '', array $args = array() ): int {
+		if ( $map_id <= 0 || '' === $path || ! file_exists( $path ) || ! self::available() ) {
+			return 0;
+		}
+
+		$existing = IdMap::get( $this->source, self::DOMAIN, $map_id );
+		if ( null !== $existing ) {
+			return $existing;
+		}
+
+		if ( ! function_exists( 'wp_tempnam' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
+		$copy = wp_tempnam( wp_basename( $path ) );
+		if ( ! $copy || ! copy( $path, $copy ) ) {
+			return 0;
+		}
+
+		if ( '' === $mime ) {
+			$checked = wp_check_filetype( $path );
+			$mime    = (string) ( $checked['type'] ?? '' );
+		}
+
+		$file = array(
+			'name'     => wp_basename( $path ),
+			'type'     => $mime,
+			'tmp_name' => $copy,
+			'error'    => 0,
+			'size'     => (int) filesize( $copy ),
+		);
+
+		$upload   = \BuddyNext\Media\MediaClient::upload();
+		$result   = ImportMode::run( fn() => $upload->handle( $file, $user_id, $args ) );
+		$media_id = self::extract_media_id( $result );
+
+		if ( $media_id > 0 ) {
+			IdMap::set( $this->source, self::DOMAIN, $map_id, $media_id );
+		}
+
+		if ( file_exists( $copy ) ) {
+			wp_delete_file( $copy );
+		}
+
+		return $media_id;
+	}
+
+	/**
 	 * Carry the source platform's own video preview thumbnail across as the poster.
 	 *
 	 * Without this a migrated video depends on the DESTINATION server having

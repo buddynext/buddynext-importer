@@ -11,6 +11,7 @@ namespace BuddyNextImporter\Source;
 
 use BuddyNextImporter\Source\BuddyBoss\BuddyBossAdapter;
 use BuddyNextImporter\Source\BuddyPress\BuddyPressAdapter;
+use BuddyNextImporter\Source\PeepSo\PeepSoAdapter;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -28,6 +29,7 @@ final class AdapterRegistry {
 		$adapters = array(
 			'buddyboss'  => new BuddyBossAdapter(),
 			'buddypress' => new BuddyPressAdapter(),
+			'peepso'     => new PeepSoAdapter(),
 		);
 
 		/**
@@ -74,6 +76,11 @@ final class AdapterRegistry {
 		$buddypress = self::get( 'buddypress' );
 		if ( $buddypress instanceof SourceAdapter && $buddypress->is_available() ) {
 			return 'buddypress';
+		}
+
+		$peepso = self::get( 'peepso' );
+		if ( $peepso instanceof SourceAdapter && $peepso->is_available() ) {
+			return 'peepso';
 		}
 
 		return null;

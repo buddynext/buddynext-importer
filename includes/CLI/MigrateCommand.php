@@ -48,6 +48,7 @@ final class MigrateCommand {
 	 * options:
 	 *   - buddypress
 	 *   - buddyboss
+	 *   - peepso
 	 * ---
 	 *
 	 * ## EXAMPLES
@@ -64,7 +65,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$adapter = AdapterRegistry::get( $source );
@@ -123,7 +124,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ProfileImporter::for_source( $source );
@@ -197,7 +198,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = SpaceImporter::for_source( $source );
@@ -289,7 +290,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ActivityImporter::for_source( $source );
@@ -389,7 +390,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = FriendImporter::for_source( $source );
@@ -458,7 +459,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = FollowImporter::for_source( $source );
@@ -530,7 +531,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ReactionImporter::for_source( $source );
@@ -687,7 +688,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = MessageImporter::for_source( $source );
@@ -828,7 +829,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ForumImporter::for_source( $source );
@@ -907,7 +908,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = MemberTypeImporter::for_source( $source );
@@ -995,7 +996,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = MediaImporter::for_source( $source );
@@ -1133,7 +1134,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ImageImporter::for_source( $source );
@@ -1484,7 +1485,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
@@ -1725,7 +1726,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$samples = isset( $assoc_args['samples'] ) ? max( 1, (int) $assoc_args['samples'] ) : 5;
