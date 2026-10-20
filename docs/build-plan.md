@@ -2,7 +2,7 @@
 
 v1 ships **BuddyPress and BuddyBoss** only. FluentCommunity, PeepSo, and Ultimate Member are v2+. BuddyBoss is a BuddyPress superset, so the BuddyBoss adapter extends the BuddyPress one (`isBuddyBoss()`-gated deltas). Mappings: [buddypress.md](data-mapping/buddypress.md), [buddyboss.md](data-mapping/buddyboss.md).
 
-PeepSo ships as a reader, `Source\PeepSo\PeepSoAdapter`, registered under `peepso`. It fills the existing writers. How to run it on the Maple Hill fixture: [peepso.md](data-mapping/peepso.md).
+PeepSo ships as a reader, `Source\PeepSo\PeepSoAdapter`, registered under `peepso`. It fills the existing writers. How to run it: [peepso.md](data-mapping/peepso.md). The fixture checklist: [peepso-checklist.md](data-mapping/peepso-checklist.md).
 
 ## Architecture (read-side adapter -> common shape -> BuddyNext services)
 
