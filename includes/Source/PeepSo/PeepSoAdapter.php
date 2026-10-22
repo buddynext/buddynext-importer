@@ -497,6 +497,68 @@ final class PeepSoAdapter implements SourceAdapter {
 		return array();
 	}
 
+	/**
+	 * PeepSo has no WPMediaVerse activity-linkage table. Post media already
+	 * rides the post through media_paths, so this stays empty and the engine
+	 * media ids are never mixed with those paths.
+	 *
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>>
+	 */
+	public function mvs_activity_media_for( array $activity_ids ): array {
+		unset( $activity_ids );
+		return array();
+	}
+
+	/**
+	 * One keyset batch of PeepSo saved posts.
+	 *
+	 * saved_posts.post_id is the WordPress post id. The bookmarks domain keys
+	 * on the source activity id, so the join maps it through act_external_id.
+	 * Rows with no activity are excluded here: a page of them would look like
+	 * the domain had finished and drop every bookmark after it.
+	 *
+	 * @param int $after Exclusive lower-bound saved-post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array{source_id:int,user_id:int,activity_id:int}>
+	 */
+	public function bookmarks( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'peepso_saved_posts' ) ) {
+			return array();
+		}
+
+		$saved      = $this->t( 'peepso_saved_posts' );
+		$activities = $this->t( 'peepso_activities' );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT s.id AS source_id, s.user_id AS user_id, a.act_id AS activity_id
+				 FROM `{$saved}` s
+				 INNER JOIN `{$activities}` a ON a.act_external_id = s.post_id AND a.act_comment_object_id = 0
+				 WHERE s.id > %d
+				 ORDER BY s.id ASC
+				 LIMIT %d",
+				$after,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id'   => (int) $row['source_id'],
+				'user_id'     => (int) $row['user_id'],
+				'activity_id' => (int) $row['activity_id'],
+			);
+		}
+
+		return $out;
+	}
+
 	public function friendships( int $after, int $limit ): array {
 		global $wpdb;
 
