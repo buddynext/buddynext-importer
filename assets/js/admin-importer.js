@@ -127,6 +127,8 @@
 		toggleButtons( true );
 		if ( ! cfg.bnActive ) {
 			showNotice( ( cfg.i18n && cfg.i18n.bnInactive ) || '', 'warning' );
+		} else if ( ! cfg.mvActive ) {
+			showNotice( ( cfg.i18n && cfg.i18n.mvInactive ) || '', 'warning' );
 		}
 	}
 
@@ -251,10 +253,10 @@
 		var startBtn = el( 'bni-start' );
 		var startBg = el( 'bni-start-bg' );
 		if ( startBtn ) {
-			startBtn.disabled = ! ( enabled && cfg.bnActive );
+			startBtn.disabled = ! ( enabled && cfg.bnActive && cfg.mvActive );
 		}
 		if ( startBg ) {
-			startBg.disabled = ! ( enabled && cfg.bnActive );
+			startBg.disabled = ! ( enabled && cfg.bnActive && cfg.mvActive );
 		}
 	}
 

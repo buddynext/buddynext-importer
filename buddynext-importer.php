@@ -6,7 +6,7 @@
  * Version:           1.2.0
  * Requires at least: 6.9
  * Requires PHP:      8.1
- * Requires Plugins:  buddynext
+ * Requires Plugins:  buddynext, wpmediaverse
  * Author:            Wbcom Designs
  * Author URI:        https://wbcomdesigns.com
  * License:           GPL-2.0-or-later

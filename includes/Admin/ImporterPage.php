@@ -128,6 +128,7 @@ final class ImporterPage {
 				'restUrl'  => esc_url_raw( rest_url( 'buddynext-importer/v1' ) ),
 				'nonce'    => wp_create_nonce( 'wp_rest' ),
 				'bnActive' => Plugin::buddynext_active(),
+				'mvActive' => Plugin::mediaverse_active(),
 				// The run order comes from the shared registry, already filtered to
 				// what this site can actually import. The browser loop used to carry
 				// its own hardcoded list, which knew 5 of the 16 domains - so "Start
@@ -136,6 +137,7 @@ final class ImporterPage {
 				'i18n'     => array(
 					'noSource'           => __( 'No BuddyPress or BuddyBoss data was found on this site.', 'buddynext-importer' ),
 					'bnInactive'         => __( 'BuddyNext is not active. Activate it before importing.', 'buddynext-importer' ),
+					'mvInactive'         => __( 'WPMediaVerse is not active. Install and activate the free plugin before importing.', 'buddynext-importer' ),
 					'loadFailed'         => __( 'Could not load source statistics.', 'buddynext-importer' ),
 					'importing'          => __( 'Importing', 'buddynext-importer' ),
 					'complete'           => __( 'Import complete. You can now deactivate and remove this importer.', 'buddynext-importer' ),
