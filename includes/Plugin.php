@@ -53,4 +53,28 @@ final class Plugin {
 	public static function buddynext_active(): bool {
 		return function_exists( 'buddynext_service' );
 	}
+
+	/**
+	 * Whether MediaVerse free is active.
+	 *
+	 * Photos, video, audio, and messages are stored there. Pro is not required.
+	 */
+	public static function mediaverse_active(): bool {
+		return class_exists( '\WPMediaVerse\Core\Plugin' );
+	}
+
+	/**
+	 * Why an import cannot start, or an empty string when both required plugins are active.
+	 */
+	public static function import_blocked_reason(): string {
+		if ( ! self::buddynext_active() ) {
+			return __( 'BuddyNext must be active to import (data is written through its service API).', 'buddynext-importer' );
+		}
+
+		if ( ! self::mediaverse_active() ) {
+			return __( 'WPMediaVerse must be active to import. Install and activate the free plugin. Photos, video, audio, and messages are stored there.', 'buddynext-importer' );
+		}
+
+		return '';
+	}
 }
