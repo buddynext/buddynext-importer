@@ -228,7 +228,7 @@ final class ActivityWriter {
 			function () use ( $write, $space_id ) {
 				// A historical space post keeps its place even when the author
 				// could not post there today (a pending member, for example).
-				if ( $space_id > 0 && class_exists( \BuddyNext\Feed\IntegrationActivity::class ) ) {
+				if ( $space_id > 0 && method_exists( \BuddyNext\Feed\IntegrationActivity::class, 'as_system' ) ) {
 					return \BuddyNext\Feed\IntegrationActivity::as_system( $write );
 				}
 				return $write();
@@ -260,16 +260,16 @@ final class ActivityWriter {
 	/**
 	 * Publish a blog announcement as BuddyNext's article card.
 	 *
-	 * BlogPostListener::announce() is the same call a newly published post
-	 * uses. The card has no body and no attached files; the headline, excerpt
-	 * and cover come from the post.
+	 * IntegrationActivity::publish() is the public seam a partner card uses.
+	 * The card has no body and no attached files; the headline, excerpt and
+	 * cover come from the post. Stock BuddyNext has no announce() method.
 	 *
 	 * @param array<string,mixed> $activity  Source activity record.
 	 * @param int                 $source_id Source activity id.
 	 * @return array{id:int,created:bool,reason?:string}
 	 */
 	private function import_article( array $activity, int $source_id ): array {
-		if ( ! class_exists( \BuddyNext\Feed\BlogPostListener::class ) ) {
+		if ( ! class_exists( \BuddyNext\Feed\BlogPostListener::class ) || ! class_exists( \BuddyNext\Feed\IntegrationActivity::class ) ) {
 			return self::refused( 'article_api_unavailable' );
 		}
 
@@ -284,10 +284,10 @@ final class ActivityWriter {
 
 		$created_at = $this->utc( (string) $activity['date_recorded'] );
 		$result     = ImportMode::run(
-			fn() => \BuddyNext\Feed\BlogPostListener::announce( $post, $created_at )
+			fn() => $this->publish_article( $post, $created_at )
 		);
 
-		// announce() returns 0 when this post already has a card. That card is
+		// publish() returns 0 when this post already has a card. That card is
 		// the one to keep, not a second activity.
 		if ( 0 === $result ) {
 			$result = \BuddyNext\Feed\BlogPostListener::card_id_for_post( (int) $post->ID );
@@ -305,6 +305,49 @@ final class ActivityWriter {
 			'id'      => $bn_id,
 			'created' => true,
 		);
+	}
+
+	/**
+	 * Publish one article card through the public BuddyNext seam.
+	 *
+	 * Stock BuddyNext::publish() has no date argument. A build that added one
+	 * still receives the historical time. Either way the call is the method
+	 * that exists, not announce().
+	 *
+	 * @param \WP_Post $post       Published WordPress post.
+	 * @param string   $created_at UTC "Y-m-d H:i:s".
+	 * @return int|\WP_Error Card id, 0 when the card already exists, or an error.
+	 */
+	private function publish_article( \WP_Post $post, string $created_at ) {
+		$existing = \BuddyNext\Feed\BlogPostListener::card_id_for_post( (int) $post->ID );
+		if ( $existing > 0 ) {
+			return $existing;
+		}
+
+		$excerpt = trim( (string) $post->post_excerpt );
+		if ( '' === $excerpt ) {
+			$excerpt = wp_trim_words( wp_strip_all_tags( (string) $post->post_content ), 40, '…' );
+		}
+
+		$args   = array(
+			(int) $post->post_author,
+			'',
+			\BuddyNext\Feed\IntegrationActivity::published_permalink( $post ),
+			wp_strip_all_tags( get_the_title( $post ) ),
+			\BuddyNext\Feed\BlogPostListener::TYPE,
+			$excerpt,
+			0,
+			array(
+				'image' => (string) get_the_post_thumbnail_url( $post, 'large' ),
+				\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,
+			),
+		);
+		$method = new \ReflectionMethod( \BuddyNext\Feed\IntegrationActivity::class, 'publish' );
+		if ( $method->getNumberOfParameters() >= 9 && '' !== $created_at ) {
+			$args[] = $created_at;
+		}
+
+		return $method->invokeArgs( null, $args );
 	}
 
 	/**
@@ -361,7 +404,7 @@ final class ActivityWriter {
 			function () use ( $write ) {
 				// Same reason as a space post: the reply already existed, even
 				// when the author could not open that space today.
-				if ( class_exists( \BuddyNext\Feed\IntegrationActivity::class ) ) {
+				if ( method_exists( \BuddyNext\Feed\IntegrationActivity::class, 'as_system' ) ) {
 					return \BuddyNext\Feed\IntegrationActivity::as_system( $write );
 				}
 				return $write();
