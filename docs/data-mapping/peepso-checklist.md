@@ -296,7 +296,7 @@ First slice that is worth a rehearsal: profiles, categories, spaces, posts, comm
 
 ## Test on Maple Hill
 
-Rehearse on a copy. The importer cannot be undone from inside the plugin.
+Rehearse on a copy. The importer cannot be undone from inside the plugin. After the run, walk [peepso-qa.md](peepso-qa.md). That file is the pass/fail list. The table under it is the older spot-check and is not the contract.
 
 Before the run:
 

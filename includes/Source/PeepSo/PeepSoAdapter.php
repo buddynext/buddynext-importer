@@ -22,11 +22,13 @@ final class PeepSoAdapter implements SourceAdapter {
 	/**
 	 * Activity modules whose root rows become posts.
 	 *
-	 * 1 status, 5 video (the file is attached when it is a real upload),
-	 * 8 group post, 111 post background (the text comes, the preset does not),
-	 * 6661 journal card.
+	 * 1 status, 5 video and audio (the file is attached when it is a real upload),
+	 * 8 group post, 9 page post (a page is imported as a space, which is the
+	 * place its posts and members can still be used), 30 poll, 50 file post (the
+	 * text comes, the document does not), 111 post
+	 * background (the text comes, the preset does not), 6661 journal card.
 	 */
-	private const POST_MODULES = array( 1, 5, 8, 111, 6661 );
+	private const POST_MODULES = array( 1, 5, 8, 9, 30, 50, 111, 6661 );
 
 	/**
 	 * Video ids are small integers and would collide with attachment ids if a
@@ -65,8 +67,8 @@ final class PeepSoAdapter implements SourceAdapter {
 			'users'                        => $this->count_sql( "SELECT COUNT(*) FROM {$this->users()} WHERE usr_role NOT IN ('ban','register')" ),
 			'profile_fields'               => count( $this->profile_fields() ),
 			'profile_values'               => $this->profile_value_count(),
-			'groups'                       => $this->count_posts( 'peepso-group' ),
-			'group_members'                => $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_group_members' )} WHERE gm_user_status <> 'member_owner'" ),
+			'groups'                       => $this->count_posts( 'peepso-group' ) + $this->count_posts( 'peepso-page' ),
+			'group_members'                => $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_group_members' )} WHERE gm_user_status <> 'member_owner'" ) + $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_page_members' )} WHERE pm_user_status <> 'member_owner'" ),
 			'activities'                   => $this->activity_count( false ),
 			'activity_comments'            => $this->activity_count( true ),
 			'activity_comments_importable' => $this->importable_comment_count(),
@@ -216,10 +218,12 @@ final class PeepSoAdapter implements SourceAdapter {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT p.ID, p.post_author, p.post_title, p.post_name, p.post_content, p.post_date_gmt, priv.meta_value AS privacy
+				"SELECT p.ID, p.post_author, p.post_title, p.post_name, p.post_content, p.post_date_gmt,
+					COALESCE( priv.meta_value, pagepriv.meta_value ) AS privacy
 				FROM {$wpdb->posts} p
 				LEFT JOIN {$wpdb->postmeta} priv ON priv.post_id = p.ID AND priv.meta_key = 'peepso_group_privacy'
-				WHERE p.post_type = 'peepso-group' AND p.post_status = 'publish' AND p.ID > %d
+				LEFT JOIN {$wpdb->postmeta} pagepriv ON pagepriv.post_id = p.ID AND pagepriv.meta_key = 'peepso_page_privacy'
+				WHERE p.post_type IN ( 'peepso-group', 'peepso-page' ) AND p.post_status = 'publish' AND p.ID > %d
 				ORDER BY p.ID ASC LIMIT %d",
 				$after,
 				$limit
@@ -247,6 +251,10 @@ final class PeepSoAdapter implements SourceAdapter {
 	public function group_members( int $group_id, int $after, int $limit ): array {
 		global $wpdb;
 
+		if ( 'peepso-page' === get_post_type( $group_id ) ) {
+			return $this->page_members( $group_id, $after, $limit );
+		}
+
 		$table = $this->t( 'peepso_group_members' );
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -266,6 +274,44 @@ final class PeepSoAdapter implements SourceAdapter {
 			$members[] = array(
 				'row_id'       => (int) $row['gm_id'],
 				'user_id'      => (int) $row['gm_user_id'],
+				'is_admin'     => 0,
+				'is_mod'       => in_array( $status, array( 'member_moderator', 'member_manager' ), true ) ? 1 : 0,
+				'is_confirmed' => in_array( $status, array( 'pending_user', 'pending_admin' ), true ) ? 0 : 1,
+				'is_banned'    => 'banned' === $status ? 1 : 0,
+			);
+		}
+
+		return $members;
+	}
+
+	/**
+	 * Page members use the same roles as group members. The owner is the
+	 * space creator, so they are not also written as a member.
+	 *
+	 * @return array<int,array<string,int>>
+	 */
+	private function page_members( int $page_id, int $after, int $limit ): array {
+		global $wpdb;
+
+		$table = $this->t( 'peepso_page_members' );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT pm_id, pm_user_id, pm_user_status FROM `{$table}` WHERE pm_page_id = %d AND pm_id > %d AND pm_user_status <> 'member_owner' ORDER BY pm_id ASC LIMIT %d",
+				$page_id,
+				$after,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		$members = array();
+		foreach ( (array) $rows as $row ) {
+			$status    = (string) $row['pm_user_status'];
+			$members[] = array(
+				'row_id'       => (int) $row['pm_id'],
+				'user_id'      => (int) $row['pm_user_id'],
 				'is_admin'     => 0,
 				'is_mod'       => in_array( $status, array( 'member_moderator', 'member_manager' ), true ) ? 1 : 0,
 				'is_confirmed' => in_array( $status, array( 'pending_user', 'pending_admin' ), true ) ? 0 : 1,
@@ -325,7 +371,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT a.act_id, a.act_external_id, a.act_module_id, a.act_access,
+				"SELECT a.act_id, a.act_external_id, a.act_module_id, a.act_access, a.act_owner_id,
 					p.post_author, p.post_content, p.post_date_gmt,
 					g.meta_value AS group_id
 				FROM {$this->t( 'peepso_activities' )} a
@@ -350,13 +396,15 @@ final class PeepSoAdapter implements SourceAdapter {
 			$post_ids[] = (int) $row['act_external_id'];
 		}
 		$files = $this->files_for_posts( $post_ids );
+		$links = $this->external_video_urls( $post_ids );
+		$polls = $this->polls_for_posts( $post_ids );
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
 			$post_id  = (int) $row['act_external_id'];
-			$group_id = (int) $row['group_id'];
-			$access   = (int) $row['act_access'];
 			$module   = (int) $row['act_module_id'];
+			$group_id = $this->group_for_activity( $row );
+			$access   = (int) $row['act_access'];
 			$content  = (string) wp_unslash( $row['post_content'] );
 			$blog_id  = 0;
 
@@ -367,11 +415,19 @@ final class PeepSoAdapter implements SourceAdapter {
 				$content = '' !== $title ? $title : '';
 			}
 
+			$poll = $polls[ $post_id ] ?? null;
+			$type = 'activity_update';
+			if ( 6661 === $module ) {
+				$type = 'new_blog_post';
+			} elseif ( is_array( $poll ) ) {
+				$type = 'poll';
+			}
+
 			$out[] = array(
 				'source_id'         => (int) $row['act_id'],
 				'user_id'           => (int) $row['post_author'],
 				'component'         => $group_id > 0 ? 'groups' : 'activity',
-				'source_type'       => 6661 === $module ? 'new_blog_post' : 'activity_update',
+				'source_type'       => $type,
 				'item_id'           => $group_id,
 				'secondary_item_id' => $blog_id,
 				'primary_link'      => $blog_id > 0 ? (string) get_permalink( $blog_id ) : '',
@@ -380,6 +436,9 @@ final class PeepSoAdapter implements SourceAdapter {
 				'hide_sitewide'     => ( $group_id > 0 && 2 === $this->group_privacy( $group_id ) ) ? 1 : 0,
 				'privacy'           => $this->post_privacy( $access ),
 				'media_paths'       => $files[ $post_id ] ?? array(),
+				'link_url'          => $links[ $post_id ] ?? '',
+				'poll_options'      => is_array( $poll ) ? $poll['options'] : array(),
+				'poll_votes'        => is_array( $poll ) ? $poll['votes'] : array(),
 			);
 		}
 
@@ -717,10 +776,8 @@ final class PeepSoAdapter implements SourceAdapter {
 	public function unsupported_content(): array {
 		$out = array();
 
-		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activities' )} WHERE act_module_id = 50 AND act_comment_object_id = 0" ), 'PeepSo files (documents). The media engine does not carry documents, same as BuddyBoss files.' );
-		$this->declare( $out, $this->audio_count(), 'PeepSo audio. The file is left behind. The post text still imports.' );
-		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activities' )} WHERE act_module_id = 30 AND act_comment_object_id = 0" ), 'PeepSo polls and their votes. There is no poll step.' );
-		$this->declare( $out, $this->count_posts( 'peepso-page' ), 'PeepSo pages. They are not groups and not WordPress pages.' );
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activities' )} WHERE act_module_id = 50 AND act_comment_object_id = 0" ), 'PeepSo file attachments. The post text imports. The file itself does not: the media engine refuses documents, same as BuddyBoss files.' );
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activities' )} WHERE act_module_id = 111 AND act_comment_object_id = 0" ), 'Post background presets. The words import as a status. BuddyNext has no background field.' );
 		$this->declare( $out, $this->count_posts( 'peepso-story' ), 'PeepSo stories.' );
 		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_blocks' )}" ), 'Blocked members. There is no block step.' );
 		$this->declare( $out, $this->count_posts( 'peepso-post', "post_status = 'future'" ), 'Scheduled posts. They are not published during the import.' );
@@ -798,10 +855,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		$videos = $wpdb->get_results( "SELECT vid_id, vid_post_id, vid_url, vid_stored FROM {$this->t( 'peepso_videos' )} WHERE vid_stored = 1 AND vid_post_id IN ({$in})", ARRAY_A );
 		foreach ( (array) $videos as $video ) {
 			$post_id = (int) $video['vid_post_id'];
-			if ( 'peepso-audio' === (string) get_post_meta( $post_id, 'peepso_media_type', true ) ) {
-				continue;
-			}
-			$path = $this->path_from_url( (string) $video['vid_url'] );
+			$path    = $this->path_from_url( (string) $video['vid_url'] );
 			if ( '' === $path ) {
 				continue;
 			}
@@ -970,12 +1024,135 @@ final class PeepSoAdapter implements SourceAdapter {
 		}
 	}
 
+	/**
+	 * Group posts usually store the group as act_owner_id. A few also set
+	 * peepso_group_id. The meta wins when both are present.
+	 *
+	 * @param array<string,mixed> $row Activity row.
+	 */
+	private function group_for_activity( array $row ): int {
+		$meta = (int) $row['group_id'];
+		if ( $meta > 0 ) {
+			return $meta;
+		}
+		if ( ! in_array( (int) $row['act_module_id'], array( 8, 9 ), true ) ) {
+			return 0;
+		}
+		$owner = (int) $row['act_owner_id'];
+		return ( $owner > 0 && in_array( get_post_type( $owner ), array( 'peepso-group', 'peepso-page' ), true ) ) ? $owner : 0;
+	}
+
+	/**
+	 * A poll is a list of choices plus who picked which. The choice key is only
+	 * used to line the votes up with the labels; BuddyNext stores its own ids.
+	 *
+	 * @param array<int,int> $post_ids
+	 * @return array<int,array{options:array<int,string>,votes:array<int,array{user_id:int,option:int}>}>
+	 */
+	private function polls_for_posts( array $post_ids ): array {
+		global $wpdb;
+
+		$post_ids = array_values( array_filter( array_map( 'intval', $post_ids ) ) );
+		if ( array() === $post_ids ) {
+			return array();
+		}
+
+		$out = array();
+		$keys = array();
+		foreach ( $post_ids as $post_id ) {
+			$stored = get_post_meta( $post_id, 'select_options', true );
+			if ( is_string( $stored ) ) {
+				$stored = maybe_unserialize( $stored );
+			}
+			if ( ! is_array( $stored ) || count( $stored ) < 2 ) {
+				continue;
+			}
+			$labels = array();
+			$index  = array();
+			$order  = 0;
+			foreach ( $stored as $key => $option ) {
+				$label = is_array( $option ) ? (string) ( $option['label'] ?? $option['text'] ?? '' ) : (string) $option;
+				$label = trim( wp_strip_all_tags( $label ) );
+				if ( '' === $label ) {
+					continue;
+				}
+				$labels[]       = $label;
+				$index[ (string) $key ] = $order;
+				++$order;
+			}
+			if ( count( $labels ) < 2 || count( $labels ) > 5 ) {
+				continue;
+			}
+			$out[ $post_id ] = array(
+				'options' => $labels,
+				'votes'   => array(),
+			);
+			$keys[ $post_id ] = $index;
+		}
+
+		if ( array() === $out || ! $this->table_exists( 'peepso_polls_user_answers' ) ) {
+			return $out;
+		}
+
+		$in = implode( ',', array_keys( $out ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$votes = $wpdb->get_results( "SELECT pu_poll_id, pu_user_id, pu_value FROM {$this->t( 'peepso_polls_user_answers' )} WHERE pu_poll_id IN ({$in})", ARRAY_A );
+		foreach ( (array) $votes as $vote ) {
+			$poll_id = (int) $vote['pu_poll_id'];
+			$option  = $keys[ $poll_id ][ (string) $vote['pu_value'] ] ?? null;
+			if ( null === $option ) {
+				continue;
+			}
+			$out[ $poll_id ]['votes'][] = array(
+				'user_id' => (int) $vote['pu_user_id'],
+				'option'  => (int) $option,
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * YouTube and other remote videos live in vid_url, not the post body.
+	 *
+	 * @param array<int,int> $post_ids
+	 * @return array<int,string>
+	 */
+	private function external_video_urls( array $post_ids ): array {
+		global $wpdb;
+
+		$post_ids = array_values( array_filter( array_map( 'intval', $post_ids ) ) );
+		if ( array() === $post_ids ) {
+			return array();
+		}
+
+		$in = implode( ',', $post_ids );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( "SELECT vid_post_id, vid_url FROM {$this->t( 'peepso_videos' )} WHERE vid_stored = 0 AND vid_post_id IN ({$in})", ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$url = esc_url_raw( (string) $row['vid_url'] );
+			if ( '' !== $url ) {
+				$out[ (int) $row['vid_post_id'] ] = $url;
+			}
+		}
+		return $out;
+	}
+
 	private function group_privacy( int $group_id ): int {
 		return (int) get_post_meta( $group_id, 'peepso_group_privacy', true );
 	}
 
 	private function group_owner( int $group_id, int $fallback ): int {
 		global $wpdb;
+
+		if ( 'peepso-page' === get_post_type( $group_id ) ) {
+			$table = $this->t( 'peepso_page_members' );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$owner = $wpdb->get_var( $wpdb->prepare( "SELECT pm_user_id FROM `{$table}` WHERE pm_page_id = %d AND pm_user_status = 'member_owner' LIMIT 1", $group_id ) );
+			return $owner ? (int) $owner : $fallback;
+		}
 
 		$table = $this->t( 'peepso_group_members' );
 
@@ -1163,13 +1340,6 @@ final class PeepSoAdapter implements SourceAdapter {
 		} while ( count( $ids ) === 100 );
 
 		return $total;
-	}
-
-	private function audio_count(): int {
-		global $wpdb;
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = 'peepso_media_type' AND meta_value = 'peepso-audio'" );
 	}
 
 	private function reported_count(): int {
