@@ -97,10 +97,15 @@ final class ReactionWriter {
 			return 'already_imported';
 		}
 
-		$date   = (string) ( $reaction['date_created'] ?? '' );
+		$date  = (string) ( $reaction['date_created'] ?? '' );
+		$emoji = sanitize_key( (string) ( $reaction['emoji'] ?? 'like' ) );
+		$known = defined( '\BuddyNext\Reactions\ReactionService::REACTION_TYPES' ) ? \BuddyNext\Reactions\ReactionService::REACTION_TYPES : array( 'like' );
+		if ( ! in_array( $emoji, $known, true ) ) {
+			$emoji = 'like';
+		}
 		$result = ImportMode::run(
 			// Fifth argument is ReactionService's backdate seam.
-			fn() => $this->service()->react( $user_id, $object_type, $object_id, 'like', '' !== $date ? $date : null )
+			fn() => $this->service()->react( $user_id, $object_type, $object_id, $emoji, '' !== $date ? $date : null )
 		);
 
 		if ( is_wp_error( $result ) ) {

@@ -32,14 +32,16 @@ PeepSo groups and pages both become spaces. A page is not dropped onto the main 
 | Source | Space | Who can see it | A post that must be inside it |
 |---|---|---|---|
 | Group, open | Garden Club, Book Nook, Weekend Rides, Saturday Food Swap, New on the Hill, Ridge Run Club, Fix-It Bench | Anyone | Weekend Rides contains the YouTube post and "Saturday ride is the river path" |
-| Group, closed | Maple Hill Parents | Members | "Does anyone know a sitter who is free Thursday evening?" with three comments, including Lila's ("Jonah that would be the whole evening saved") |
+| Group, closed | Maple Hill Parents | Members | "Does anyone know a sitter who is free Thursday evening?" with its two photos and Jonah's and Ruby's comments. Lila's own reply ("Jonah that would be the whole evening saved") is refused by BuddyNext and named in the run report, see below |
 | Group, secret | Tool Library | Members only | "The drill is back." A guest gets nothing for this space (404, not an empty public page) |
 | Page | The Hearth Cafe | Anyone | "Rainy-day soup tomorrow" |
 | Page | Maple Hill Library | Anyone | "Library hours this week" |
 | Page | Saturday Market | Anyone | "Peonies are done" |
 | Page | Birch Lane Park | Anyone | "I will be at the Birch Lane gate" |
 
-Lila Okonkwo stays a **pending** member of Parents. Her old sitter post is still in that space. Do not expect her to be promoted to an active member.
+Lila Okonkwo stays a **pending** member of Parents. Her old sitter post is still in that space. Do not expect her to be promoted to an active member. Her reply under that post does not land: BuddyNext refuses a comment from someone who cannot see the post, and a pending member of a private space cannot. The importer has no public seam around that rule, so the run reports "1 comments were refused because their author can no longer see the post they belong to".
+
+Every space shows its PeepSo avatar and cover, the four pages included. Tool Library has none at the source. The eight groups with rules text show it on the space's About tab. The pages and Tool Library have no rules at the source.
 
 Garden Club has no stream post of its own. Its posts are sitewide. That is the source, not a missing import.
 
@@ -56,8 +58,13 @@ Garden Club has no stream post of its own. Its posts are sitewide. That is the s
 - [ ] Members from PeepSo are members here, with avatars. Avatars and covers are the WebP files under `wp-content/uploads/bn-avatars` and `bn-covers`, not MediaVerse records.
 - [ ] Accepted friends are connections. Elena Vasquez's request to Theo Marsh, and Samir Patel's request to Derek Olsen, are still pending.
 - [ ] Follows survived. Elena follows Luis.
-- [ ] Reactions are likes. PeepSo's other reaction icons are not separate reactions.
-- [ ] Direct messages are conversations, not posts on the public feed.
+- [ ] Reactions keep their type: 27 like, 8 love, 4 haha, 2 wow. PeepSo's one "grateful" has no BuddyNext match and is one of the 27 likes; the run report says so.
+- [ ] Derek Olsen blocks Aisha Rahman. Derek's blocked list shows Aisha.
+- [ ] The welcome post ("Welcome to Maple Hill Commons") is pinned on Varun's profile.
+- [ ] Theo Marsh's post that he flagged NSFW is behind a content warning.
+- [ ] The four journal Article cards carry their PeepSo dates (2026-10-18), not the time of the run.
+- [ ] A profile field a member set to "only me" in PeepSo is hidden from other members. Every field on this copy is public, so test it by setting one first.
+- [ ] Direct messages are conversations, not posts on the public feed. They arrive read.
 - [ ] "River path" album exists and holds its photo. Opening the photo returns an image.
 
 ## Must still be absent
@@ -67,21 +74,26 @@ These are correct when they are missing. Do not file them as lost posts.
 - [ ] "Ridge run, Saturday 7am" is not published. It was scheduled.
 - [ ] The comment that was reported as spam is not in its thread.
 - [ ] No PeepSo story row. This fixture has none.
-- [ ] The import log names the vendor-list file, the background preset, the block, the scheduled post, and the reported comment before it says success.
+- [ ] The three posts waiting for approval in PeepSo are not published.
+- [ ] The import log names, before it says success: the vendor-list file, the background preset, the scheduled post, the 3 posts waiting for approval, the reported comment, the 8 photos on the journal cards, the 1 group follower who is not a member, the 111 post follows, the 33 view and read records, the edited stamp, the 8 unread message markers, the 8 VIP icons nobody holds, and the 1 reaction imported as a like.
 
 ## Counts from a clean run
 
 `wp buddynext-import migrate-all --source=peepso` on this fixture reports:
 
-- 13 spaces (9 groups + 4 pages) and their members
+- 77 profile values
+- 0 member types (no member holds a VIP icon on this copy)
+- 13 spaces (9 groups + 4 pages) and 96 memberships
 - 36 posts
-- 26 comments
+- 25 comments, and 1 refused because its author cannot see the post
+- 1 block
 - 43 connections (accepted pairs plus the 2 pending requests)
 - 82 follows
 - 41 reactions
+- 13 space images (8 groups + 4 pages, each with an avatar and a cover; Tool Library has none)
 - 1 album and 1 album photo
 - 4 message threads
 
-A second run of the same command writes 0 posts and 0 comments.
+A second run of the same command writes 0 rows in every domain.
 
 The pre-run stats `groups` figure is 13, not 9. Pages are included because they are imported as spaces.

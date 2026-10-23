@@ -29,6 +29,7 @@ $tables = array(
 	'bn_poll_votes',
 	'bn_connections',
 	'bn_follows',
+	'bn_blocks',
 	'bn_member_types',
 	'bn_member_type_assignments',
 	'mvs_conversations',
