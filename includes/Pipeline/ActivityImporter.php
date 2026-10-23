@@ -104,6 +104,10 @@ final class ActivityImporter {
 			$mvs_media = $mvs_media_by_activity[ $last ] ?? array();
 			$result    = $this->writer->import_post( $row, $media, $mvs_media );
 
+			if ( ! empty( $result['files_refused'] ) ) {
+				$skipped['file_refused'] = ( $skipped['file_refused'] ?? 0 ) + (int) $result['files_refused'];
+			}
+
 			if ( $result['created'] ) {
 				++$posts;
 			} elseif ( $result['id'] > 0 ) {

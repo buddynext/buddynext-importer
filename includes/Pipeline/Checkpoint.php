@@ -32,6 +32,8 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Checkpoint {
 
+	use WorkingTable;
+
 	/**
 	 * Unprefixed table name.
 	 */
@@ -68,6 +70,7 @@ final class Checkpoint {
 		) ENGINE=InnoDB {$charset_collate};";
 
 		dbDelta( $sql );
+		self::forget_exists();
 	}
 
 	/**
@@ -78,6 +81,10 @@ final class Checkpoint {
 	 */
 	public static function get( string $source, string $domain ): int {
 		global $wpdb;
+
+		if ( ! self::exists() ) {
+			return 0;
+		}
 
 		$table = self::table();
 
@@ -103,6 +110,8 @@ final class Checkpoint {
 	 */
 	public static function set( string $source, string $domain, int $last_id ): void {
 		global $wpdb;
+
+		self::ensure();
 
 		$table = self::table();
 
@@ -133,6 +142,10 @@ final class Checkpoint {
 	public static function clear( string $source, string $domain ): void {
 		global $wpdb;
 
+		if ( ! self::exists() ) {
+			return;
+		}
+
 		$table = self::table();
 
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -156,5 +169,6 @@ final class Checkpoint {
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.NotPrepared
 		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
+		self::forget_exists();
 	}
 }

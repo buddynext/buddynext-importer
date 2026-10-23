@@ -269,6 +269,14 @@ final class SpaceWriter {
 		$bn_id = (int) $result;
 		IdMap::set( $this->source, 'space', $source_id, $bn_id );
 
+		// create() does not take rules; update() does, and the owner may set them.
+		$rules = trim( (string) ( $group['rules'] ?? '' ) );
+		if ( '' !== $rules ) {
+			ImportMode::run(
+				fn() => $this->spaces()->update( $bn_id, $owner_id, array( 'rules' => $rules ) )
+			);
+		}
+
 		return array(
 			'id'      => $bn_id,
 			'created' => true,

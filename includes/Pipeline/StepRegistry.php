@@ -187,6 +187,20 @@ final class StepRegistry {
 			array( 'spaces' )
 		);
 
+		// Before connections and follows: a block severs both, and the follow
+		// and connection writers then refuse any pair a block stands between.
+		$steps[] = self::step(
+			$source,
+			'blocks',
+			null,
+			__( 'blocks', 'buddynext-importer' ),
+			'block',
+			static fn (): bool => null !== BlockImporter::for_source( $source ),
+			static fn ( int $c, int $b ): array => BlockImporter::for_source( $source )->import_batch( $c, $b ),
+			static fn ( array $r ): int => (int) $r['blocks'],
+			'blocks'
+		);
+
 		$steps[] = self::step(
 			$source,
 			'friends',

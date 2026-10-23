@@ -103,15 +103,29 @@ final class ActivityWriter {
 			);
 		}
 
-		$user_id   = (int) $activity['user_id'];
-		$content   = $this->clean_content( (string) $activity['content'] );
-		$media_ids = array_merge(
-			$this->ingest_media( $media_atts, $user_id ),
-			self::verified_engine_media( $mvs_media_ids )
-		);
+		$user_id      = (int) $activity['user_id'];
+		$content      = $this->clean_content( (string) $activity['content'] );
+		$is_blog_post = 'new_blog_post' === (string) ( $activity['source_type'] ?? '' );
+		// A blog announcement is not a photo post. Its pictures belong to the
+		// WordPress post, and the article card reads the cover from there.
+		$media_ids     = array();
+		$files_refused = 0;
+		if ( ! $is_blog_post ) {
+			// PeepSo stores photos as files, not WP attachments. BuddyPress and
+			// BuddyBoss never set media_paths, so their path is unchanged.
+			$paths         = array_filter( (array) ( $activity['media_paths'] ?? array() ), 'is_array' );
+			$from_path     = $this->ingest_paths( $paths, $user_id );
+			$files_refused = count( $paths ) - count( $from_path );
+			$media_ids     = array_merge(
+				$this->ingest_media( $media_atts, $user_id ),
+				self::verified_engine_media( $mvs_media_ids ),
+				$from_path
+			);
+		}
 
-		// A post needs either content or media.
-		if ( '' === $content && empty( $media_ids ) ) {
+		// A post needs either content or media. A blog card does not: the post
+		// it points at is the content.
+		if ( '' === $content && empty( $media_ids ) && ! $is_blog_post ) {
 			return self::refused( 'empty_source_row' );
 		}
 
@@ -153,48 +167,69 @@ final class ActivityWriter {
 			return self::refused( 'withheld_at_source' );
 		}
 
-		// A blog-post announcement is an article, not a status update: it has a
-		// URL, a headline and usually a featured image, and BuddyNext has a
-		// dedicated `article` type that renders exactly that - a cover card in
-		// the feed and its own Explore tile. Bringing it across is also what
-		// lets its comment thread come with it: those comments have no other
-		// parent to attach to.
-		$is_blog_post = 'new_blog_post' === (string) ( $activity['source_type'] ?? 'activity_update' );
+		// A published post gets BuddyNext's article card, the same one a new
+		// post gets when it is published. It is not a status with the headline
+		// pasted into the body and the post's photos attached underneath.
+		if ( $is_blog_post ) {
+			return $this->import_article( $activity, $source_id );
+		}
+
+		$source_type = (string) ( $activity['source_type'] ?? 'activity_update' );
+		$poll_options = array();
+		foreach ( (array) ( $activity['poll_options'] ?? array() ) as $option ) {
+			$label = trim( wp_strip_all_tags( (string) $option ) );
+			if ( '' !== $label ) {
+				$poll_options[] = $label;
+			}
+		}
+		$is_poll  = 'poll' === $source_type && count( $poll_options ) >= 2 && count( $poll_options ) <= 5;
+		$link_url = esc_url_raw( (string) ( $activity['link_url'] ?? '' ) );
+		$is_link  = ! $is_poll && '' !== $link_url && empty( $media_ids );
+
+		if ( $is_poll ) {
+			$type = 'poll';
+		} elseif ( $is_link ) {
+			$type = 'link';
+		} elseif ( ! empty( $media_ids ) ) {
+			// Photos, uploaded video and uploaded audio. BuddyNext has no
+			// separate video or audio post type: the composer stores all three
+			// as `photo`, and the grid plays each tile by its file. `media` is
+			// a different card, the one a media-library share uses, and it
+			// would paint a "Media" label over the member's own pictures.
+			$type = 'photo';
+		} else {
+			$type = 'text';
+		}
 
 		$data = array(
-			'type'       => $is_blog_post ? self::blog_post_type() : ( empty( $media_ids ) ? 'text' : 'media' ),
+			'type'       => $type,
 			'content'    => $content,
 			'space_id'   => $space_id,
 			'privacy'    => PrivacyMap::post_privacy( (string) ( $activity['privacy'] ?? 'public' ) ),
 			'created_at' => $this->utc( (string) $activity['date_recorded'] ),
 		);
 
-		if ( ! empty( $media_ids ) ) {
+		if ( ! empty( $media_ids ) && ! $is_poll ) {
 			$data['media_ids'] = $media_ids;
 		}
 
-		if ( $is_blog_post ) {
-			// hide_sitewide reflects the post as it was when BuddyPress recorded
-			// the activity. A post made private, password protected or unpublished
-			// SINCE then still carries a public flag, so the live post decides.
-			// The card would otherwise expose its title, excerpt and image.
-			if ( ! $this->blog_post_is_public( $activity ) ) {
-				return self::refused( 'blog_post_not_public' );
-			}
+		if ( $is_poll ) {
+			$data['options'] = $poll_options;
+		}
 
-			$data['link_url'] = $this->blog_post_url( $activity );
+		if ( $is_link ) {
+			$title = wp_trim_words( wp_strip_all_tags( $content ), 12, '…' );
+			$data['link_url']  = $link_url;
+			$data['link_meta'] = array(
+				'title'       => '' !== $title ? $title : $link_url,
+				'description' => '',
+				'url'         => $link_url,
+			);
+		}
 
-			// link_meta is built here, NEVER left empty. PostService::create()
-			// fetches Open Graph data over HTTP whenever link_url is set and
-			// link_meta is not - and it does so on the write path, without
-			// consulting the buddynext_enable_link_preview toggle. One outbound
-			// request per blog post would make a large migration crawl and hand
-			// it a new way to fail: a slow host, a dead URL, no outbound network.
-			//
-			// It is also unnecessary. These are the site's own posts, so the
-			// title, excerpt and featured image are in the database already, and
-			// they are better than anything a scrape would return.
-			$data['link_meta'] = $this->link_meta_for( $activity );
+		if ( ! empty( $activity['content_warning'] ) ) {
+			$data['content_warning']      = 1;
+			$data['content_warning_type'] = 'nsfw';
 		}
 
 		$result = ImportMode::run(
@@ -213,18 +248,131 @@ final class ActivityWriter {
 		$bn_id = (int) $result;
 		IdMap::set( $this->source, 'post', $source_id, $bn_id );
 
-		// Bring the article's own thread with it. The comments are already in
-		// wp_comments - this is an in-place migration - but the card has none of
-		// them, so without this the community sees an article nobody replied to
-		// while the post itself shows a full discussion.
-		if ( $is_blog_post ) {
-			$this->import_blog_comments( (int) ( $activity['secondary_item_id'] ?? 0 ), $bn_id );
+		if ( $is_poll ) {
+			$this->record_poll_votes( $bn_id, (array) ( $activity['poll_votes'] ?? array() ) );
 		}
+
+		// BuddyNext pins on the author's own profile only, so a space post's
+		// pin is declared by the source rather than written here.
+		if ( ! empty( $activity['pinned'] ) && $space_id <= 0 ) {
+			ImportMode::run( fn() => $this->posts()->pin( $bn_id, $user_id ) );
+		}
+
+		return array(
+			'id'            => $bn_id,
+			'created'       => true,
+			'files_refused' => $files_refused,
+		);
+	}
+
+	/**
+	 * Publish a blog announcement as BuddyNext's article card.
+	 *
+	 * IntegrationActivity::publish() is the public seam a partner card uses.
+	 * The card has no body and no attached files; the headline, excerpt and
+	 * cover come from the post. Stock BuddyNext has no announce() method.
+	 *
+	 * @param array<string,mixed> $activity  Source activity record.
+	 * @param int                 $source_id Source activity id.
+	 * @return array{id:int,created:bool,reason?:string}
+	 */
+	private function import_article( array $activity, int $source_id ): array {
+		if ( ! class_exists( \BuddyNext\Feed\BlogPostListener::class ) || ! class_exists( \BuddyNext\Feed\IntegrationActivity::class ) ) {
+			return self::refused( 'article_api_unavailable' );
+		}
+
+		if ( ! $this->blog_post_is_public( $activity ) ) {
+			return self::refused( 'blog_post_not_public' );
+		}
+
+		$post = get_post( (int) ( $activity['secondary_item_id'] ?? 0 ) );
+		if ( ! $post instanceof \WP_Post ) {
+			return self::refused( 'blog_post_missing' );
+		}
+
+		$created_at = $this->utc( (string) $activity['date_recorded'] );
+		$result     = ImportMode::run(
+			fn() => $this->publish_article( $post, $created_at )
+		);
+
+		// publish() returns 0 when this post already has a card. That card is
+		// the one to keep, not a second activity.
+		if ( 0 === $result ) {
+			$result = \BuddyNext\Feed\BlogPostListener::card_id_for_post( (int) $post->ID );
+		}
+
+		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
+			return self::refused( is_wp_error( $result ) ? sanitize_key( (string) $result->get_error_code() ) : 'write_failed' );
+		}
+
+		$bn_id = (int) $result;
+		IdMap::set( $this->source, 'post', $source_id, $bn_id );
+		$this->import_blog_comments( (int) $post->ID, $bn_id );
 
 		return array(
 			'id'      => $bn_id,
 			'created' => true,
 		);
+	}
+
+	/**
+	 * Write one article card, dated when the source announced it.
+	 *
+	 * IntegrationActivity::publish() takes no date, so the card is created
+	 * through PostService::create(), which does, with the same type, link and
+	 * link meta publish() would write. create() refuses an author whose email
+	 * is unverified unless the write is a system publish; that one case falls
+	 * back to publish(), and that card carries the run date.
+	 *
+	 * @param \WP_Post $post       Published WordPress post.
+	 * @param string   $created_at UTC "Y-m-d H:i:s".
+	 * @return int|\WP_Error Card id, 0 when the card already exists, or an error.
+	 */
+	private function publish_article( \WP_Post $post, string $created_at ) {
+		$existing = \BuddyNext\Feed\BlogPostListener::card_id_for_post( (int) $post->ID );
+		if ( $existing > 0 ) {
+			return $existing;
+		}
+
+		$excerpt = trim( (string) $post->post_excerpt );
+		if ( '' === $excerpt ) {
+			$excerpt = wp_trim_words( wp_strip_all_tags( (string) $post->post_content ), 40, '…' );
+		}
+
+		$author = (int) $post->post_author;
+		$url    = \BuddyNext\Feed\IntegrationActivity::published_permalink( $post );
+		$title  = wp_strip_all_tags( get_the_title( $post ) );
+		$image  = (string) get_the_post_thumbnail_url( $post, 'large' );
+		$meta   = array(
+			'image'                                        => $image,
+			\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,
+		);
+
+		$data = array(
+			'type'      => \BuddyNext\Feed\BlogPostListener::TYPE,
+			'content'   => '',
+			'privacy'   => 'public',
+			'link_url'  => $url,
+			'link_meta' => array_merge(
+				array(
+					'title'       => $title,
+					'description' => $excerpt,
+					'url'         => $url,
+					'thumbnail'   => $image,
+				),
+				$meta
+			),
+		);
+		if ( '' !== $created_at ) {
+			$data['created_at'] = $created_at;
+		}
+
+		$result = $this->posts()->create( $author, $data );
+		if ( is_wp_error( $result ) && 'email_unverified' === $result->get_error_code() ) {
+			$result = \BuddyNext\Feed\IntegrationActivity::publish( $author, '', $url, $title, \BuddyNext\Feed\BlogPostListener::TYPE, $excerpt, 0, $meta );
+		}
+
+		return $result;
 	}
 
 	/**
@@ -276,10 +424,16 @@ final class ActivityWriter {
 			$parent_id     = ( null === $mapped_parent || $mapped_parent <= 0 ) ? null : $mapped_parent;
 		}
 
+		$write  = fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $this->utc( (string) $comment['date_recorded'] ) );
 		$result = ImportMode::run(
-			// Sixth argument is CommentService's backdate seam - the comment
-			// keeps its source date_recorded instead of the migration run time.
-			fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $this->utc( (string) $comment['date_recorded'] ) )
+			function () use ( $write ) {
+				// Same reason as a space post: the reply already existed, even
+				// when the author could not open that space today.
+				if ( method_exists( \BuddyNext\Feed\IntegrationActivity::class, 'as_system' ) ) {
+					return \BuddyNext\Feed\IntegrationActivity::as_system( $write );
+				}
+				return $write();
+			}
 		);
 
 		// CommentService::create() returns (int) $wpdb->insert_id - 0 on a failed
@@ -327,130 +481,6 @@ final class ActivityWriter {
 		}
 
 		return '' === (string) $post->post_password;
-	}
-
-	/**
-	 * The URL a blog-post card should point at.
-	 *
-	 * BuddyPress stores whatever the permalink was when the activity was
-	 * recorded, which is often the unpretty `?p=123` form - it still resolves,
-	 * but it is not what anyone wants to see on a card, and it will not survive
-	 * being copied anywhere. When the post is still here its CURRENT permalink
-	 * is both prettier and more correct, so prefer it and keep the recorded link
-	 * as the fallback for a post that has since gone.
-	 *
-	 * @param array<string,mixed> $activity Source activity row.
-	 */
-	private function blog_post_url( array $activity ): string {
-		$post_id = (int) ( $activity['secondary_item_id'] ?? 0 );
-
-		if ( $post_id > 0 ) {
-			$permalink = get_permalink( $post_id );
-			if ( is_string( $permalink ) && '' !== $permalink ) {
-				return $permalink;
-			}
-		}
-
-		return (string) ( $activity['primary_link'] ?? '' );
-	}
-
-	/**
-	 * Build a link card for a blog-post announcement from LOCAL data.
-	 *
-	 * BuddyPress records the published post's id in `secondary_item_id`, so on
-	 * the site being migrated the post itself is right there - no HTTP needed.
-	 * When it cannot be resolved (deleted since, or an activity from another
-	 * site in a network) the activity's own text stands in, and a minimal card
-	 * is still returned: an EMPTY link_meta is what triggers the network fetch
-	 * this is here to avoid.
-	 *
-	 * @param array<string,mixed> $activity Source activity row.
-	 * @return array{title:string,description:string,thumbnail:string}
-	 */
-	/**
-	 * The card type BuddyNext uses for a published post.
-	 *
-	 * Taken FROM BuddyNext rather than hardcoded, and it falls back: BuddyNext
-	 * gained a dedicated `article` type (with its own feed card and Explore
-	 * tile) alongside Feed\BlogPostListener. Against a BuddyNext that predates
-	 * it, `article` is not in PostService::ALLOWED_TYPES, create() refuses the
-	 * row, and the activity would be dropped in silence - content loss, which
-	 * is the one failure this importer must never introduce. `link` is what
-	 * every already-migrated site carries and still renders correctly.
-	 *
-	 * @return string
-	 */
-	private static function blog_post_type(): string {
-		return class_exists( \BuddyNext\Feed\BlogPostListener::class )
-			? \BuddyNext\Feed\BlogPostListener::TYPE
-			: 'link';
-	}
-
-	/**
-	 * The link_meta key BuddyNext stores a card's source post id under.
-	 *
-	 * @return string
-	 */
-	private static function source_post_meta_key(): string {
-		return class_exists( \BuddyNext\Feed\BlogPostListener::class )
-			? \BuddyNext\Feed\BlogPostListener::META_POST_ID
-			: 'source_post_id';
-	}
-
-	/**
-	 * Build the card payload for a blog-post activity from the local post.
-	 *
-	 * Never returns empty: PostService::create() fetches Open Graph data over
-	 * HTTP whenever link_url is set and link_meta is not, on the write path,
-	 * without consulting the link-preview toggle. These are the site's own
-	 * posts, so the title, excerpt and featured image are already in the
-	 * database and are better than any scrape.
-	 *
-	 * @param array<string,mixed> $activity Source activity record.
-	 * @return array<string,mixed> link_meta payload.
-	 */
-	private function link_meta_for( array $activity ): array {
-		$meta = array(
-			'title'       => '',
-			'description' => '',
-			'thumbnail'   => '',
-		);
-
-		$post_id = (int) ( $activity['secondary_item_id'] ?? 0 );
-		$post    = $post_id > 0 ? get_post( $post_id ) : null;
-
-		if ( $post instanceof \WP_Post ) {
-			// Stamp the source post id the same way BuddyNext stamps its own
-			// article cards. Without it an imported card is invisible to
-			// BuddyNext: it would announce a SECOND card the first time that
-			// post is re-published, and comments would not sync between the
-			// post and its card. With it, a migrated card behaves exactly like
-			// one BuddyNext published itself.
-			$meta[ self::source_post_meta_key() ] = (int) $post->ID;
-
-			$meta['title']       = (string) get_the_title( $post );
-			$excerpt             = has_excerpt( $post ) ? (string) $post->post_excerpt : (string) $post->post_content;
-			$meta['description'] = wp_trim_words( wp_strip_all_tags( $excerpt ), 40, '' );
-
-			$thumbnail = get_the_post_thumbnail_url( $post, 'medium_large' );
-			if ( is_string( $thumbnail ) && '' !== $thumbnail ) {
-				$meta['thumbnail'] = $thumbnail;
-			}
-
-			return $meta;
-		}
-
-		// No local post: fall back to what the activity itself carries.
-		$meta['title']       = trim( wp_strip_all_tags( (string) ( $activity['content'] ?? '' ) ) );
-		$meta['description'] = '';
-
-		if ( '' === $meta['title'] ) {
-			$meta['title'] = (string) ( $activity['primary_link'] ?? '' );
-		}
-
-		$meta['title'] = wp_trim_words( $meta['title'], 20, '' );
-
-		return $meta;
 	}
 
 	/**
@@ -693,6 +723,41 @@ final class ActivityWriter {
 	}
 
 	/**
+	 * Ingest files the source stored on disk instead of as attachments.
+	 *
+	 * @param array<int,array<string,mixed>> $files   Each with id, path, mime.
+	 * @param int                            $user_id Owner of the imported media.
+	 * @return array<int,int> Media ids that landed.
+	 */
+	private function ingest_paths( array $files, int $user_id ): array {
+		if ( array() === $files ) {
+			return array();
+		}
+
+		$ingest = new MediaIngest( $this->source );
+		$ids    = array();
+
+		foreach ( $files as $file ) {
+			if ( ! is_array( $file ) ) {
+				continue;
+			}
+
+			$media_id = $ingest->ingest_path(
+				(int) ( $file['id'] ?? 0 ),
+				(string) ( $file['path'] ?? '' ),
+				$user_id,
+				(string) ( $file['mime'] ?? '' )
+			);
+
+			if ( $media_id > 0 ) {
+				$ids[] = $media_id;
+			}
+		}
+
+		return $ids;
+	}
+
+	/**
 	 * Import the WordPress comments on a migrated blog post onto its card.
 	 *
 	 * A migrated article arrives with its thread stranded: the comments are in
@@ -798,5 +863,38 @@ final class ActivityWriter {
 			'created' => $created,
 			'skipped' => $skipped,
 		);
+	}
+
+	/**
+	 * Replay each source vote through PollService so the tally and the
+	 * one-vote-per-member rule are the service's, not a copied counter.
+	 *
+	 * @param int                  $post_id BuddyNext poll id.
+	 * @param array<int,mixed>     $votes   Source votes, each option an index into poll_options.
+	 */
+	private function record_poll_votes( int $post_id, array $votes ): void {
+		if ( array() === $votes || ! class_exists( \BuddyNext\Feed\PollService::class ) ) {
+			return;
+		}
+
+		$post    = $this->posts()->get( $post_id );
+		$options = is_array( $post ) ? array_values( (array) ( $post['poll_options'] ?? array() ) ) : array();
+		if ( array() === $options ) {
+			return;
+		}
+
+		$service = new \BuddyNext\Feed\PollService();
+		foreach ( $votes as $vote ) {
+			if ( ! is_array( $vote ) ) {
+				continue;
+			}
+			$index     = (int) ( $vote['option'] ?? -1 );
+			$user_id   = (int) ( $vote['user_id'] ?? 0 );
+			$option_id = (int) ( $options[ $index ]['id'] ?? 0 );
+			if ( $user_id <= 0 || $option_id <= 0 ) {
+				continue;
+			}
+			ImportMode::run( fn() => $service->vote( $user_id, $post_id, $option_id ) );
+		}
 	}
 }

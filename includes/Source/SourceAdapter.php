@@ -323,6 +323,18 @@ interface SourceAdapter {
 	public function follows( int $after, int $limit ): array;
 
 	/**
+	 * Member blocks, keyset-paginated.
+	 *
+	 * Row shape: source_id, blocker_id, blocked_id. A source with no block
+	 * feature returns an empty array.
+	 *
+	 * @param int $after Exclusive lower-bound block id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,int>>
+	 */
+	public function blocks( int $after, int $limit ): array;
+
+	/**
 	 * Activity reactions/likes, keyset-paginated.
 	 *
 	 * Row shape: source_id, user_id, activity_id, date_created ('' when the

@@ -79,6 +79,8 @@ final class SkipReasons {
 			'self_follow'           => __( '%1$d self-referential %2$s in the source were skipped (a member cannot follow themselves).', 'buddynext-importer' ),
 			/* translators: 1: number of rows, 2: domain label such as "posts". */
 			'self_connection'       => __( '%1$d self-referential %2$s in the source were skipped (a member cannot connect to themselves).', 'buddynext-importer' ),
+			/* translators: 1: number of rows, 2: domain label such as "posts". */
+			'self_block'            => __( '%1$d self-referential %2$s in the source were skipped (a member cannot block themselves).', 'buddynext-importer' ),
 			// A source row with neither text nor media is not content; there is
 			// nothing to create from it.
 			/* translators: 1: number of rows, 2: domain label such as "posts". */
@@ -115,8 +117,22 @@ final class SkipReasons {
 			// (it writes text, media and article types only).
 			/* translators: 1: number of rows, 2: domain label such as "posts". */
 			'forbidden'             => __( '%1$d %2$s were refused because their author is not a member of the space they belong to.', 'buddynext-importer' ),
+			// InteractionGuard's visibility gate: the author of a comment or a
+			// reaction cannot see the post it belongs to, typically a pending or
+			// former member of a private space. BuddyNext has no import seam that
+			// lifts this rule.
+			/* translators: 1: number of rows, 2: domain label such as "posts". */
+			'object_not_found'      => __( '%1$d %2$s were refused because their author can no longer see the post they belong to (for example a pending or former member of a private space).', 'buddynext-importer' ),
+			/* translators: 1: number of files, 2: domain label such as "posts". */
+			'file_refused'          => __( '%1$d files attached to imported %2$s were refused by the media library (an audio format it does not accept, for example), so those posts arrived without them.', 'buddynext-importer' ),
 		);
 	}
+
+	/**
+	 * Reasons that count a part of a row that was written, not a row. They are
+	 * reported, but never step the resume cursor.
+	 */
+	private const PARTIAL = array( 'file_refused' );
 
 	/**
 	 * How many skipped rows the resume cursor may step past.
@@ -140,7 +156,7 @@ final class SkipReasons {
 		$total = 0;
 
 		foreach ( $skipped as $reason => $count ) {
-			if ( ! str_ends_with( (string) $reason, 'rate_limited' ) ) {
+			if ( ! str_ends_with( (string) $reason, 'rate_limited' ) && ! in_array( (string) $reason, self::PARTIAL, true ) ) {
 				$total += (int) $count;
 			}
 		}

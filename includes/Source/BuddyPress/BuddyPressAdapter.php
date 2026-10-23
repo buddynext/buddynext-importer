@@ -2130,6 +2130,18 @@ class BuddyPressAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * BuddyPress core has no member blocks.
+	 *
+	 * @param int $after Exclusive lower-bound block id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,int>>
+	 */
+	public function blocks( int $after, int $limit ): array {
+		unset( $after, $limit );
+		return array();
+	}
+
+	/**
 	 * User follows from bp_follow (BuddyBoss / the classic BuddyPress Follow
 	 * plugin - same table name in both).
 	 *
