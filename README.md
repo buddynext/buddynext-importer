@@ -88,8 +88,9 @@ roadmap - a migration touches too many services to unwind safely.
 
 - **BuddyPress** (including bbPress forums, and rtMedia photos, albums and library media)
 - **BuddyBoss Platform** (including its media, albums, documents notice and DM attachments)
+- **PeepSo** (members, groups, pages, posts, media and messages; see [docs/data-mapping/peepso.md](docs/data-mapping/peepso.md) for what it covers)
 
-FluentCommunity, PeepSo and Ultimate Member are v2. The adapter architecture below
+FluentCommunity and Ultimate Member are v2. The adapter architecture below
 is built to take them, but no adapter for them ships today. See
 [docs/build-plan.md](docs/build-plan.md).
 
@@ -107,7 +108,7 @@ create them in BuddyNext **through the BuddyNext service layer** (never raw SQL 
 privacy/role rules all stay correct.
 
 ```
-BuddyPress / BuddyBoss          (v2: FluentCommunity / PeepSo / Ultimate Member)
+BuddyPress / BuddyBoss / PeepSo (v2: FluentCommunity / Ultimate Member)
         |  (per-source read adapter)
         v
    common record shape  ->  BuddyNext services (write)  ->  bn_* tables
