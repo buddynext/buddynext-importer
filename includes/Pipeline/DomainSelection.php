@@ -105,6 +105,7 @@ final class DomainSelection {
 			'space_categories' => __( 'Space categories', 'buddynext-importer' ),
 			'spaces'           => __( 'Spaces and members', 'buddynext-importer' ),
 			'activity'         => __( 'Activity', 'buddynext-importer' ),
+			'blocks'           => __( 'Blocked members', 'buddynext-importer' ),
 			'friends'          => __( 'Connections', 'buddynext-importer' ),
 			'follows'          => __( 'Follows', 'buddynext-importer' ),
 			'reactions'        => __( 'Reactions', 'buddynext-importer' ),

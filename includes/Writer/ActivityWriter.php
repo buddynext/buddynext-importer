@@ -108,14 +108,18 @@ final class ActivityWriter {
 		$is_blog_post = 'new_blog_post' === (string) ( $activity['source_type'] ?? '' );
 		// A blog announcement is not a photo post. Its pictures belong to the
 		// WordPress post, and the article card reads the cover from there.
-		$media_ids = array();
+		$media_ids     = array();
+		$files_refused = 0;
 		if ( ! $is_blog_post ) {
 			// PeepSo stores photos as files, not WP attachments. BuddyPress and
 			// BuddyBoss never set media_paths, so their path is unchanged.
-			$media_ids = array_merge(
+			$paths         = array_filter( (array) ( $activity['media_paths'] ?? array() ), 'is_array' );
+			$from_path     = $this->ingest_paths( $paths, $user_id );
+			$files_refused = count( $paths ) - count( $from_path );
+			$media_ids     = array_merge(
 				$this->ingest_media( $media_atts, $user_id ),
 				self::verified_engine_media( $mvs_media_ids ),
-				$this->ingest_paths( (array) ( $activity['media_paths'] ?? array() ), $user_id )
+				$from_path
 			);
 		}
 
@@ -223,16 +227,13 @@ final class ActivityWriter {
 			);
 		}
 
-		$write  = fn() => $this->posts()->create( $user_id, $data );
+		if ( ! empty( $activity['content_warning'] ) ) {
+			$data['content_warning']      = 1;
+			$data['content_warning_type'] = 'nsfw';
+		}
+
 		$result = ImportMode::run(
-			function () use ( $write, $space_id ) {
-				// A historical space post keeps its place even when the author
-				// could not post there today (a pending member, for example).
-				if ( $space_id > 0 && method_exists( \BuddyNext\Feed\IntegrationActivity::class, 'as_system' ) ) {
-					return \BuddyNext\Feed\IntegrationActivity::as_system( $write );
-				}
-				return $write();
-			}
+			fn() => $this->posts()->create( $user_id, $data )
 		);
 
 		// PostService::create() returns (int) $wpdb->insert_id, which is 0 on a
@@ -251,9 +252,16 @@ final class ActivityWriter {
 			$this->record_poll_votes( $bn_id, (array) ( $activity['poll_votes'] ?? array() ) );
 		}
 
+		// BuddyNext pins on the author's own profile only, so a space post's
+		// pin is declared by the source rather than written here.
+		if ( ! empty( $activity['pinned'] ) && $space_id <= 0 ) {
+			ImportMode::run( fn() => $this->posts()->pin( $bn_id, $user_id ) );
+		}
+
 		return array(
-			'id'      => $bn_id,
-			'created' => true,
+			'id'            => $bn_id,
+			'created'       => true,
+			'files_refused' => $files_refused,
 		);
 	}
 
@@ -308,11 +316,13 @@ final class ActivityWriter {
 	}
 
 	/**
-	 * Publish one article card through the public BuddyNext seam.
+	 * Write one article card, dated when the source announced it.
 	 *
-	 * Stock BuddyNext::publish() has no date argument. A build that added one
-	 * still receives the historical time. Either way the call is the method
-	 * that exists, not announce().
+	 * IntegrationActivity::publish() takes no date, so the card is created
+	 * through PostService::create(), which does, with the same type, link and
+	 * link meta publish() would write. create() refuses an author whose email
+	 * is unverified unless the write is a system publish; that one case falls
+	 * back to publish(), and that card carries the run date.
 	 *
 	 * @param \WP_Post $post       Published WordPress post.
 	 * @param string   $created_at UTC "Y-m-d H:i:s".
@@ -329,25 +339,40 @@ final class ActivityWriter {
 			$excerpt = wp_trim_words( wp_strip_all_tags( (string) $post->post_content ), 40, '…' );
 		}
 
-		$args   = array(
-			(int) $post->post_author,
-			'',
-			\BuddyNext\Feed\IntegrationActivity::published_permalink( $post ),
-			wp_strip_all_tags( get_the_title( $post ) ),
-			\BuddyNext\Feed\BlogPostListener::TYPE,
-			$excerpt,
-			0,
-			array(
-				'image' => (string) get_the_post_thumbnail_url( $post, 'large' ),
-				\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,
+		$author = (int) $post->post_author;
+		$url    = \BuddyNext\Feed\IntegrationActivity::published_permalink( $post );
+		$title  = wp_strip_all_tags( get_the_title( $post ) );
+		$image  = (string) get_the_post_thumbnail_url( $post, 'large' );
+		$meta   = array(
+			'image'                                        => $image,
+			\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,
+		);
+
+		$data = array(
+			'type'      => \BuddyNext\Feed\BlogPostListener::TYPE,
+			'content'   => '',
+			'privacy'   => 'public',
+			'link_url'  => $url,
+			'link_meta' => array_merge(
+				array(
+					'title'       => $title,
+					'description' => $excerpt,
+					'url'         => $url,
+					'thumbnail'   => $image,
+				),
+				$meta
 			),
 		);
-		$method = new \ReflectionMethod( \BuddyNext\Feed\IntegrationActivity::class, 'publish' );
-		if ( $method->getNumberOfParameters() >= 9 && '' !== $created_at ) {
-			$args[] = $created_at;
+		if ( '' !== $created_at ) {
+			$data['created_at'] = $created_at;
 		}
 
-		return $method->invokeArgs( null, $args );
+		$result = $this->posts()->create( $author, $data );
+		if ( is_wp_error( $result ) && 'email_unverified' === $result->get_error_code() ) {
+			$result = \BuddyNext\Feed\IntegrationActivity::publish( $author, '', $url, $title, \BuddyNext\Feed\BlogPostListener::TYPE, $excerpt, 0, $meta );
+		}
+
+		return $result;
 	}
 
 	/**

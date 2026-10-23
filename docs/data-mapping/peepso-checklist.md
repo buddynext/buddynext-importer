@@ -29,25 +29,28 @@ Register it the same way the other two are registered. `key()` returns `peepso`.
 
 | PeepSo record | Action | Existing step | BuddyNext target |
 |---|---|---|---|
-| Members + profile values | import | `profiles` | `bn_profile_fields` / `bn_profile_values` |
+| Members + profile values | import | `profiles` | `bn_profile_fields` / `bn_profile_values`. Values come from `peepso_user_field_{slug}` usermeta (Website from `user_url`), with `usr_gender` / `usr_birthdate` as the fallback |
+| Per-field privacy | import | `profiles` | the member's `peepso_user_field_{slug}_acc` choice (10 public, 20 members, 30 friends, 40 only me), and the field's `default_acc` as the field default |
 | Group categories | import | `space_categories` | `bn_space_categories` |
-| Groups + members, mods, bans, join requests | import | `spaces` | `bn_spaces` + `bn_space_members` |
+| Groups and pages + members, mods, bans, join requests | import | `spaces` | `bn_spaces` + `bn_space_members`. Rules text (`peepso_group_rules` / `peepso_page_rules`) is written through `SpaceService::update()` |
 | Status posts, including group posts | import | `activity` / `posts` | `bn_posts` |
 | Journal stream cards (module 6661) | import | `activity` / `posts` | article post, same as BP `new_blog_post` |
 | Comments and replies | import | `activity` / `comments` | `bn_comments` |
 | Accepted friendships + pending requests | import | `friends` | `bn_connections` |
 | Follows | import | `follows` | `bn_follows` |
-| Reactions | import, collapsed to `like` | `reactions` | `bn_reactions` |
-| Avatars + covers | import | `images` / `members`, `images` / `groups` | member and space media |
+| Blocks | import | `blocks`, before connections and follows | `BlockService::block()` |
+| Reactions | import, by type | `reactions` | `bn_reactions`. like, love, haha, wow, sad and angry keep their type. wink, crazy, speechless, grateful, celebrate and custom types become a like and are declared |
+| NSFW flag, profile pin | import | `activity` / `posts` | `content_warning` (`nsfw`). A live pin on a profile post is re-pinned with `PostService::pin()` |
+| Avatars + covers | import | `images` / `members`, `images` / `groups` | member and space media. Page files are read from `wp-content/peepso/pages/{id}/` |
 | Photo albums + photos | import | `media` / `albums`, `album_media`, `media` | WPMediaVerse |
 | Uploaded video | import | `media` | WPMediaVerse, same as a BuddyBoss video |
 | Messages | import | `messages` | WPMediaVerse conversations |
 | Forums | empty | `forums` | return empty arrays. PeepSo has no forum here |
-| Member types | empty | `member_types` | return empty. VIP icons are not member types |
+| Member types | import | `member_types` | VIP icons a member holds (`peepso_vip_user_icon`). Icons nobody holds are declared, not created. A member holds one BuddyNext type; extra icons are reported as `multiple_source_types` |
 | Files (module 50) | **declare, do not import** | — | same refusal as BuddyBoss `bp_document` |
-| Audio | **declare** | — | neither current adapter emits an audio type |
-| Polls, pages, stories, blocks | **declare** | — | no phase in `StepRegistry` |
-| Backgrounds, saved posts, revisions, reports | **declare** | — | no field on the current writers |
+| Stories | **declare** | — | no phase in `StepRegistry` |
+| Backgrounds, reports, pending-approval posts, journal-card photos | **declare** | — | no field on the current writers |
+| Group/page followers who are not members, group/page notification settings, post follows, view and read records, edit stamps, space pins, unread and deleted message state, non-default group/page settings | **declare** | — | BuddyNext has no equivalent, or (message state) MediaVerse has no API to write it |
 | Notifications, mail queue, digest, GDPR, read markers | **skip** | — | transient, same decision as `bp_notifications` |
 | Avatar-change and cover-change stream posts | **skip** | — | same idea as BP `joined_group` |
 
@@ -241,6 +244,26 @@ The WordPress posts (239, 242, 245, 248) are ordinary posts. The stream card is 
 
 Say it before the run, with a row count, the way `BuddyBossAdapter::unsupported_content()` does for `bp_document`.
 
+The table below is the original pre-build plan. What the reader declares today, measured on Maple Hill on 2026-10-23:
+
+| Declared | Rows |
+|---|---|
+| File attachment (module 50) | 1 |
+| Post background preset | 1 |
+| Scheduled post | 1 |
+| Posts waiting for approval | 3 |
+| Reported item | 1 |
+| Photos on journal cards (the card shows the blog post and its featured image) | 8 |
+| Group/page followers who are not members | 1 |
+| Post follows | 111 |
+| View and read records | 33 |
+| Edited stamp | 1 |
+| Unread message markers | 8 |
+| VIP icons nobody holds | 8 |
+| Reactions with no BuddyNext type (imported as a like) | 1 |
+
+Muted groups, deleted messages, space pins and non-default group/page settings are declared when present. Maple Hill has none.
+
 | Record | Fixture | Why |
 |---|---|---|
 | Files, module 50 | post 290, one text attachment | `UploadService` refuses documents. BuddyBoss PDFs are already named and not carried |
@@ -284,13 +307,14 @@ Same dependency order as `StepRegistry::steps()`. A later phase that cannot reso
 5. `images` / `groups` after spaces exist
 6. `activity` / `posts` (depends on spaces)
 7. `activity` / `comments`
-8. `friends`
-9. `follows`
-10. `reactions` (depends on activity)
-11. `forums` (empty)
-12. `images` / `members`
-13. `media` albums, then album photos, then loose photos and uploaded video
-14. `messages`
+8. `blocks`
+9. `friends`
+10. `follows`
+11. `reactions` (depends on activity)
+12. `forums` (empty)
+13. `images` / `members`
+14. `media` albums, then album photos, then loose photos and uploaded video
+15. `messages`
 
 First slice that is worth a rehearsal: profiles, categories, spaces, posts, comments, friends. Media, messages, and the `unsupported_content()` list follow. Do not start by forking `ActivityWriter`.
 

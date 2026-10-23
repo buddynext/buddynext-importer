@@ -218,5 +218,35 @@ final class ImportMode {
 		// history can legitimately exceed it, so it is lifted for the replay like
 		// the DM rate limits; new follows after migration are capped again.
 		add_filter( 'buddynext_max_following', $unlimited, PHP_INT_MAX );
+
+		// SpacePostGuard refuses a new space post from anyone who is not an
+		// active member, before its own buddynext_space_can_post filter runs.
+		// A source post written by a member who is now pending, or who has
+		// since left, still belongs in that space's history. The data is held
+		// just before the guard and handed back just after it, only during an
+		// import and only for that guard's 'forbidden' refusal of a space post.
+		$held = null;
+		add_filter(
+			'buddynext_post_before_save',
+			static function ( $data, $user_id, $post_id ) use ( &$held ) {
+				unset( $user_id );
+				$held = ( self::$active && null === $post_id && is_array( $data ) && (int) ( $data['space_id'] ?? 0 ) > 0 ) ? $data : null;
+				return $data;
+			},
+			9,
+			3
+		);
+		add_filter(
+			'buddynext_post_before_save',
+			static function ( $data ) use ( &$held ) {
+				$restore = $held;
+				$held    = null;
+				if ( null !== $restore && is_wp_error( $data ) && 'forbidden' === $data->get_error_code() ) {
+					return $restore;
+				}
+				return $data;
+			},
+			11
+		);
 	}
 }

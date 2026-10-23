@@ -37,6 +37,11 @@ final class PeepSoAdapter implements SourceAdapter {
 	private const VIDEO_MAP_OFFSET = 8000000000000000000;
 
 	/**
+	 * BuddyNext's reaction set.
+	 */
+	private const BN_REACTIONS = array( 'like', 'love', 'haha', 'wow', 'sad', 'angry' );
+
+	/**
 	 * act_external_id => activity row. Built once per request.
 	 *
 	 * @var array<int,array<string,int>>|null
@@ -49,6 +54,11 @@ final class PeepSoAdapter implements SourceAdapter {
 	 * @var array<string,string>|null
 	 */
 	private ?array $files = null;
+
+	/**
+	 * @var array<int,array<string,mixed>>|null
+	 */
+	private ?array $fields = null;
 
 	public function key(): string {
 		return 'peepso';
@@ -74,6 +84,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			'activity_comments_importable' => $this->importable_comment_count(),
 			'friendships'                  => $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_friends' )}" ) + $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_friend_requests' )}" ),
 			'follows'                      => $this->follow_count(),
+			'blocks'                       => $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_blocks' )}" ),
 			'forums'                       => 0,
 			'forum_topics'                 => 0,
 			'forum_replies'                => 0,
@@ -84,10 +95,10 @@ final class PeepSoAdapter implements SourceAdapter {
 			'media_albums'                 => $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_photos_album' )} WHERE pho_system_album = 0" ),
 			'album_media'                  => $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_photos' )} ph JOIN {$this->t( 'peepso_photos_album' )} al ON al.pho_album_id = ph.pho_album_id WHERE al.pho_system_album = 0" ),
 			'standalone_media'             => 0,
-			'member_types'                 => 0,
-			'member_type_users'            => 0,
+			'member_types'                 => count( $this->held_vip_icons() ),
+			'member_type_users'            => $this->count_sql( "SELECT COUNT(*) FROM {$GLOBALS['wpdb']->usermeta} WHERE meta_key = 'peepso_vip_user_icon' AND meta_value NOT IN ( '', 'a:0:{}' )" ),
 			'member_images'                => $this->count_sql( "SELECT COUNT(*) FROM {$this->users()} WHERE usr_role NOT IN ('ban','register')" ),
-			'group_images'                 => $this->count_posts( 'peepso-group' ),
+			'group_images'                 => $this->count_posts( 'peepso-group' ) + $this->count_posts( 'peepso-page' ),
 		);
 	}
 
@@ -112,26 +123,39 @@ final class PeepSoAdapter implements SourceAdapter {
 		if ( ! $this->is_available() ) {
 			return array();
 		}
+		if ( null !== $this->fields ) {
+			return $this->fields;
+		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( "SELECT ID, post_title FROM {$wpdb->posts} WHERE post_type = 'peepso_user_field' AND post_status = 'publish' ORDER BY menu_order ASC, ID ASC", ARRAY_A );
+		$rows = $wpdb->get_results(
+			"SELECT p.ID, p.post_title, p.post_name, acc.meta_value AS default_acc
+			FROM {$wpdb->posts} p
+			LEFT JOIN {$wpdb->postmeta} acc ON acc.post_id = p.ID AND acc.meta_key = 'default_acc'
+			WHERE p.post_type = 'peepso_user_field' AND p.post_status = 'publish'
+			ORDER BY p.menu_order ASC, p.ID ASC",
+			ARRAY_A
+		);
 
 		$fields = array();
 		$order  = 0;
 		foreach ( (array) $rows as $row ) {
-			$type = $this->field_type( (string) $row['post_title'] );
+			$type = $this->field_type( (string) $row['post_name'] );
 			$fields[] = array(
 				'source_id'   => (int) $row['ID'],
 				'group_id'    => 1,
 				'name'        => (string) wp_unslash( $row['post_title'] ),
+				'slug'        => (string) $row['post_name'],
 				'type'        => $type,
 				'is_required' => 0,
 				'sort_order'  => $order,
-				'visibility'  => 'public',
+				'visibility'  => $this->access_level( (int) $row['default_acc'] ),
 				'options'     => 'gender' === $type ? array( 'm', 'f' ) : array(),
 			);
 			++$order;
 		}
+
+		$this->fields = $fields;
 
 		return $fields;
 	}
@@ -151,41 +175,52 @@ final class PeepSoAdapter implements SourceAdapter {
 		return array_map( 'intval', (array) $rows );
 	}
 
+	/**
+	 * PeepSo keeps a field's value in usermeta under peepso_user_field_{slug}.
+	 * The core fields First Name, Last Name and About Me reuse WordPress's own
+	 * user meta, and Website is the WordPress user_url. Gender and birthdate
+	 * also have a legacy column on peepso_users, read only when the meta is
+	 * empty.
+	 *
+	 * @param int $user_id Source member id.
+	 */
 	public function profile_values( int $user_id ): array {
-		$by_name = array();
-		foreach ( $this->profile_fields() as $field ) {
-			$by_name[ (string) $field['name'] ] = $field;
-		}
-
-		$pairs = array(
-			'First Name' => (string) get_user_meta( $user_id, 'first_name', true ),
-			'Last Name'  => (string) get_user_meta( $user_id, 'last_name', true ),
-			'About Me'   => (string) get_user_meta( $user_id, 'description', true ),
-			'Website'    => (string) get_user_meta( $user_id, 'user_url', true ),
-		);
-
-		$user = $this->user_row( $user_id );
-		if ( null !== $user ) {
-			$gender = (string) $user['usr_gender'];
-			if ( 'm' === $gender || 'f' === $gender ) {
-				$pairs['Gender'] = $gender;
-			}
-			$born = (string) $user['usr_birthdate'];
-			if ( '' !== $born && '0000-00-00' !== $born ) {
-				$pairs['Birthdate'] = $born;
-			}
-		}
+		$user   = get_userdata( $user_id );
+		$legacy = $this->user_row( $user_id );
 
 		$values = array();
-		foreach ( $pairs as $name => $value ) {
+		foreach ( $this->profile_fields() as $field ) {
+			$slug = (string) $field['slug'];
+			switch ( $slug ) {
+				case 'first_name':
+				case 'last_name':
+				case 'description':
+					$value = (string) get_user_meta( $user_id, $slug, true );
+					break;
+				case 'user_url':
+					$value = $user instanceof \WP_User ? (string) $user->user_url : '';
+					break;
+				default:
+					$value = (string) get_user_meta( $user_id, 'peepso_user_field_' . $slug, true );
+			}
+
 			$value = trim( $value );
-			if ( '' === $value || ! isset( $by_name[ $name ] ) ) {
+			if ( '' === $value && null !== $legacy && 'gender' === $slug ) {
+				$value = (string) $legacy['usr_gender'];
+			}
+			if ( '' === $value && null !== $legacy && 'birthdate' === $slug ) {
+				$value = (string) $legacy['usr_birthdate'];
+			}
+			if ( 'gender' === $slug && ! in_array( $value, array( 'm', 'f' ), true ) ) {
 				continue;
 			}
-			$field    = $by_name[ $name ];
+			if ( '' === $value || '0000-00-00' === $value ) {
+				continue;
+			}
+
 			$values[] = array(
 				'field_id' => (int) $field['source_id'],
-				'name'     => $name,
+				'name'     => (string) $field['name'],
 				'type'     => (string) $field['type'],
 				'value'    => $value,
 			);
@@ -194,18 +229,161 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $values;
 	}
 
+	/**
+	 * A member's own choice per field, from peepso_user_field_{slug}_acc. The
+	 * legacy usr_{slug}_acc column is the fallback for members PeepSo has not
+	 * moved to usermeta yet.
+	 *
+	 * @param int $user_id Source member id.
+	 */
 	public function profile_visibility_levels( int $user_id ): array {
-		unset( $user_id );
-		return array();
+		$legacy = (array) $this->user_row( $user_id );
+
+		$levels = array();
+		foreach ( $this->profile_fields() as $field ) {
+			$slug   = (string) $field['slug'];
+			$stored = get_user_meta( $user_id, 'peepso_user_field_' . $slug . '_acc', true );
+			if ( '' === $stored && isset( $legacy[ 'usr_' . $slug . '_acc' ] ) ) {
+				$stored = $legacy[ 'usr_' . $slug . '_acc' ];
+			}
+			if ( '' === (string) $stored ) {
+				continue;
+			}
+			$levels[ (int) $field['source_id'] ] = $this->access_level( (int) $stored );
+		}
+
+		return $levels;
 	}
 
+	/**
+	 * PeepSo access level to the vocabulary PrivacyMap::field_visibility() reads.
+	 *
+	 * @param int $access PeepSo access level (10, 20, 30 or 40).
+	 */
+	private function access_level( int $access ): string {
+		switch ( $access ) {
+			case 20:
+				return 'loggedin';
+			case 30:
+				return 'friends';
+			case 40:
+				return 'onlyme';
+			default:
+				return 'public';
+		}
+	}
+
+	/**
+	 * PeepSo VIP icons become member types, but only the icons a member holds.
+	 * PeepSo ships eight "Verified icon" presets that most sites never hand out.
+	 */
 	public function member_types(): array {
-		return array();
+		global $wpdb;
+
+		$held = $this->held_vip_icons();
+		if ( array() === $held ) {
+			return array();
+		}
+
+		$in = implode( ',', array_keys( $held ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( "SELECT ID, post_title, post_name, post_content FROM {$wpdb->posts} WHERE ID IN ({$in}) AND post_type IN ( 'peepso_vip', 'peepso_vip_user' ) ORDER BY menu_order ASC, ID ASC", ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'slug'        => $this->vip_slug( (int) $row['ID'], (string) $row['post_name'] ),
+				'name'        => (string) wp_unslash( $row['post_title'] ),
+				'description' => wp_strip_all_tags( (string) wp_unslash( $row['post_content'] ) ),
+			);
+		}
+
+		return $out;
 	}
 
+	/**
+	 * One row per VIP icon a member holds, keyset-paginated by member.
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Members per batch.
+	 */
 	public function member_type_assignments( int $after, int $limit ): array {
-		unset( $after, $limit );
-		return array();
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT user_id, meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'peepso_vip_user_icon' AND user_id > %d ORDER BY user_id ASC LIMIT %d",
+				$after,
+				$limit
+			),
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			foreach ( $this->vip_icon_ids( (string) $row['meta_value'] ) as $icon_id ) {
+				$out[] = array(
+					'user_id' => (int) $row['user_id'],
+					'slug'    => $this->vip_slug( $icon_id, (string) get_post_field( 'post_name', $icon_id ) ),
+				);
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Icon post id => number of members holding it.
+	 *
+	 * @return array<int,int>
+	 */
+	private function held_vip_icons(): array {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$values = $wpdb->get_col( "SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'peepso_vip_user_icon'" );
+
+		$held = array();
+		foreach ( (array) $values as $value ) {
+			foreach ( $this->vip_icon_ids( (string) $value ) as $icon_id ) {
+				$held[ $icon_id ] = ( $held[ $icon_id ] ?? 0 ) + 1;
+			}
+		}
+
+		return $held;
+	}
+
+	/**
+	 * Icon ids from one stored peepso_vip_user_icon value.
+	 *
+	 * @param string $stored Raw usermeta value.
+	 * @return array<int,int>
+	 */
+	private function vip_icon_ids( string $stored ): array {
+		$ids = maybe_unserialize( $stored );
+		$ids = is_array( $ids ) ? $ids : array( $ids );
+
+		$out = array();
+		foreach ( $ids as $id ) {
+			$id = (int) $id;
+			if ( $id > 0 && in_array( get_post_type( $id ), array( 'peepso_vip', 'peepso_vip_user' ), true ) ) {
+				$out[] = $id;
+			}
+		}
+
+		return array_values( array_unique( $out ) );
+	}
+
+	/**
+	 * Member-type slug for a VIP icon.
+	 *
+	 * @param int    $icon_id   Icon post id.
+	 * @param string $post_name Icon post slug.
+	 */
+	private function vip_slug( int $icon_id, string $post_name ): string {
+		$slug = sanitize_key( $post_name );
+		return '' !== $slug ? $slug : 'peepso-vip-' . $icon_id;
 	}
 
 	public function groups( int $after, int $limit ): array {
@@ -219,10 +397,13 @@ final class PeepSoAdapter implements SourceAdapter {
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT p.ID, p.post_author, p.post_title, p.post_name, p.post_content, p.post_date_gmt,
-					COALESCE( priv.meta_value, pagepriv.meta_value ) AS privacy
+					COALESCE( priv.meta_value, pagepriv.meta_value ) AS privacy,
+					COALESCE( rules.meta_value, pagerules.meta_value ) AS rules
 				FROM {$wpdb->posts} p
 				LEFT JOIN {$wpdb->postmeta} priv ON priv.post_id = p.ID AND priv.meta_key = 'peepso_group_privacy'
 				LEFT JOIN {$wpdb->postmeta} pagepriv ON pagepriv.post_id = p.ID AND pagepriv.meta_key = 'peepso_page_privacy'
+				LEFT JOIN {$wpdb->postmeta} rules ON rules.post_id = p.ID AND rules.meta_key = 'peepso_group_rules'
+				LEFT JOIN {$wpdb->postmeta} pagerules ON pagerules.post_id = p.ID AND pagerules.meta_key = 'peepso_page_rules'
 				WHERE p.post_type IN ( 'peepso-group', 'peepso-page' ) AND p.post_status = 'publish' AND p.ID > %d
 				ORDER BY p.ID ASC LIMIT %d",
 				$after,
@@ -240,6 +421,7 @@ final class PeepSoAdapter implements SourceAdapter {
 				'slug'         => (string) $row['post_name'],
 				'description'  => (string) wp_unslash( $row['post_content'] ),
 				'status'       => $this->group_status( (string) $row['privacy'] ),
+				'rules'        => (string) wp_unslash( (string) $row['rules'] ),
 				'parent_id'    => 0,
 				'date_created' => (string) $row['post_date_gmt'],
 			);
@@ -373,10 +555,13 @@ final class PeepSoAdapter implements SourceAdapter {
 			$wpdb->prepare(
 				"SELECT a.act_id, a.act_external_id, a.act_module_id, a.act_access, a.act_owner_id,
 					p.post_author, p.post_content, p.post_date_gmt,
-					g.meta_value AS group_id
+					g.meta_value AS group_id, nsfw.meta_value AS nsfw, pin.meta_value AS pinned, pinend.meta_value AS pinned_until
 				FROM {$this->t( 'peepso_activities' )} a
 				JOIN {$wpdb->posts} p ON p.ID = a.act_external_id
 				LEFT JOIN {$wpdb->postmeta} g ON g.post_id = p.ID AND g.meta_key = 'peepso_group_id'
+				LEFT JOIN {$wpdb->postmeta} nsfw ON nsfw.post_id = p.ID AND nsfw.meta_key = 'peepso_nsfw'
+				LEFT JOIN {$wpdb->postmeta} pin ON pin.post_id = p.ID AND pin.meta_key = 'peepso_pinned'
+				LEFT JOIN {$wpdb->postmeta} pinend ON pinend.post_id = p.ID AND pinend.meta_key = 'peepso_pinned_until'
 				LEFT JOIN {$wpdb->postmeta} r ON r.post_id = p.ID AND r.meta_key = 'peepso_reported'
 				WHERE a.act_comment_object_id = 0
 					AND a.act_module_id IN ({$modules})
@@ -439,10 +624,26 @@ final class PeepSoAdapter implements SourceAdapter {
 				'link_url'          => $links[ $post_id ] ?? '',
 				'poll_options'      => is_array( $poll ) ? $poll['options'] : array(),
 				'poll_votes'        => is_array( $poll ) ? $poll['votes'] : array(),
+				'content_warning'   => ! empty( $row['nsfw'] ),
+				'pinned'            => $this->is_pinned( (string) $row['pinned'], (string) $row['pinned_until'] ),
 			);
 		}
 
 		return $out;
+	}
+
+	/**
+	 * PeepSo stores the pin time and an optional end time as Unix timestamps.
+	 * A pin whose end time has passed is no longer on the stream.
+	 *
+	 * @param string $pinned peepso_pinned value.
+	 * @param string $until  peepso_pinned_until value.
+	 */
+	private function is_pinned( string $pinned, string $until ): bool {
+		if ( (int) $pinned <= 0 ) {
+			return false;
+		}
+		return (int) $until <= 0 || (int) $until > time();
 	}
 
 	public function activity_comments( int $after, int $limit ): array {
@@ -635,20 +836,54 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * Member blocks from peepso_blocks.
+	 *
+	 * @param int $after Exclusive lower-bound block id.
+	 * @param int $limit Batch size.
+	 */
+	public function blocks( int $after, int $limit ): array {
+		global $wpdb;
+
+		if ( ! $this->table_exists( 'peepso_blocks' ) ) {
+			return array();
+		}
+
+		$table = $this->t( 'peepso_blocks' );
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT blk_id, blk_user_id, blk_blocked_id FROM `{$table}` WHERE blk_id > %d ORDER BY blk_id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'source_id'  => (int) $row['blk_id'],
+				'blocker_id' => (int) $row['blk_user_id'],
+				'blocked_id' => (int) $row['blk_blocked_id'],
+			);
+		}
+
+		return $out;
+	}
+
 	public function reactions( int $after, int $limit ): array {
 		global $wpdb;
 
 		$table = $this->t( 'peepso_reactions' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT reaction_id, reaction_user_id, reaction_act_id, reaction_timestamp FROM `{$table}` WHERE reaction_id > %d ORDER BY reaction_id ASC LIMIT %d",
+				"SELECT r.reaction_id, r.reaction_user_id, r.reaction_act_id, r.reaction_timestamp, p.post_name AS reaction_name
+				FROM `{$table}` r
+				LEFT JOIN {$wpdb->posts} p ON p.ID = r.reaction_type
+				WHERE r.reaction_id > %d ORDER BY r.reaction_id ASC LIMIT %d",
 				$after,
 				$limit
 			),
 			ARRAY_A
 		);
+		// phpcs:enable
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -657,10 +892,22 @@ final class PeepSoAdapter implements SourceAdapter {
 				'user_id'      => (int) $row['reaction_user_id'],
 				'activity_id'  => (int) $row['reaction_act_id'],
 				'date_created' => (string) $row['reaction_timestamp'],
+				'emoji'        => $this->reaction_emoji( (string) $row['reaction_name'] ),
 			);
 		}
 
 		return $out;
+	}
+
+	/**
+	 * PeepSo reaction name to a BuddyNext reaction. Names BuddyNext has no
+	 * match for (wink, crazy, speechless, grateful, celebrate, custom ones)
+	 * land as a like and are declared in unsupported_content().
+	 *
+	 * @param string $name Reaction definition post slug.
+	 */
+	private function reaction_emoji( string $name ): string {
+		return in_array( $name, self::BN_REACTIONS, true ) ? $name : 'like';
 	}
 
 	public function message_threads( int $after, int $limit ): array {
@@ -841,11 +1088,81 @@ final class PeepSoAdapter implements SourceAdapter {
 		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activities' )} WHERE act_module_id = 50 AND act_comment_object_id = 0" ), 'PeepSo file attachments. The post text imports. The file itself does not: the media engine refuses documents, same as BuddyBoss files.' );
 		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activities' )} WHERE act_module_id = 111 AND act_comment_object_id = 0" ), 'Post background presets. The words import as a status. BuddyNext has no background field.' );
 		$this->declare( $out, $this->count_posts( 'peepso-story' ), 'PeepSo stories.' );
-		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_blocks' )}" ), 'Blocked members. There is no block step.' );
 		$this->declare( $out, $this->count_posts( 'peepso-post', "post_status = 'future'" ), 'Scheduled posts. They are not published during the import.' );
+		$this->declare( $out, $this->count_posts( 'peepso-post', "post_status = 'pending'" ), 'Posts waiting for approval. They were never published at the source, so they are not published here.' );
 		$this->declare( $out, $this->reported_count(), 'Reported posts and comments. They are left out, the same way spam is left out.' );
 
+		global $wpdb;
+		$this->declare( $out, $this->journal_photo_count(), 'Photos attached to blog announcement posts. The article card shows the blog post itself and its featured image, not these photos.' );
+		$this->declare(
+			$out,
+			$this->count_sql(
+				"SELECT COUNT(*) FROM {$this->t( 'peepso_group_followers' )} f
+				LEFT JOIN {$this->t( 'peepso_group_members' )} m ON m.gm_group_id = f.gf_group_id AND m.gm_user_id = f.gf_user_id AND m.gm_user_status LIKE 'member%'
+				WHERE m.gm_id IS NULL"
+			) + $this->count_sql(
+				"SELECT COUNT(*) FROM {$this->t( 'peepso_page_followers' )} f
+				LEFT JOIN {$this->t( 'peepso_page_members' )} m ON m.pm_page_id = f.pf_page_id AND m.pm_user_id = f.pf_user_id AND m.pm_user_status LIKE 'member%'
+				WHERE m.pm_id IS NULL"
+			),
+			'Group and page followers who are not members. BuddyNext has no way to follow a space without joining it.'
+		);
+		$this->declare(
+			$out,
+			$this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_group_followers' )} WHERE gf_follow = 0 OR gf_notify = 0 OR gf_email = 0" )
+				+ $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_page_followers' )} WHERE pf_follow = 0 OR pf_notify = 0 OR pf_email = 0" ),
+			'Members who muted a group or page, or turned off its notifications or emails. They are members in BuddyNext with the default notification settings.'
+		);
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activity_followers' )}" ), 'Post follows (the subscription that sends a member alerts about one post). BuddyNext alerts a post\'s author and the people in its thread by its own rules.' );
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activity_views' )}" ) + $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_activity_read' )}" ), 'Post view and read records. BuddyNext does not count views.' );
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = 'peepso_last_edit'" ), 'The "edited" time on posts and comments. The edited text imports; the stamp does not.' );
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$wpdb->postmeta} pin JOIN {$wpdb->postmeta} g ON g.post_id = pin.post_id AND g.meta_key = 'peepso_group_id' WHERE pin.meta_key = 'peepso_pinned'" ), 'Pinned group and page posts. BuddyNext pins posts on profiles only; a space features a post with an announcement.' );
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_message_recipients' )} WHERE mrec_viewed = 0 AND mrec_deleted = 0" ), 'Unread message markers. Imported messages arrive as read.' );
+		$this->declare( $out, $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_message_recipients' )} WHERE mrec_deleted = 1" ), 'Messages a member deleted from their own inbox. They arrive in that member\'s inbox again.' );
+		$this->declare( $out, $this->count_posts( 'peepso_vip', "post_status = 'publish'" ) + $this->count_posts( 'peepso_vip_user', "post_status = 'publish'" ) - count( $this->held_vip_icons() ), 'VIP icons no member holds. Only icons a member holds become member types.' );
+		$this->declare( $out, $this->unmapped_reaction_count(), 'Reactions BuddyNext has no match for (such as wink, crazy, speechless, grateful or celebrate). They import as a like.' );
+		$this->declare( $out, $this->custom_space_settings_count(), 'Groups and pages with settings BuddyNext has no equal for (read-only, closed to joining or invites, auto-accept, non-member posting). They import with BuddyNext\'s defaults.' );
+
 		return $out;
+	}
+
+	/**
+	 * Photos attached to blog announcement activities (module 6661).
+	 */
+	private function journal_photo_count(): int {
+		return $this->count_sql(
+			"SELECT COUNT(*) FROM {$this->t( 'peepso_photos' )} ph
+			JOIN {$this->t( 'peepso_activities' )} a ON a.act_external_id = ph.pho_post_id AND a.act_comment_object_id = 0
+			WHERE a.act_module_id = 6661"
+		);
+	}
+
+	/**
+	 * Reactions whose type has no BuddyNext match.
+	 */
+	private function unmapped_reaction_count(): int {
+		global $wpdb;
+
+		$known = "'" . implode( "','", self::BN_REACTIONS ) . "'";
+		return $this->count_sql(
+			"SELECT COUNT(*) FROM {$this->t( 'peepso_reactions' )} r
+			LEFT JOIN {$wpdb->posts} p ON p.ID = r.reaction_type
+			WHERE p.post_name IS NULL OR p.post_name NOT IN ({$known})"
+		);
+	}
+
+	/**
+	 * Spaces whose join, invite, read-only or posting settings differ from
+	 * PeepSo's defaults.
+	 */
+	private function custom_space_settings_count(): int {
+		global $wpdb;
+
+		return $this->count_sql(
+			"SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta}
+			WHERE ( meta_key IN ( 'peepso_group_is_joinable', 'peepso_group_is_invitable', 'peepso_page_is_joinable', 'peepso_page_is_invitable' ) AND meta_value = '0' )
+				OR ( meta_key IN ( 'peepso_group_is_readonly', 'peepso_group_is_auto_accept_join_request', 'peepso_group_is_allowed_non_member_actions', 'peepso_group_is_allowed_non_member_publish_post', 'peepso_page_is_readonly', 'peepso_page_is_auto_accept_join_request', 'peepso_page_is_allowed_non_member_actions' ) AND meta_value = '1' )"
+		);
 	}
 
 	public function relationship_report(): array {
@@ -990,12 +1307,16 @@ final class PeepSoAdapter implements SourceAdapter {
 			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT usr_id FROM `{$table}` WHERE usr_id > %d ORDER BY usr_id ASC LIMIT %d", $after, $limit ) );
 		} else {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'peepso-group' AND post_status = 'publish' AND ID > %d ORDER BY ID ASC LIMIT %d", $after, $limit ) );
+			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ( 'peepso-group', 'peepso-page' ) AND post_status = 'publish' AND ID > %d ORDER BY ID ASC LIMIT %d", $after, $limit ) );
 		}
 
 		$out = array();
 		foreach ( array_map( 'intval', (array) $ids ) as $id ) {
-			$dir    = WP_CONTENT_DIR . '/peepso/' . $kind . '/' . $id;
+			$folder = $kind;
+			if ( 'groups' === $kind && 'peepso-page' === get_post_type( $id ) ) {
+				$folder = 'pages';
+			}
+			$dir    = WP_CONTENT_DIR . '/peepso/' . $folder . '/' . $id;
 			$avatar = $this->first_file( $dir, '-avatar-full.jpg' );
 			if ( '' === $avatar ) {
 				$avatar = $this->first_file( $dir, '-avatar.jpg' );
@@ -1317,15 +1638,15 @@ final class PeepSoAdapter implements SourceAdapter {
 		);
 	}
 
-	private function field_type( string $title ): string {
-		switch ( $title ) {
-			case 'About Me':
+	private function field_type( string $slug ): string {
+		switch ( $slug ) {
+			case 'description':
 				return 'textarea';
-			case 'Gender':
+			case 'gender':
 				return 'gender';
-			case 'Birthdate':
+			case 'birthdate':
 				return 'birthdate';
-			case 'Website':
+			case 'user_url':
 				return 'url';
 			default:
 				return 'textbox';
@@ -1425,8 +1746,14 @@ final class PeepSoAdapter implements SourceAdapter {
 			return 0;
 		}
 
+		// Some PeepSo tables only exist once their feature has been used. A
+		// missing one counts as zero rows, not as a database error on screen.
+		$quiet = $wpdb->suppress_errors( true );
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		return (int) $wpdb->get_var( $sql );
+		$count = (int) $wpdb->get_var( $sql );
+		$wpdb->suppress_errors( $quiet );
+
+		return $count;
 	}
 
 	/**
@@ -1438,7 +1765,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		$table = $this->users();
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$row = $wpdb->get_row( $wpdb->prepare( "SELECT usr_gender, usr_birthdate FROM `{$table}` WHERE usr_id = %d", $user_id ), ARRAY_A );
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$table}` WHERE usr_id = %d", $user_id ), ARRAY_A );
 
 		return is_array( $row ) ? $row : null;
 	}
