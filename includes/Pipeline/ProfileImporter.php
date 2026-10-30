@@ -117,6 +117,8 @@ final class ProfileImporter {
 				$this->adapter->profile_values( $user_id ),
 				$this->adapter->profile_visibility_levels( $user_id )
 			);
+			$this->carry_last_active( $user_id );
+			$this->skip_onboarding( $user_id );
 			++$users;
 			$last = $user_id;
 		}
@@ -126,5 +128,41 @@ final class ProfileImporter {
 			'users'  => $users,
 			'values' => $values,
 		);
+	}
+
+	/**
+	 * The member's last-active time, through BuddyNext's own presence writer,
+	 * which keeps the newer of the stored and given values. A source that does
+	 * not expose it (no last_active() method) is left alone. An old timestamp
+	 * sits outside the online window, so nobody imported shows as online.
+	 *
+	 * @param int $user_id Member id.
+	 */
+	private function carry_last_active( int $user_id ): void {
+		if ( ! method_exists( $this->adapter, 'last_active' ) || ! class_exists( \BuddyNext\Realtime\PresenceService::class ) ) {
+			return;
+		}
+
+		$timestamp = (int) $this->adapter->last_active( $user_id );
+		if ( $timestamp > 0 && $timestamp <= time() ) {
+			\BuddyNext\Realtime\PresenceService::write( $user_id, $timestamp );
+		}
+	}
+
+	/**
+	 * Mark onboarding done for a member brought over from their community.
+	 *
+	 * The wizard is for new members. BuddyNext already exempts anyone who
+	 * registered before onboarding went live, but a member who joined the source
+	 * after BuddyNext was installed (a delta run before cutover) would be sent
+	 * through it. skip() only records completion: no hook, email or points.
+	 *
+	 * @param int $user_id Member id.
+	 */
+	private function skip_onboarding( int $user_id ): void {
+		$onboarding = buddynext_service( 'onboarding' );
+		if ( is_object( $onboarding ) && method_exists( $onboarding, 'skip' ) && ! $onboarding->is_complete( $user_id ) ) {
+			$onboarding->skip( $user_id );
+		}
 	}
 }

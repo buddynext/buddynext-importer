@@ -200,7 +200,7 @@ final class BackgroundImport {
 
 		// The write phases go through BuddyNext services; if it went away between
 		// ticks, stop cleanly and let the owner restart once it is back.
-		if ( ! Plugin::buddynext_active() ) {
+		if ( '' !== Plugin::import_blocked_reason() ) {
 			$job['state']      = 'error';
 			$job['updated_at'] = time();
 			update_option( self::JOB_OPTION, $job, false );

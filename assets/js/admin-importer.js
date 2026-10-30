@@ -127,6 +127,8 @@
 		toggleButtons( true );
 		if ( ! cfg.bnActive ) {
 			showNotice( ( cfg.i18n && cfg.i18n.bnInactive ) || '', 'warning' );
+		} else if ( ! cfg.mvActive ) {
+			showNotice( ( cfg.i18n && cfg.i18n.mvInactive ) || '', 'warning' );
 		}
 	}
 
@@ -251,10 +253,10 @@
 		var startBtn = el( 'bni-start' );
 		var startBg = el( 'bni-start-bg' );
 		if ( startBtn ) {
-			startBtn.disabled = ! ( enabled && cfg.bnActive );
+			startBtn.disabled = ! ( enabled && cfg.bnActive && cfg.mvActive );
 		}
 		if ( startBg ) {
-			startBg.disabled = ! ( enabled && cfg.bnActive );
+			startBg.disabled = ! ( enabled && cfg.bnActive && cfg.mvActive );
 		}
 	}
 
@@ -473,6 +475,7 @@
 
 			var got = document.createElement( 'td' );
 			got.className = 'bni-summary__num';
+			var overBy = 0;
 
 			if ( row.skipped ) {
 				// Chosen to be left behind. Not a number, and emphatically not a
@@ -486,6 +489,12 @@
 				if ( 'number' === typeof row.source && row.imported < row.source ) {
 					got.className += ' is-short';
 					got.title = ( cfg.i18n && cfg.i18n.shortfall ) || '';
+				} else if ( 'number' === typeof row.source && row.imported > row.source ) {
+					// Imported twice: a run after cleanup has no id map to dedupe against.
+					// Said in words on the row below; a colour and a tooltip alone do
+					// not reach a phone or a keyboard.
+					got.className += ' is-short';
+					overBy = row.imported - row.source;
 				}
 			}
 			tr.appendChild( got );
@@ -504,6 +513,9 @@
 			// space they belong to". Codes with no known wording are not dropped -
 			// they stay in row.reasons and are still rendered, raw, below.
 			var notes = ( row.reason_notes || [] ).slice();
+			if ( overBy > 0 ) {
+				notes.unshift( overNote( overBy ) );
+			}
 			var leftover = row.reason_unexplained || {};
 			var unexplained = Object.keys( leftover );
 
@@ -586,6 +598,11 @@
 		return ( cfg.i18n && cfg.i18n[ key ] ) || fallback;
 	}
 
+	// One sentence for an over-count, used by the summary table and the checks.
+	function overNote( by ) {
+		return t( 'overImport', '%d more than the source holds. Usually a run after cleanup imported earlier items a second time.' ).replace( '%d', String( by ) );
+	}
+
 	function renderVerify( report ) {
 		var out = el( 'bni-verify-out' );
 		if ( ! out ) {
@@ -643,6 +660,54 @@
 				exp.appendChild( verifyLine( 'ok', t( 'verifyNoLeak', 'No private or secret space content is publicly searchable.' ) ) );
 			}
 			out.appendChild( exp );
+		}
+
+		// A total that is short or over is a finding, counted exactly as the
+		// command line counts it, so both give the owner the same number.
+		var differing = ( report.domains || [] ).filter( function ( d ) {
+			return ! d.skipped && null !== d.expected && undefined !== d.expected && d.imported !== d.expected;
+		} );
+		if ( differing.length ) {
+			var tot = verifySection( t( 'verifyTotals', 'Totals that differ from the source' ) );
+			differing.forEach( function ( d ) {
+				problems++;
+				var said = d.over > 0
+					? overNote( d.over )
+					: t( 'verifyShortBy', '%d fewer than the source holds.' ).replace( '%d', String( d.expected - d.imported ) ) + ( d.because ? ' ' + d.because : '' );
+				tot.appendChild( verifyLine( 'bad', d.label + ': ' + said ) );
+			} );
+			out.appendChild( tot );
+		}
+
+		// WPMediaVerse photos over EVERY migrated post, not just the sample: a
+		// handful of lost photos in a large migration is what sampling misses.
+		var media = report.media || {};
+		if ( 'id_map_missing' === media.reason ) {
+			problems++;
+			var noMap = verifySection( t( 'verifyPhotos', 'Photos (all migrated posts)' ) );
+			noMap.appendChild( verifyLine( 'bad', t( 'verifyPhotosNoMap', 'Not checked: the id map is missing (removed by cleanup), so photos cannot be compared.' ) ) );
+			out.appendChild( noMap );
+		} else if ( media.checked && media.expected > 0 ) {
+			var med = verifySection( t( 'verifyPhotos', 'Photos (all migrated posts)' ) );
+			if ( media.missing > 0 ) {
+				problems++;
+				med.appendChild( verifyLine( 'bad', media.attached + ' / ' + media.expected + ' ' + t( 'verifyPhotosShort', 'photos attached' ) + ' - ' + media.missing + ' ' + t( 'verifyPhotosMissing', 'missing across' ) + ' ' + media.posts_short + ' ' + t( 'verifyPhotosPosts', 'post(s)' ) ) );
+				( media.examples || [] ).forEach( function ( ex ) {
+					med.appendChild( verifyLine( 'detail', 'activity ' + ex.source_id + ' -> post ' + ex.bn_id + ': ' + ex.attached + ' / ' + ex.expected ) );
+				} );
+			} else {
+				med.appendChild( verifyLine( 'ok', t( 'verifyPhotosOk', 'Every photo is attached:' ) + ' ' + media.expected ) );
+			}
+			out.appendChild( med );
+		}
+
+		// The spot checks need the id map. Without it nothing was sampled, which
+		// must not end in "every sampled object correct".
+		if ( 'id_map_missing' === report.samples_reason ) {
+			problems++;
+			var noSamples = verifySection( t( 'verifySpotChecks', 'Spot-checks' ) );
+			noSamples.appendChild( verifyLine( 'bad', t( 'verifySamplesNoMap', 'Not checked: the id map is missing (removed by cleanup), so no space or post could be walked end to end.' ) ) );
+			out.appendChild( noSamples );
 		}
 
 		// Objects walked end to end. Totals cannot see placement; this can.

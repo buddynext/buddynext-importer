@@ -19,18 +19,33 @@ defined( 'ABSPATH' ) || exit;
 final class PrivacyMap {
 
 	/**
-	 * Source activity privacy -> BuddyNext post privacy (public|private).
+	 * Source activity privacy -> BuddyNext post privacy.
 	 *
-	 * BuddyBoss values: public, loggedin, onlyme, friends, media, document, video,
-	 * grouponly. Only owner/friends-restricted levels become private; the rest
-	 * (including media/group, which are scoped by their space) stay public.
+	 * BuddyNext stores public, followers, connections, space_members, or private.
+	 * A friends-only post becomes connections, so the author's friends can still
+	 * read it. Only-me and admin-only stay private. Members-only has no matching
+	 * level: BuddyNext treats "members" as public, which guests would see, so
+	 * the reader must pass private for that case. Group-scoped values stay
+	 * public here because the space itself carries that audience.
 	 *
 	 * @param string $source Source privacy value.
 	 */
 	public static function post_privacy( string $source ): string {
-		return in_array( $source, array( 'onlyme', 'friends', 'adminsonly', 'private' ), true )
-			? 'private'
-			: 'public';
+		switch ( $source ) {
+			case 'friends':
+			case 'connections':
+				return 'connections';
+			case 'followers':
+				return 'followers';
+			case 'space_members':
+				return 'space_members';
+			case 'onlyme':
+			case 'adminsonly':
+			case 'private':
+				return 'private';
+			default:
+				return 'public';
+		}
 	}
 
 	/**

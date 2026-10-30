@@ -544,10 +544,11 @@ final class ProgressController {
 	 * @param WP_REST_Request $request Request.
 	 */
 	public function start_background( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		if ( ! Plugin::buddynext_active() ) {
+		$blocked = Plugin::import_blocked_reason();
+		if ( '' !== $blocked ) {
 			return new WP_Error(
 				'buddynext_importer_no_target',
-				__( 'BuddyNext must be active before importing.', 'buddynext-importer' ),
+				$blocked,
 				array( 'status' => 409 )
 			);
 		}
@@ -643,10 +644,11 @@ final class ProgressController {
 	 * @param WP_REST_Request $request Request.
 	 */
 	public function run_step( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		if ( ! Plugin::buddynext_active() ) {
+		$blocked = Plugin::import_blocked_reason();
+		if ( '' !== $blocked ) {
 			return new WP_Error(
 				'buddynext_importer_no_target',
-				__( 'BuddyNext must be active before importing.', 'buddynext-importer' ),
+				$blocked,
 				array( 'status' => 409 )
 			);
 		}

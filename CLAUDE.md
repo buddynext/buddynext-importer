@@ -58,7 +58,7 @@ Two consequences worth knowing before you write a guard:
 
 ---
 
-## The four rules that carry this codebase
+## The five rules that carry this codebase
 
 ### 1. `StepRegistry` is the single source of truth for what a migration contains
 
@@ -134,6 +134,49 @@ filters, everything that would judge replayed history by today's settings:
 **A real block still refuses.** `PrivacyService` checks `bn_blocks` *before* those
 filters, so lifting a preference can never re-create a relationship across a block.
 Blocked rows are reason-coded, never silent.
+
+### 5. The importer fits BuddyNext; BuddyNext is never changed to fit the source
+
+The goal is a **close match of the source's major data** (about 90%), carried
+through the APIs BuddyNext and WPMediaVerse already offer. It is not a
+field-for-field copy of PeepSo, BuddyBoss or BuddyPress. (Owner decision,
+2026-10-30.)
+
+- **Never change BuddyNext for an importer card.** No new BN arguments, no BN
+  seams, no BN guard bypasses, no BN filters added "so the importer can". If BN
+  has no way to hold a piece of source data, that data does not move.
+- **Never write around a BN API.** No direct `INSERT`/`UPDATE` on `bn_*` or
+  MediaVerse tables to backdate, recount or force a value the service would not
+  set. Rule 4's `ImportMode` only uses filters BN already exposes.
+- **Missing data is declared, not fixed.** Add it to the adapter's
+  `unsupported_content()` (with a row count) or a reason code in `SkipReasons`, so
+  the operator sees it before deleting the old site. Rule 3 still applies: a
+  declared loss is fine, a silent one is a bug.
+- **Every time is the source's time.** A post, comment, reaction, join, follow,
+  bookmark, share, album or upload carries the moment it happened at the source,
+  never the migration time. Feed and space "last activity" are the newest source
+  interaction, not the run. This is not a declarable loss. It is the one place
+  BuddyNext and WPMediaVerse are extended for the importer: their existing
+  `Core\Backdate::resolve()` seam (an optional UTC `created_at`, clamped to now)
+  is added to any write API that lacks it, and nothing else (owner, 2026-10-30).
+- **Real importer bugs are still fixed in the importer**: a wrong join, a value
+  that arrives corrupted ("Array"), major data dropped when a BN API could take it,
+  a privacy setting mapped wider than the source.
+
+Triage every importer card into exactly one of:
+
+| Outcome | When | Card closes with |
+|---|---|---|
+| **Fix in BI** | An existing BN / MediaVerse API can hold the data and BI does not use it, or BI reads or maps it wrong | The fix, on a BI branch |
+| **Declare** | BN has no equivalent, or it is a micro detail (counters, per-recipient flags). Never a timestamp: see "Every time is the source's time" | An `unsupported_content()` / `SkipReasons` entry with a count |
+| **Already done** | The code already does it | The commit, and whether it is on `main` |
+
+Post privacy follows BuddyNext's model, not the source's: a post belongs to a
+person or to a space. A space post is written as `space_members` and the space's
+own privacy decides who sees it. A person's post maps to the nearest BN level
+(`public`, `followers`, `connections`, `private`). A source level BN has no
+equivalent for, such as PeepSo's "site members" (access 20), maps to `public`,
+not to `private` (owner, 2026-10-30).
 
 ---
 
@@ -330,6 +373,11 @@ On the BI Bugs column, verifying first repeatedly changed the outcome:
 So: read the code the card names, try to **refute** it, reproduce, then fix the
 cause. Comment the card with what you actually found — including where it was wrong.
 An invalid card closed with proof is a good outcome.
+
+A card that asks for a BuddyNext change (a guard bypass, a new BN field, a new
+setting) is answered with rule 5: the importer declares the loss, BN stays as it
+is. The one exception is a missing backdate argument: that goes to BN as a
+`Backdate::resolve()` parameter on the existing write method.
 
 ---
 

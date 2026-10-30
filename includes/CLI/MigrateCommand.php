@@ -38,6 +38,16 @@ defined( 'ABSPATH' ) || exit;
 final class MigrateCommand {
 
 	/**
+	 * Stop the command unless BuddyNext and MediaVerse free are both active.
+	 */
+	private function require_targets(): void {
+		$reason = Plugin::import_blocked_reason();
+		if ( '' !== $reason ) {
+			\WP_CLI::error( $reason );
+		}
+	}
+
+	/**
 	 * Show source community statistics (no data is moved).
 	 *
 	 * ## OPTIONS
@@ -48,6 +58,7 @@ final class MigrateCommand {
 	 * options:
 	 *   - buddypress
 	 *   - buddyboss
+	 *   - peepso
 	 * ---
 	 *
 	 * ## EXAMPLES
@@ -64,7 +75,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$adapter = AdapterRegistry::get( $source );
@@ -114,16 +125,14 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_profiles( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ProfileImporter::for_source( $source );
@@ -188,16 +197,14 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_spaces( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = SpaceImporter::for_source( $source );
@@ -280,16 +287,14 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_activity( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ActivityImporter::for_source( $source );
@@ -380,16 +385,14 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_friends( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = FriendImporter::for_source( $source );
@@ -449,16 +452,14 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_follows( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = FollowImporter::for_source( $source );
@@ -521,16 +522,14 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_reactions( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ReactionImporter::for_source( $source );
@@ -600,9 +599,7 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_bookmarks( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
@@ -674,9 +671,7 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_messages( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		if ( ! MessageImporter::target_available() ) {
 			\WP_CLI::error( 'WPMediaVerse must be active to import private messages (they live in its DM engine).' );
@@ -687,7 +682,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = MessageImporter::for_source( $source );
@@ -815,9 +810,7 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_forums( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import.' );
-		}
+		$this->require_targets();
 
 		if ( ! ForumImporter::target_available() ) {
 			\WP_CLI::error( 'Jetonomy must be active to import forums (it is the discussion target engine).' );
@@ -828,7 +821,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ForumImporter::for_source( $source );
@@ -894,9 +887,7 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_member_types( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		if ( ! MemberTypeImporter::target_available() ) {
 			\WP_CLI::error( "BuddyNext's member-type service is unavailable." );
@@ -907,7 +898,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = MemberTypeImporter::for_source( $source );
@@ -982,9 +973,7 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_media( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		if ( ! MediaImporter::target_available() ) {
 			\WP_CLI::error( 'WPMediaVerse must be active to import media (it is the media engine).' );
@@ -995,7 +984,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = MediaImporter::for_source( $source );
@@ -1120,9 +1109,7 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_images( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		if ( ! ImageImporter::target_available() ) {
 			\WP_CLI::error( "BuddyNext's image pipeline is unavailable." );
@@ -1133,7 +1120,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$importer = ImageImporter::for_source( $source );
@@ -1475,16 +1462,14 @@ final class MigrateCommand {
 	 * @param array<string,string> $assoc_args Associative args.
 	 */
 	public function migrate_all( array $args, array $assoc_args ): void {
-		if ( ! Plugin::buddynext_active() ) {
-			\WP_CLI::error( 'BuddyNext must be active to import (data is written through its service API).' );
-		}
+		$this->require_targets();
 
 		$source = isset( $assoc_args['source'] )
 			? sanitize_key( $assoc_args['source'] )
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$batch = isset( $assoc_args['batch'] ) ? max( 1, (int) $assoc_args['batch'] ) : 100;
@@ -1725,7 +1710,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss, or PeepSo data found on this site.' );
 		}
 
 		$samples = isset( $assoc_args['samples'] ) ? max( 1, (int) $assoc_args['samples'] ) : 5;
@@ -1823,7 +1808,8 @@ final class MigrateCommand {
 			}
 
 			$short = ( null !== $expected && (int) $row['imported'] < (int) $expected );
-			if ( $short ) {
+			$over  = (int) ( $row['over'] ?? 0 );
+			if ( $short || $over > 0 ) {
 				++$problems;
 			}
 
@@ -1832,6 +1818,8 @@ final class MigrateCommand {
 				$tail  = '   short by ' . ( (int) $expected - (int) $row['imported'] );
 				$why   = (string) ( $row['because'] ?? '' );
 				$tail .= '' !== $why ? ' - ' . $why : '';
+			} elseif ( $over > 0 ) {
+				$tail = sprintf( '   OVER by %d - more than the source holds; usually a run after cleanup re-imported earlier items', $over );
 			}
 
 			\WP_CLI::log(
@@ -1845,7 +1833,37 @@ final class MigrateCommand {
 			);
 		}
 
-		// 5. Objects, walked end to end. Totals cannot see placement.
+		// 5. WPMediaVerse photos over every migrated post - not just the sample.
+		$media = (array) ( $report['media'] ?? array() );
+		if ( 'id_map_missing' === (string) ( $media['reason'] ?? '' ) ) {
+			++$problems;
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== WPMediaVerse photos (all migrated posts) ==' );
+			\WP_CLI::log( '  NOT CHECKED  the id map is missing (removed by cleanup), so photos cannot be compared' );
+		} elseif ( ! empty( $media['checked'] ) && (int) $media['expected'] > 0 ) {
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== WPMediaVerse photos (all migrated posts) ==' );
+			if ( (int) $media['missing'] > 0 ) {
+				++$problems;
+				\WP_CLI::log( sprintf( '  SHORT %d of %d photo(s) attached - %d missing across %d post(s)', (int) $media['attached'], (int) $media['expected'], (int) $media['missing'], (int) $media['posts_short'] ) );
+				foreach ( (array) $media['examples'] as $ex ) {
+					\WP_CLI::log( sprintf( '        activity %d -> post %d: %d of %d attached', (int) $ex['source_id'], (int) $ex['bn_id'], (int) $ex['attached'], (int) $ex['expected'] ) );
+				}
+			} else {
+				\WP_CLI::log( sprintf( '  ok    all %d photo(s) attached', (int) $media['expected'] ) );
+			}
+		}
+
+		// The spot checks pair objects through the id map; without it nothing is
+		// sampled, and that must be said rather than left to read as a pass.
+		if ( 'id_map_missing' === (string) ( $report['samples_reason'] ?? '' ) ) {
+			++$problems;
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== Spot-check ==' );
+			\WP_CLI::log( '  NOT CHECKED  the id map is missing (removed by cleanup), so no space or post could be walked end to end' );
+		}
+
+		// 6. Objects, walked end to end. Totals cannot see placement.
 		foreach ( array(
 			'spaces'     => 'Spaces',
 			'activities' => 'Activities',
@@ -1892,7 +1910,20 @@ final class MigrateCommand {
 		// Non-zero only for a genuinely wrong OBJECT, never for a shortfall that
 		// Coverage already explained - otherwise every migration with legitimately
 		// unmigratable content would look like a failed one.
-		$broken = 0;
+		// Lost photos are wrongly migrated objects too, whatever the sample saw.
+		$broken = (int) ( $report['media']['missing'] ?? 0 );
+		// A photo total that could not run proves nothing, and content imported
+		// twice is wrong content: neither may end in a clean exit.
+		if ( 'id_map_missing' === (string) ( $report['media']['reason'] ?? '' ) ) {
+			++$broken;
+		}
+		// Same for the spot checks: nothing sampled is not "every sample correct".
+		if ( 'id_map_missing' === (string) ( $report['samples_reason'] ?? '' ) ) {
+			++$broken;
+		}
+		foreach ( (array) $report['domains'] as $row ) {
+			$broken += (int) ( $row['over'] ?? 0 );
+		}
 		foreach ( array( 'spaces', 'activities' ) as $kind ) {
 			foreach ( (array) ( $report['samples'][ $kind ] ?? array() ) as $row ) {
 				$broken += count( (array) $row['problems'] );

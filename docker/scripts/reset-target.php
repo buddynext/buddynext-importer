@@ -23,8 +23,13 @@ $tables = array(
 	'bn_posts',
 	'bn_comments',
 	'bn_reactions',
+	// Poll rows point at post ids. Truncating bn_posts restarts those ids, so
+	// leftover options and votes attach themselves to the next import's posts.
+	'bn_poll_options',
+	'bn_poll_votes',
 	'bn_connections',
 	'bn_follows',
+	'bn_blocks',
 	'bn_member_types',
 	'bn_member_type_assignments',
 	'mvs_conversations',

@@ -1014,7 +1014,7 @@ class BuddyPressAdapter implements SourceAdapter {
 		$table = $wpdb->prefix . 'bp_groups_members';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, is_admin, is_mod, is_confirmed, is_banned FROM `{$table}` WHERE group_id = %d AND id > %d ORDER BY id ASC LIMIT %d", $group_id, $after, $limit ), ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, is_admin, is_mod, is_confirmed, is_banned, date_modified FROM `{$table}` WHERE group_id = %d AND id > %d ORDER BY id ASC LIMIT %d", $group_id, $after, $limit ), ARRAY_A );
 
 		$members = array();
 		foreach ( (array) $rows as $row ) {
@@ -1025,6 +1025,8 @@ class BuddyPressAdapter implements SourceAdapter {
 				'is_mod'       => (int) $row['is_mod'],
 				'is_confirmed' => (int) $row['is_confirmed'],
 				'is_banned'    => (int) $row['is_banned'],
+				// BuddyPress stamps date_modified (UTC) when a member joins or is confirmed.
+				'date_created' => (string) $row['date_modified'],
 			);
 		}
 
@@ -1810,8 +1812,9 @@ class BuddyPressAdapter implements SourceAdapter {
 	 * Count WPMediaVerse activity-media links (the other BuddyPress
 	 * activity-media source). The predicate matches mvs_activity_media_for()'s,
 	 * so source and imported counts are comparable. 0 when the table is absent.
+	 * Public so verify can tell "no photos to check" from "could not check".
 	 */
-	protected function mvs_activity_media_count(): int {
+	public function mvs_activity_media_count(): int {
 		return $this->table_count( 'mvs_bp_activity_media', "object_type = 'bp_activity' AND media_id > 0" );
 	}
 
@@ -2127,6 +2130,18 @@ class BuddyPressAdapter implements SourceAdapter {
 		return $this->column_exists( 'bp_follow', 'follow_type' )
 			? "( follow_type = '' OR follow_type = 'user' )"
 			: '';
+	}
+
+	/**
+	 * BuddyPress core has no member blocks.
+	 *
+	 * @param int $after Exclusive lower-bound block id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,int>>
+	 */
+	public function blocks( int $after, int $limit ): array {
+		unset( $after, $limit );
+		return array();
 	}
 
 	/**

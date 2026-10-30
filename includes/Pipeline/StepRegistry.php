@@ -187,6 +187,20 @@ final class StepRegistry {
 			array( 'spaces' )
 		);
 
+		// Before connections and follows: a block severs both, and the follow
+		// and connection writers then refuse any pair a block stands between.
+		$steps[] = self::step(
+			$source,
+			'blocks',
+			null,
+			__( 'blocks', 'buddynext-importer' ),
+			'block',
+			static fn (): bool => null !== BlockImporter::for_source( $source ),
+			static fn ( int $c, int $b ): array => BlockImporter::for_source( $source )->import_batch( $c, $b ),
+			static fn ( array $r ): int => (int) $r['blocks'],
+			'blocks'
+		);
+
 		$steps[] = self::step(
 			$source,
 			'friends',
@@ -384,6 +398,13 @@ final class StepRegistry {
 			static fn ( array $r ): int => (int) $r['conversations'] + (int) $r['merged'],
 			'message_threads'
 		);
+
+		// The whole batch runs in import mode, not just the writes a writer
+		// remembered to wrap: everything a batch triggers is part of the replay.
+		foreach ( $steps as $i => $step ) {
+			$run                = $step['run'];
+			$steps[ $i ]['run'] = static fn ( int $cursor, int $batch ): array => ImportMode::run( static fn () => $run( $cursor, $batch ) );
+		}
 
 		return $steps;
 	}

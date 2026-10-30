@@ -21,7 +21,7 @@ progress bar and a total.
 
 ```
 posts       1838   1443
-  395 posts were refused because their author is not a member of the space they belong to.
+  395 posts were refused by BuddyNext's permission checks, for example because the author is not a member of the space, or does not own a photo the post links to.
 comments   11006   8983
   7819 comments were on a post that did not migrate, so they were dropped with it.
 ```
@@ -88,8 +88,9 @@ roadmap - a migration touches too many services to unwind safely.
 
 - **BuddyPress** (including bbPress forums, and rtMedia photos, albums and library media)
 - **BuddyBoss Platform** (including its media, albums, documents notice and DM attachments)
+- **PeepSo** (members, groups, pages, posts, media and messages; see [docs/data-mapping/peepso.md](docs/data-mapping/peepso.md) for what it covers)
 
-FluentCommunity, PeepSo and Ultimate Member are v2. The adapter architecture below
+FluentCommunity and Ultimate Member are v2. The adapter architecture below
 is built to take them, but no adapter for them ships today. See
 [docs/build-plan.md](docs/build-plan.md).
 
@@ -107,7 +108,7 @@ create them in BuddyNext **through the BuddyNext service layer** (never raw SQL 
 privacy/role rules all stay correct.
 
 ```
-BuddyPress / BuddyBoss          (v2: FluentCommunity / PeepSo / Ultimate Member)
+BuddyPress / BuddyBoss / PeepSo (v2: FluentCommunity / Ultimate Member)
         |  (per-source read adapter)
         v
    common record shape  ->  BuddyNext services (write)  ->  bn_* tables
@@ -186,6 +187,12 @@ wp buddynext-import cleanup                # drop the mapping tables when you ar
 `cleanup` is final: afterwards there is no duplicate protection, so a later run
 re-creates everything. Do any top-up imports before it.
 
+Turn on BuddyNext email verification only after the final import run. BuddyNext
+treats everyone who registered before verification was switched on as an
+existing member, so migrated members are never asked to verify again. A member
+who joined the source after you switched it on would be asked. Onboarding needs
+no step: the importer marks every migrated member as onboarded.
+
 ## Requirements
 
 - BuddyNext active (declared via `Requires Plugins`, so WordPress enforces it)
@@ -219,7 +226,7 @@ bin/shipped-php-files.sh | xargs -0 -n1 php -l    # every file that ships
 bin/build-release.sh                              # both, plus packaging
 ```
 
-Read [CLAUDE.md](CLAUDE.md) before changing anything - it carries the four rules
+Read [CLAUDE.md](CLAUDE.md) before changing anything - it carries the five rules
 this codebase depends on.
 
 ## License
