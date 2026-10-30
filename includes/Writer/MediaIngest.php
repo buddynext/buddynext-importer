@@ -167,10 +167,10 @@ final class MediaIngest {
 	 * scoped by the source key, so it does not collide with BuddyPress
 	 * attachment ids.
 	 *
-	 * @param int    $map_id  Stable source id for the id-map.
-	 * @param string $path    Absolute path to the original file.
-	 * @param int    $user_id Owner of the imported media.
-	 * @param string $mime    Mime type, when the caller already knows it.
+	 * @param int                 $map_id  Stable source id for the id-map.
+	 * @param string              $path    Absolute path to the original file.
+	 * @param int                 $user_id Owner of the imported media.
+	 * @param string              $mime    Mime type, when the caller already knows it.
 	 * @param array<string,mixed> $args Upload args, same as ingest().
 	 */
 	public function ingest_path( int $map_id, string $path, int $user_id, string $mime = '', array $args = array() ): int {
@@ -368,14 +368,26 @@ final class MediaIngest {
 		$widen   = static fn( $types ): array => array_values( array_unique( array_merge( (array) $types, $carried ) ) );
 		$known   = array() !== $carried;
 
+		// The importer decides where each file goes (a post, an album, a cover).
+		// Without this BuddyNext auto-posts every upload no post holds yet as a
+		// new photo card dated today, two minutes after the import.
+		$bridge = \BuddyNext\Bridges\WPMediaVerseBridge::class;
+		$quiet  = class_exists( $bridge ) && method_exists( $bridge, 'suppress_upload_activity' );
+
 		if ( $known ) {
 			add_filter( 'mvs_allowed_file_types', $widen );
+		}
+		if ( $quiet ) {
+			$bridge::suppress_upload_activity( true );
 		}
 		try {
 			$result = ImportMode::run( fn() => $upload->handle( $file, $user_id, $args ) );
 		} finally {
 			if ( $known ) {
 				remove_filter( 'mvs_allowed_file_types', $widen );
+			}
+			if ( $quiet ) {
+				$bridge::suppress_upload_activity( false );
 			}
 		}
 

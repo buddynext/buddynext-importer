@@ -1862,6 +1862,12 @@ final class MigrateCommand {
 			\WP_CLI::log( '== Spot-check ==' );
 			\WP_CLI::log( '  NOT CHECKED  the id map is missing (removed by cleanup), so no space or post could be walked end to end' );
 		}
+		$not_sampled = 'source_not_sampled' === (string) ( $report['samples_reason'] ?? '' );
+		if ( $not_sampled ) {
+			\WP_CLI::log( '' );
+			\WP_CLI::log( '== Spot-check ==' );
+			\WP_CLI::log( '  not run  spot checks walk BuddyPress tables; this source is checked by the domain totals above' );
+		}
 
 		// 6. Objects, walked end to end. Totals cannot see placement.
 		foreach ( array(
@@ -1894,7 +1900,7 @@ final class MigrateCommand {
 
 		\WP_CLI::log( '' );
 		if ( 0 === $problems ) {
-			\WP_CLI::success( 'Verified: every domain accounted for and every sampled object correct.' );
+			\WP_CLI::success( $not_sampled ? 'Verified: every domain accounted for.' : 'Verified: every domain accounted for and every sampled object correct.' );
 			return;
 		}
 

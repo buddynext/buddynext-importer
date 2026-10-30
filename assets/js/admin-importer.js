@@ -709,6 +709,11 @@
 			noSamples.appendChild( verifyLine( 'bad', t( 'verifySamplesNoMap', 'Not checked: the id map is missing (removed by cleanup), so no space or post could be walked end to end.' ) ) );
 			out.appendChild( noSamples );
 		}
+		if ( 'source_not_sampled' === report.samples_reason ) {
+			var notRun = verifySection( t( 'verifySpotChecks', 'Spot-checks' ) );
+			notRun.appendChild( verifyLine( 'note', t( 'verifySamplesNotRun', 'Not run for this source: spot checks walk BuddyPress tables. The domain totals above check this source.' ) ) );
+			out.appendChild( notRun );
+		}
 
 		// Objects walked end to end. Totals cannot see placement; this can.
 		[
@@ -737,7 +742,9 @@
 
 		// The verdict, first thing the eye lands on after a run.
 		var verdict = problems === 0
-			? verifyLine( 'ok', t( 'verifyPass', 'Every domain accounted for and every sampled object correct.' ) )
+			? verifyLine( 'ok', 'source_not_sampled' === report.samples_reason
+				? t( 'verifyPassTotals', 'Every domain accounted for.' )
+				: t( 'verifyPass', 'Every domain accounted for and every sampled object correct.' ) )
 			: verifyLine( 'bad', problems + ' ' + t( 'verifyFindings', 'finding(s) to read. A shortfall is not automatically a fault - check it against the coverage note above.' ) );
 		verdict.className += ' bni-verify__verdict';
 		out.insertBefore( verdict, out.firstChild );

@@ -172,6 +172,8 @@ final class ImporterPage {
 					'verifyPhotosOk'      => __( 'Every photo is attached:', 'buddynext-importer' ),
 					'verifySamplesNoMap'  => __( 'Not checked: the id map is missing (removed by cleanup), so no space or post could be walked end to end.', 'buddynext-importer' ),
 					'verifySpotChecks'    => __( 'Spot-checks', 'buddynext-importer' ),
+					'verifySamplesNotRun' => __( 'Not run for this source: spot checks walk BuddyPress tables. The domain totals above check this source.', 'buddynext-importer' ),
+					'verifyPassTotals'    => __( 'Every domain accounted for.', 'buddynext-importer' ),
 					'verifyPhotosNoMap'   => __( 'Not checked: the id map is missing (removed by cleanup), so photos cannot be compared.', 'buddynext-importer' ),
 					'verifyPass'          => __( 'Every domain accounted for and every sampled object correct.', 'buddynext-importer' ),
 					'verifyFindings'      => __( 'finding(s) to read. A shortfall is not automatically a fault - check it against the coverage note above.', 'buddynext-importer' ),
