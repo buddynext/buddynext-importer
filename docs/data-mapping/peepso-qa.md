@@ -51,7 +51,7 @@ Garden Club has no stream post of its own. Its posts are sitewide. That is the s
 |---|---|---|---|---|
 | "Friends only: the spare key" | Hannah Brooks | No | Yes (Riley Adler) | No (Luis Ortega) |
 | "Note to myself: return the library book" | Riley Adler | No | No | No. Only Riley |
-| "Library hold list is up" | Maya Chen | No | No | No. Only Maya. BuddyNext has no "logged-in members" audience; that choice would show the post to guests, so it stays with the author |
+| "Library hold list is up" | Maya Chen | Yes | Yes | Yes. PeepSo "site members" maps to public: BuddyNext has no "logged-in members" audience, and public is the nearest level |
 
 ## People, reactions, messages
 
@@ -71,11 +71,10 @@ Garden Club has no stream post of its own. Its posts are sitewide. That is the s
 
 These are correct when they are missing. Do not file them as lost posts.
 
-- [ ] "Ridge run, Saturday 7am" is not published. It was scheduled.
 - [ ] The comment that was reported as spam is not in its thread.
 - [ ] No PeepSo story row. This fixture has none.
 - [ ] The three posts waiting for approval in PeepSo are not published.
-- [ ] The import log names, before it says success: the vendor-list file, the background preset, the scheduled post, the 3 posts waiting for approval, the reported comment, the 8 photos on the journal cards, the 1 group follower who is not a member, the 111 post follows, the 33 view and read records, the edited stamp, the 8 unread message markers, the 8 VIP icons nobody holds, and the 1 reaction imported as a like.
+- [ ] The import log names, before it says success: the vendor-list file, the background preset, the 3 posts waiting for approval, the reported comment, the 1 group follower who is not a member, the 111 post follows, the 35 view and read records, the edited stamp, the 8 unread message markers, the 8 VIP icons nobody holds, the 1 reaction imported as a like, the 19 members with profile view totals, and the 7 per-post notification choices.
 
 ## Counts from a clean run
 
@@ -83,17 +82,23 @@ These are correct when they are missing. Do not file them as lost posts.
 
 - 77 profile values
 - 0 member types (no member holds a VIP icon on this copy)
-- 13 spaces (9 groups + 4 pages) and 96 memberships
-- 36 posts
+- 4 space categories
+- 13 spaces (9 groups + 4 pages) and 97 memberships, reported together as "97 spaces and members"
+- 37 posts. "Ridge run, Saturday 7am" was published at the source after its scheduled time, so it imports
 - 25 comments, and 1 refused because its author cannot see the post
 - 1 block
 - 43 connections (accepted pairs plus the 2 pending requests)
 - 82 follows
 - 41 reactions
+- 1 bookmark (Maya saved the potluck poll)
+- 19 member images
 - 13 space images (8 groups + 4 pages, each with an avatar and a cover; Tool Library has none)
 - 1 album and 1 album photo
+- 0 standalone media. The 8 journal photos come in as the Article covers and inline images
 - 4 message threads
 
-A second run of the same command writes 0 rows in every domain.
+A second run of the same command writes 0 rows in every domain. No email, notification or background email job is sent or queued during the run.
+
+`wp buddynext-import verify --source=peepso` then matches every domain except comments, "short by 1": the refused comment above. Its spot-check section says "not run", because those checks read BuddyPress tables; for PeepSo the domain totals are the check.
 
 The pre-run stats `groups` figure is 13, not 9. Pages are included because they are imported as spaces.
