@@ -118,6 +118,7 @@ final class ProfileImporter {
 				$this->adapter->profile_visibility_levels( $user_id )
 			);
 			$this->carry_last_active( $user_id );
+			$this->skip_onboarding( $user_id );
 			++$users;
 			$last = $user_id;
 		}
@@ -145,6 +146,23 @@ final class ProfileImporter {
 		$timestamp = (int) $this->adapter->last_active( $user_id );
 		if ( $timestamp > 0 && $timestamp <= time() ) {
 			\BuddyNext\Realtime\PresenceService::write( $user_id, $timestamp );
+		}
+	}
+
+	/**
+	 * Mark onboarding done for a member brought over from their community.
+	 *
+	 * The wizard is for new members. BuddyNext already exempts anyone who
+	 * registered before onboarding went live, but a member who joined the source
+	 * after BuddyNext was installed (a delta run before cutover) would be sent
+	 * through it. skip() only records completion: no hook, email or points.
+	 *
+	 * @param int $user_id Member id.
+	 */
+	private function skip_onboarding( int $user_id ): void {
+		$onboarding = buddynext_service( 'onboarding' );
+		if ( is_object( $onboarding ) && method_exists( $onboarding, 'skip' ) && ! $onboarding->is_complete( $user_id ) ) {
+			$onboarding->skip( $user_id );
 		}
 	}
 }
