@@ -123,8 +123,12 @@ final class MediaWriter {
 			fn() => $service->create(
 				$author,
 				array(
-					'title'   => $title,
-					'privacy' => $this->privacy( (string) ( $album['privacy'] ?? 'public' ) ),
+					'title'       => $title,
+					'description' => (string) ( $album['description'] ?? '' ),
+					'privacy'     => $this->privacy( (string) ( $album['privacy'] ?? 'public' ) ),
+					// Read once WPMediaVerse takes a backdate (BuddyNext card
+					// 10459592358); ignored until then.
+					'created_at'  => (string) ( $album['date_created'] ?? '' ),
 				)
 			)
 		);
@@ -354,13 +358,22 @@ final class MediaWriter {
 	/**
 	 * Map a source media privacy to a WPMediaVerse one.
 	 *
-	 * BuddyBoss values: public, loggedin, onlyme, friends, grouponly. MediaVerse
-	 * exposes public / private, so every restricted level collapses to private
-	 * rather than publishing media the member had limited.
+	 * Source values: public, loggedin, onlyme, friends, grouponly (PeepSo's 20
+	 * reads as loggedin). AlbumService::create() takes public, members, private
+	 * and group. Logged-in members is `members`; MediaVerse has no friends level,
+	 * so friends and the rest stay private rather than widen.
 	 *
 	 * @param string $source Source privacy value.
 	 */
 	private function privacy( string $source ): string {
-		return 'public' === $source ? 'public' : 'private';
+		switch ( $source ) {
+			case 'public':
+				return 'public';
+			case 'loggedin':
+			case 'members':
+				return 'members';
+			default:
+				return 'private';
+		}
 	}
 }

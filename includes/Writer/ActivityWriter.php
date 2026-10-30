@@ -106,20 +106,34 @@ final class ActivityWriter {
 		$user_id      = (int) $activity['user_id'];
 		$content      = $this->clean_content( (string) $activity['content'] );
 		$is_blog_post = 'new_blog_post' === (string) ( $activity['source_type'] ?? '' );
-		// A blog announcement is not a photo post. Its pictures belong to the
-		// WordPress post, and the article card reads the cover from there.
-		$media_ids     = array();
-		$files_refused = 0;
+		// PeepSo stores photos as files, not WP attachments. BuddyPress and
+		// BuddyBoss never set media_paths, so their path is unchanged. A PeepSo
+		// journal card carries its photos as files too; they are ingested here
+		// and handed to the article card below, which otherwise only has the
+		// WordPress post's featured image (PeepSo sets none).
+		$paths         = array_filter( (array) ( $activity['media_paths'] ?? array() ), 'is_array' );
+		$from_path     = $this->ingest_paths( $paths, $user_id );
+		$files_refused = count( $paths ) - count( $from_path );
+		$media_ids     = $from_path;
 		if ( ! $is_blog_post ) {
-			// PeepSo stores photos as files, not WP attachments. BuddyPress and
-			// BuddyBoss never set media_paths, so their path is unchanged.
-			$paths         = array_filter( (array) ( $activity['media_paths'] ?? array() ), 'is_array' );
-			$from_path     = $this->ingest_paths( $paths, $user_id );
-			$files_refused = count( $paths ) - count( $from_path );
-			$media_ids     = array_merge(
+			$media_ids = array_merge(
 				$this->ingest_media( $media_atts, $user_id ),
 				self::verified_engine_media( $mvs_media_ids ),
 				$from_path
+			);
+		}
+
+		// A repost becomes a BuddyNext share of the original, so the shared post
+		// shows inside it. Asked before the empty-content check: a repost with
+		// no words of its own is still a repost.
+		$shared = $this->import_repost( $activity, $user_id, $content );
+		if ( $shared > 0 ) {
+			IdMap::set( $this->source, 'post', $source_id, $shared );
+
+			return array(
+				'id'            => $shared,
+				'created'       => true,
+				'files_refused' => $files_refused,
 			);
 		}
 
@@ -171,7 +185,7 @@ final class ActivityWriter {
 		// post gets when it is published. It is not a status with the headline
 		// pasted into the body and the post's photos attached underneath.
 		if ( $is_blog_post ) {
-			return $this->import_article( $activity, $source_id );
+			return $this->import_article( $activity, $source_id, $media_ids, $files_refused );
 		}
 
 		$source_type = (string) ( $activity['source_type'] ?? 'activity_update' );
@@ -205,7 +219,11 @@ final class ActivityWriter {
 			'type'       => $type,
 			'content'    => $content,
 			'space_id'   => $space_id,
-			'privacy'    => PrivacyMap::post_privacy( (string) ( $activity['privacy'] ?? 'public' ) ),
+			// A post belongs to a person or to a space. Inside a space the
+			// space's own privacy decides who sees it, which is what BuddyNext
+			// itself writes there (space_members); only a person's post maps the
+			// source level.
+			'privacy'    => $space_id > 0 ? 'space_members' : PrivacyMap::post_privacy( (string) ( $activity['privacy'] ?? 'public' ) ),
 			'created_at' => $this->utc( (string) $activity['date_recorded'] ),
 		);
 
@@ -218,13 +236,22 @@ final class ActivityWriter {
 		}
 
 		if ( $is_link ) {
-			$title = wp_trim_words( wp_strip_all_tags( $content ), 12, '…' );
+			// The source's own link preview when it kept one (PeepSo stores the
+			// fetched title, description and thumbnail); else the post's words.
+			$preview = (array) ( $activity['link_preview'] ?? array() );
+			$title   = (string) ( $preview['title'] ?? '' );
+			if ( '' === $title ) {
+				$title = wp_trim_words( wp_strip_all_tags( $content ), 12, '…' );
+			}
 			$data['link_url']  = $link_url;
 			$data['link_meta'] = array(
 				'title'       => '' !== $title ? $title : $link_url,
-				'description' => '',
+				'description' => (string) ( $preview['description'] ?? '' ),
 				'url'         => $link_url,
 			);
+			if ( '' !== (string) ( $preview['thumbnail'] ?? '' ) ) {
+				$data['link_meta']['thumbnail'] = (string) $preview['thumbnail'];
+			}
 		}
 
 		if ( ! empty( $activity['content_warning'] ) ) {
@@ -272,11 +299,13 @@ final class ActivityWriter {
 	 * The card has no body and no attached files; the headline, excerpt and
 	 * cover come from the post. Stock BuddyNext has no announce() method.
 	 *
-	 * @param array<string,mixed> $activity  Source activity record.
-	 * @param int                 $source_id Source activity id.
-	 * @return array{id:int,created:bool,reason?:string}
+	 * @param array<string,mixed> $activity      Source activity record.
+	 * @param int                 $source_id     Source activity id.
+	 * @param array<int,int>      $media_ids     Photos ingested from the source card.
+	 * @param int                 $files_refused Source files the media engine refused.
+	 * @return array{id:int,created:bool,reason?:string,files_refused?:int}
 	 */
-	private function import_article( array $activity, int $source_id ): array {
+	private function import_article( array $activity, int $source_id, array $media_ids = array(), int $files_refused = 0 ): array {
 		if ( ! class_exists( \BuddyNext\Feed\BlogPostListener::class ) || ! class_exists( \BuddyNext\Feed\IntegrationActivity::class ) ) {
 			return self::refused( 'article_api_unavailable' );
 		}
@@ -292,7 +321,7 @@ final class ActivityWriter {
 
 		$created_at = $this->utc( (string) $activity['date_recorded'] );
 		$result     = ImportMode::run(
-			fn() => $this->publish_article( $post, $created_at )
+			fn() => $this->publish_article( $post, $created_at, self::cover_url( $media_ids ) )
 		);
 
 		// publish() returns 0 when this post already has a card. That card is
@@ -310,9 +339,63 @@ final class ActivityWriter {
 		$this->import_blog_comments( (int) $post->ID, $bn_id );
 
 		return array(
-			'id'      => $bn_id,
-			'created' => true,
+			'id'            => $bn_id,
+			'created'       => true,
+			'files_refused' => $files_refused,
 		);
+	}
+
+	/**
+	 * Write a source repost through ShareService::share(), returning the share
+	 * card's post id, or 0 to fall back to a plain post: no original in the
+	 * map (it was not imported), shares switched off, or the share refused.
+	 * The source time goes in as share()'s optional fourth argument, the
+	 * Backdate::resolve() seam BuddyNext card 10459592358 adds; until then PHP
+	 * ignores it and the share is dated at the import time.
+	 *
+	 * @param array<string,mixed> $activity Source activity record.
+	 * @param int                 $user_id  Author.
+	 * @param string              $content  The repost's own words.
+	 */
+	private function import_repost( array $activity, int $user_id, string $content ): int {
+		$original = (int) ( $activity['repost_of'] ?? 0 );
+		if ( $original <= 0 ) {
+			return 0;
+		}
+
+		$bn_original = (int) ( IdMap::get( $this->source, 'post', $original ) ?? 0 );
+		$shares      = $bn_original > 0 ? buddynext_service( 'shares' ) : null;
+		if ( ! is_object( $shares ) || ! method_exists( $shares, 'share' ) ) {
+			return 0;
+		}
+
+		$created = $this->utc( (string) $activity['date_recorded'] );
+		$result  = ImportMode::run( fn() => $shares->share( $user_id, $bn_original, $content, $created ) );
+
+		return is_wp_error( $result ) ? 0 : max( 0, (int) $result );
+	}
+
+	/**
+	 * The stored (unsigned) URL of the first ingested photo, for an article
+	 * card's cover. A signed URL would expire inside the card's link meta.
+	 *
+	 * @param array<int,int> $media_ids Ingested media ids.
+	 */
+	private static function cover_url( array $media_ids ): string {
+		$repo = class_exists( \BuddyNext\Media\MediaClient::class ) ? \BuddyNext\Media\MediaClient::repo() : null;
+		if ( ! $repo || ! is_callable( array( $repo, 'get_raw' ) ) ) {
+			return '';
+		}
+		foreach ( $media_ids as $media_id ) {
+			foreach ( array( 'thumb_large', 'file_url' ) as $key ) {
+				$url = (string) $repo->get_raw( (int) $media_id, $key );
+				if ( '' !== $url ) {
+					return $url;
+				}
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -326,9 +409,10 @@ final class ActivityWriter {
 	 *
 	 * @param \WP_Post $post       Published WordPress post.
 	 * @param string   $created_at UTC "Y-m-d H:i:s".
+	 * @param string   $cover      Fallback cover when the post has no featured image.
 	 * @return int|\WP_Error Card id, 0 when the card already exists, or an error.
 	 */
-	private function publish_article( \WP_Post $post, string $created_at ) {
+	private function publish_article( \WP_Post $post, string $created_at, string $cover = '' ) {
 		$existing = \BuddyNext\Feed\BlogPostListener::card_id_for_post( (int) $post->ID );
 		if ( $existing > 0 ) {
 			return $existing;
@@ -343,6 +427,9 @@ final class ActivityWriter {
 		$url    = \BuddyNext\Feed\IntegrationActivity::published_permalink( $post );
 		$title  = wp_strip_all_tags( get_the_title( $post ) );
 		$image  = (string) get_the_post_thumbnail_url( $post, 'large' );
+		if ( '' === $image ) {
+			$image = $cover;
+		}
 		$meta   = array(
 			'image'                                        => $image,
 			\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,
@@ -424,16 +511,10 @@ final class ActivityWriter {
 			$parent_id     = ( null === $mapped_parent || $mapped_parent <= 0 ) ? null : $mapped_parent;
 		}
 
-		$write  = fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $this->utc( (string) $comment['date_recorded'] ) );
+		// BuddyNext's own space guard applies: a reply by someone who is not an
+		// active member of the space is refused and reported as `forbidden`.
 		$result = ImportMode::run(
-			function () use ( $write ) {
-				// Same reason as a space post: the reply already existed, even
-				// when the author could not open that space today.
-				if ( method_exists( \BuddyNext\Feed\IntegrationActivity::class, 'as_system' ) ) {
-					return \BuddyNext\Feed\IntegrationActivity::as_system( $write );
-				}
-				return $write();
-			}
+			fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $this->utc( (string) $comment['date_recorded'] ) )
 		);
 
 		// CommentService::create() returns (int) $wpdb->insert_id - 0 on a failed

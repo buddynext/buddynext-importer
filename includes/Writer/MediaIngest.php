@@ -145,9 +145,7 @@ final class MediaIngest {
 			'size'     => (int) filesize( $copy ),
 		);
 
-		$upload   = \BuddyNext\Media\MediaClient::upload();
-		$result   = ImportMode::run( fn() => $upload->handle( $file, $user_id, $args ) );
-		$media_id = self::extract_media_id( $result );
+		$media_id = $this->upload( $file, $user_id, $args );
 
 		if ( $media_id > 0 ) {
 			IdMap::set( $this->source, self::DOMAIN, $attachment_id, $media_id );
@@ -207,9 +205,7 @@ final class MediaIngest {
 			'size'     => (int) filesize( $copy ),
 		);
 
-		$upload   = \BuddyNext\Media\MediaClient::upload();
-		$result   = ImportMode::run( fn() => $upload->handle( $file, $user_id, $args ) );
-		$media_id = self::extract_media_id( $result );
+		$media_id = $this->upload( $file, $user_id, $args );
 
 		if ( $media_id > 0 ) {
 			IdMap::set( $this->source, self::DOMAIN, $map_id, $media_id );
@@ -338,6 +334,58 @@ final class MediaIngest {
 		}
 
 		return $media_ids;
+	}
+
+	/**
+	 * Hand one staged file to the engine's uploader and return the media id.
+	 *
+	 * The site's own allowed-types list is for what members may upload now; a
+	 * migration carries what they already uploaded. So the file's mime is added
+	 * for this one call when the engine knows how to store it (image, video or
+	 * audio). The engine's hard refusals (PDF, unknown types) still apply.
+	 *
+	 * A refusal is logged with the engine's reason code and the mime, so the
+	 * `file_refused` count in the report can be traced to the files behind it.
+	 *
+	 * @param array<string,mixed> $file    $_FILES-shaped staged copy.
+	 * @param int                 $user_id Owner.
+	 * @param array<string,mixed> $args    Upload args.
+	 */
+	private function upload( array $file, int $user_id, array $args ): int {
+		$upload = \BuddyNext\Media\MediaClient::upload();
+		if ( ! is_object( $upload ) ) {
+			return 0;
+		}
+
+		// The engine sniffs the staged copy itself (a .tmp name, so finfo), which
+		// can differ from the declared mime: audio/wav sniffs as audio/x-wav.
+		$mime    = (string) ( $file['type'] ?? '' );
+		$sniffed = function_exists( 'mime_content_type' ) ? (string) @mime_content_type( (string) $file['tmp_name'] ) : ''; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		$carried = array_filter(
+			array_unique( array( $mime, $sniffed ) ),
+			static fn( string $m ): bool => '' !== $m && method_exists( $upload, 'get_media_type_public' ) && '' !== $upload->get_media_type_public( $m )
+		);
+		$widen   = static fn( $types ): array => array_values( array_unique( array_merge( (array) $types, $carried ) ) );
+		$known   = array() !== $carried;
+
+		if ( $known ) {
+			add_filter( 'mvs_allowed_file_types', $widen );
+		}
+		try {
+			$result = ImportMode::run( fn() => $upload->handle( $file, $user_id, $args ) );
+		} finally {
+			if ( $known ) {
+				remove_filter( 'mvs_allowed_file_types', $widen );
+			}
+		}
+
+		if ( is_wp_error( $result ) ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( sprintf( '[buddynext-importer] media refused: %s (%s, %s)', $result->get_error_code(), '' !== $sniffed ? $sniffed : ( '' !== $mime ? $mime : 'unknown mime' ), (string) ( $file['name'] ?? '' ) ) );
+			return 0;
+		}
+
+		return self::extract_media_id( $result );
 	}
 
 	/**

@@ -80,6 +80,9 @@ final class FieldTypeMap {
 		// lost — 'url' would reject a bare attachment ID and drop it again.
 		'file'                         => 'text',
 		'image'                        => 'text',
+		// PeepSo location. `location` is a BuddyNext Pro type; to_bn_type() falls
+		// back to text when it is not registered on this site.
+		'location'                     => 'location',
 	);
 
 	/**
@@ -125,7 +128,20 @@ final class FieldTypeMap {
 	 * @param string $source_type Source field type slug.
 	 */
 	public static function to_bn_type( string $source_type ): string {
-		return self::MAP[ $source_type ] ?? 'text';
+		static $registered = null;
+
+		$target = self::MAP[ $source_type ] ?? 'text';
+
+		// A target the live registry does not know (a Pro type with Pro inactive)
+		// would import as a field with no render or sanitize path; text keeps the value.
+		if ( null === $registered && class_exists( '\BuddyNext\Profile\FieldType' ) ) {
+			$registered = \BuddyNext\Profile\FieldType::types();
+		}
+		if ( is_array( $registered ) && ! array_key_exists( $target, $registered ) ) {
+			return 'text';
+		}
+
+		return $target;
 	}
 
 	/**

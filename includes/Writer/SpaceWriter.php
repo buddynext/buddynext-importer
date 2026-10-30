@@ -314,17 +314,24 @@ final class SpaceWriter {
 		// that screen to rule out before deleting the source community.
 		return (bool) ImportMode::run(
 			function () use ( $bn_space_id, $owner_id, $user_id, $member ): bool {
+				// The source join time goes in as join()/request_join()'s optional
+				// third argument, the Backdate::resolve() seam BuddyNext card
+				// 10459592358 adds. Until a BN build has it PHP ignores the extra
+				// argument and joined_at is the import time.
+				$joined = (string) ( $member['date_created'] ?? '' );
+				$joined = '' !== $joined && '0000-00-00 00:00:00' !== $joined ? $joined : null;
+
 				if ( 1 === (int) $member['is_banned'] ) {
 					return true === $this->members()->ban_from_space( $bn_space_id, $user_id, $owner_id, '' );
 				}
 
 				// Pending membership (request not yet confirmed).
 				if ( 0 === (int) $member['is_confirmed'] ) {
-					return true === $this->members()->request_join( $bn_space_id, $user_id );
+					return true === $this->members()->request_join( $bn_space_id, $user_id, $joined );
 				}
 
 				// Confirmed: active member, promoted to moderator for group admins/mods.
-				if ( true !== $this->members()->join( $bn_space_id, $user_id ) ) {
+				if ( true !== $this->members()->join( $bn_space_id, $user_id, $joined ) ) {
 					return false;
 				}
 

@@ -93,12 +93,13 @@ final class BookmarkWriter {
 			return 'already_imported';
 		}
 
-		// bookmark() is void and takes no date. That is not a shortcut: the
-		// source stores a bookmark as an activity meta row, and meta rows carry
-		// no timestamp, so there IS no original date to preserve. created_at
-		// takes its column default (import time), which is the only honest value
-		// available. Do not add a backdate seam here expecting to fill it.
-		$this->service()->bookmark( $user_id, (int) $post_id );
+		// The source date goes in as bookmark()'s optional third argument, the
+		// Backdate::resolve() seam BuddyNext card 10459592358 adds. Until a BN
+		// build has it PHP ignores the extra argument and created_at is the
+		// import time. BuddyPress stores bookmarks as activity meta, which has no
+		// timestamp, so its rows pass null; PeepSo's saved_posts row has one.
+		$created = (string) ( $bookmark['date_created'] ?? '' );
+		$this->service()->bookmark( $user_id, (int) $post_id, '' !== $created ? $created : null );
 
 		return $this->service()->is_bookmarked( $user_id, (int) $post_id ) ? '' : 'bookmark_refused';
 	}

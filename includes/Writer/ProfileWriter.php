@@ -274,6 +274,26 @@ final class ProfileWriter {
 	 * @return array<int,string>|string
 	 */
 	private function normalize_value( string $source_type, string $value ) {
+		// PeepSo location: a {name, latitude, longitude} array. BuddyNext Pro's
+		// location type stores {address, lat, lng} JSON; without it the field is
+		// text and keeps the readable place name.
+		if ( 'location' === $source_type ) {
+			$decoded = maybe_unserialize( $value );
+			if ( ! is_array( $decoded ) ) {
+				return (string) $decoded;
+			}
+			$name = trim( (string) ( $decoded['name'] ?? '' ) );
+			if ( 'location' !== FieldTypeMap::to_bn_type( $source_type ) ) {
+				return $name;
+			}
+			$point = array( 'address' => $name );
+			if ( is_numeric( $decoded['latitude'] ?? null ) && is_numeric( $decoded['longitude'] ?? null ) ) {
+				$point['lat'] = (float) $decoded['latitude'];
+				$point['lng'] = (float) $decoded['longitude'];
+			}
+			return '' === $name && ! isset( $point['lat'] ) ? '' : (string) wp_json_encode( $point );
+		}
+
 		// BuddyBoss social-networks: an associative network => URL map -> readable lines.
 		if ( 'social-networks' === $source_type ) {
 			$decoded = maybe_unserialize( $value );

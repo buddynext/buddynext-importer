@@ -1014,7 +1014,7 @@ class BuddyPressAdapter implements SourceAdapter {
 		$table = $wpdb->prefix . 'bp_groups_members';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, is_admin, is_mod, is_confirmed, is_banned FROM `{$table}` WHERE group_id = %d AND id > %d ORDER BY id ASC LIMIT %d", $group_id, $after, $limit ), ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, user_id, is_admin, is_mod, is_confirmed, is_banned, date_modified FROM `{$table}` WHERE group_id = %d AND id > %d ORDER BY id ASC LIMIT %d", $group_id, $after, $limit ), ARRAY_A );
 
 		$members = array();
 		foreach ( (array) $rows as $row ) {
@@ -1025,6 +1025,8 @@ class BuddyPressAdapter implements SourceAdapter {
 				'is_mod'       => (int) $row['is_mod'],
 				'is_confirmed' => (int) $row['is_confirmed'],
 				'is_banned'    => (int) $row['is_banned'],
+				// BuddyPress stamps date_modified (UTC) when a member joins or is confirmed.
+				'date_created' => (string) $row['date_modified'],
 			);
 		}
 
