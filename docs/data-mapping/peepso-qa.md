@@ -94,7 +94,7 @@ These are correct when they are missing. Do not file them as lost posts.
 - 19 member images
 - 13 space images (8 groups + 4 pages, each with an avatar and a cover; Tool Library has none)
 - 1 album and 1 album photo
-- 0 standalone media. The 8 journal photos come in as the Article covers and inline images
+- 0 standalone media. The 8 journal photos are in the media library, not posted to the feed; each Article card shows its blog post's cover
 - 4 message threads
 
 A second run of the same command writes 0 rows in every domain. No email, notification or background email job is sent or queued during the run.
