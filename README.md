@@ -220,7 +220,7 @@ bin/shipped-php-files.sh | xargs -0 -n1 php -l    # every file that ships
 bin/build-release.sh                              # both, plus packaging
 ```
 
-Read [CLAUDE.md](CLAUDE.md) before changing anything - it carries the four rules
+Read [CLAUDE.md](CLAUDE.md) before changing anything - it carries the five rules
 this codebase depends on.
 
 ## License
