@@ -265,6 +265,24 @@ final class ProfileWriter {
 	}
 
 	/**
+	 * Unserialize a stored array value without ever building an object.
+	 *
+	 * Profile values are member-entered, so a crafted serialized string must
+	 * not reach unserialize() with classes allowed (PHP object injection).
+	 *
+	 * @param string $value Stored source value.
+	 * @return mixed Array or scalar; the raw string when it is not serialized.
+	 */
+	private static function decode( string $value ) {
+		if ( ! is_serialized( $value ) ) {
+			return $value;
+		}
+		// allowed_classes false is the object-injection guard the sniff asks for.
+		$decoded = @unserialize( trim( $value ), array( 'allowed_classes' => false ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
+		return false === $decoded && 'b:0;' !== trim( $value ) ? $value : $decoded;
+	}
+
+	/**
 	 * Convert a stored source value to the shape save_profile() expects: an array
 	 * of option strings for multi-value types, a Y-m-d string for dates, the raw
 	 * string otherwise.
@@ -278,7 +296,7 @@ final class ProfileWriter {
 		// location type stores {address, lat, lng} JSON; without it the field is
 		// text and keeps the readable place name.
 		if ( 'location' === $source_type ) {
-			$decoded = maybe_unserialize( $value );
+			$decoded = self::decode( $value );
 			if ( ! is_array( $decoded ) ) {
 				return (string) $decoded;
 			}
@@ -296,7 +314,7 @@ final class ProfileWriter {
 
 		// BuddyBoss social-networks: an associative network => URL map -> readable lines.
 		if ( 'social-networks' === $source_type ) {
-			$decoded = maybe_unserialize( $value );
+			$decoded = self::decode( $value );
 			if ( ! is_array( $decoded ) ) {
 				return (string) $decoded;
 			}
@@ -314,7 +332,7 @@ final class ProfileWriter {
 		}
 
 		if ( FieldTypeMap::is_multi( $source_type ) ) {
-			$decoded = maybe_unserialize( $value );
+			$decoded = self::decode( $value );
 			return is_array( $decoded ) ? array_map( 'strval', $decoded ) : array( (string) $decoded );
 		}
 
