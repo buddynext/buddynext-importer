@@ -103,9 +103,13 @@ final class ReactionWriter {
 		if ( ! in_array( $emoji, $known, true ) ) {
 			$emoji = 'like';
 		}
-		$result = ImportMode::run(
+		$post_id = 'comment' === $object_type ? SourceDates::comment_post( (int) $object_id ) : (int) $object_id;
+		$result  = SourceDates::activity(
+			$post_id,
+			0,
+			$date,
 			// Fifth argument is ReactionService's backdate seam.
-			fn() => $this->service()->react( $user_id, $object_type, $object_id, $emoji, '' !== $date ? $date : null )
+			fn() => ImportMode::run( fn() => $this->service()->react( $user_id, $object_type, $object_id, $emoji, '' !== $date ? $date : null ) )
 		);
 
 		if ( is_wp_error( $result ) ) {

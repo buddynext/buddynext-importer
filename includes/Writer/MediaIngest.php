@@ -319,15 +319,16 @@ final class MediaIngest {
 	/**
 	 * Ingest a list of attachments, returning the media ids that succeeded.
 	 *
-	 * @param array<int,int> $attachment_ids WP attachment ids.
-	 * @param int            $user_id        Owner of the imported media.
+	 * @param array<int,int>      $attachment_ids WP attachment ids.
+	 * @param int                 $user_id        Owner of the imported media.
+	 * @param array<string,mixed> $args           Upload args, as ingest().
 	 * @return array<int,int>
 	 */
-	public function ingest_many( array $attachment_ids, int $user_id ): array {
+	public function ingest_many( array $attachment_ids, int $user_id, array $args = array() ): array {
 		$media_ids = array();
 
 		foreach ( $attachment_ids as $attachment_id ) {
-			$media_id = $this->ingest( (int) $attachment_id, $user_id );
+			$media_id = $this->ingest( (int) $attachment_id, $user_id, $args );
 			if ( $media_id > 0 ) {
 				$media_ids[] = $media_id;
 			}
@@ -397,7 +398,13 @@ final class MediaIngest {
 			return 0;
 		}
 
-		return self::extract_media_id( $result );
+		$media_id = self::extract_media_id( $result );
+
+		// `created_at` is the upload's source time. UploadService reads it once
+		// BuddyNext card 10459592358 ships; until then it is written here.
+		SourceDates::media( $media_id, (string) ( $args['created_at'] ?? '' ) );
+
+		return $media_id;
 	}
 
 	/**

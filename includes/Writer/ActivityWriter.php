@@ -112,12 +112,13 @@ final class ActivityWriter {
 		// and handed to the article card below, which otherwise only has the
 		// WordPress post's featured image (PeepSo sets none).
 		$paths         = array_filter( (array) ( $activity['media_paths'] ?? array() ), 'is_array' );
-		$from_path     = $this->ingest_paths( $paths, $user_id );
+		$posted_at     = $this->utc( (string) $activity['date_recorded'] );
+		$from_path     = $this->ingest_paths( $paths, $user_id, $posted_at );
 		$files_refused = count( $paths ) - count( $from_path );
 		$media_ids     = $from_path;
 		if ( ! $is_blog_post ) {
 			$media_ids = array_merge(
-				$this->ingest_media( $media_atts, $user_id ),
+				$this->ingest_media( $media_atts, $user_id, $posted_at ),
 				self::verified_engine_media( $mvs_media_ids ),
 				$from_path
 			);
@@ -188,7 +189,7 @@ final class ActivityWriter {
 			return $this->import_article( $activity, $source_id, $media_ids, $files_refused );
 		}
 
-		$source_type = (string) ( $activity['source_type'] ?? 'activity_update' );
+		$source_type  = (string) ( $activity['source_type'] ?? 'activity_update' );
 		$poll_options = array();
 		foreach ( (array) ( $activity['poll_options'] ?? array() ) as $option ) {
 			$label = trim( wp_strip_all_tags( (string) $option ) );
@@ -259,8 +260,12 @@ final class ActivityWriter {
 			$data['content_warning_type'] = 'nsfw';
 		}
 
-		$result = ImportMode::run(
-			fn() => $this->posts()->create( $user_id, $data )
+		$result = SourceDates::activity(
+			0,
+			$space_id,
+			$data['created_at'],
+			fn() => ImportMode::run( fn() => $this->posts()->create( $user_id, $data ) ),
+			true
 		);
 
 		// PostService::create() returns (int) $wpdb->insert_id, which is 0 on a
@@ -282,7 +287,7 @@ final class ActivityWriter {
 		// BuddyNext pins on the author's own profile only, so a space post's
 		// pin is declared by the source rather than written here.
 		if ( ! empty( $activity['pinned'] ) && $space_id <= 0 ) {
-			ImportMode::run( fn() => $this->posts()->pin( $bn_id, $user_id ) );
+			SourceDates::activity( $bn_id, 0, null, fn() => ImportMode::run( fn() => $this->posts()->pin( $bn_id, $user_id ) ) );
 		}
 
 		return array(
@@ -370,9 +375,19 @@ final class ActivityWriter {
 		}
 
 		$created = $this->utc( (string) $activity['date_recorded'] );
-		$result  = ImportMode::run( fn() => $shares->share( $user_id, $bn_original, $content, $created ) );
+		$result  = SourceDates::activity(
+			SourceDates::share_root( $bn_original ),
+			0,
+			$created,
+			fn() => ImportMode::run( fn() => $shares->share( $user_id, $bn_original, $content, $created ) )
+		);
+		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
+			return 0;
+		}
 
-		return is_wp_error( $result ) ? 0 : max( 0, (int) $result );
+		SourceDates::share( (int) $result, $created );
+
+		return (int) $result;
 	}
 
 	/**
@@ -430,7 +445,7 @@ final class ActivityWriter {
 		if ( '' === $image ) {
 			$image = $cover;
 		}
-		$meta   = array(
+		$meta = array(
 			'image'                                        => $image,
 			\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,
 		);
@@ -513,8 +528,13 @@ final class ActivityWriter {
 
 		// BuddyNext's own space guard applies: a reply by someone who is not an
 		// active member of the space is refused and reported as `forbidden`.
-		$result = ImportMode::run(
-			fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $this->utc( (string) $comment['date_recorded'] ) )
+		$created = $this->utc( (string) $comment['date_recorded'] );
+		$result  = SourceDates::activity(
+			$post_id,
+			0,
+			$created,
+			fn() => ImportMode::run( fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $created ) ),
+			true
 		);
 
 		// CommentService::create() returns (int) $wpdb->insert_id - 0 on a failed
@@ -824,24 +844,26 @@ final class ActivityWriter {
 	 *
 	 * @param array<int,int> $attachment_ids WP attachment ids.
 	 * @param int            $user_id        Owner of the imported media.
+	 * @param string         $created_at     UTC source time of the post they sit on.
 	 * @return array<int,int> BuddyNext/WPMediaVerse media ids.
 	 */
-	private function ingest_media( array $attachment_ids, int $user_id ): array {
+	private function ingest_media( array $attachment_ids, int $user_id, string $created_at = '' ): array {
 		if ( empty( $attachment_ids ) ) {
 			return array();
 		}
 
-		return ( new MediaIngest( $this->source ) )->ingest_many( $attachment_ids, $user_id );
+		return ( new MediaIngest( $this->source ) )->ingest_many( $attachment_ids, $user_id, array( 'created_at' => $created_at ) );
 	}
 
 	/**
 	 * Ingest files the source stored on disk instead of as attachments.
 	 *
 	 * @param array<int,array<string,mixed>> $files   Each with id, path, mime.
-	 * @param int                            $user_id Owner of the imported media.
+	 * @param int                            $user_id    Owner of the imported media.
+	 * @param string                         $created_at UTC source time of the post they sit on.
 	 * @return array<int,int> Media ids that landed.
 	 */
-	private function ingest_paths( array $files, int $user_id ): array {
+	private function ingest_paths( array $files, int $user_id, string $created_at = '' ): array {
 		if ( array() === $files ) {
 			return array();
 		}
@@ -858,7 +880,8 @@ final class ActivityWriter {
 				(int) ( $file['id'] ?? 0 ),
 				(string) ( $file['path'] ?? '' ),
 				$user_id,
-				(string) ( $file['mime'] ?? '' )
+				(string) ( $file['mime'] ?? '' ),
+				array( 'created_at' => $created_at )
 			);
 
 			if ( $media_id > 0 ) {
@@ -949,8 +972,13 @@ final class ActivityWriter {
 				$parent_id     = null === $mapped_parent ? null : $mapped_parent;
 			}
 
-			$result = ImportMode::run(
-				fn() => $service->create( $author, 'post', $card_id, $content, $parent_id, $this->utc( (string) $comment->comment_date_gmt ) )
+			$created = $this->utc( (string) $comment->comment_date_gmt );
+			$result  = SourceDates::activity(
+				$card_id,
+				0,
+				$created,
+				fn() => ImportMode::run( fn() => $service->create( $author, 'post', $card_id, $content, $parent_id, $created ) ),
+				true
 			);
 
 			if ( is_wp_error( $result ) || (int) $result <= 0 ) {
@@ -981,8 +1009,8 @@ final class ActivityWriter {
 	 * Replay each source vote through PollService so the tally and the
 	 * one-vote-per-member rule are the service's, not a copied counter.
 	 *
-	 * @param int                  $post_id BuddyNext poll id.
-	 * @param array<int,mixed>     $votes   Source votes, each option an index into poll_options.
+	 * @param int              $post_id BuddyNext poll id.
+	 * @param array<int,mixed> $votes   Source votes, each option an index into poll_options.
 	 */
 	private function record_poll_votes( int $post_id, array $votes ): void {
 		if ( array() === $votes || ! class_exists( \BuddyNext\Feed\PollService::class ) ) {
@@ -1006,7 +1034,7 @@ final class ActivityWriter {
 			if ( $user_id <= 0 || $option_id <= 0 ) {
 				continue;
 			}
-			ImportMode::run( fn() => $service->vote( $user_id, $post_id, $option_id ) );
+			SourceDates::activity( $post_id, 0, null, fn() => ImportMode::run( fn() => $service->vote( $user_id, $post_id, $option_id ) ) );
 		}
 	}
 }

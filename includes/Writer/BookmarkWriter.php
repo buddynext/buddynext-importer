@@ -101,6 +101,12 @@ final class BookmarkWriter {
 		$created = (string) ( $bookmark['date_created'] ?? '' );
 		$this->service()->bookmark( $user_id, (int) $post_id, '' !== $created ? $created : null );
 
-		return $this->service()->is_bookmarked( $user_id, (int) $post_id ) ? '' : 'bookmark_refused';
+		if ( ! $this->service()->is_bookmarked( $user_id, (int) $post_id ) ) {
+			return 'bookmark_refused';
+		}
+
+		SourceDates::bookmark( $user_id, (int) $post_id, $created );
+
+		return '';
 	}
 }

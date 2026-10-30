@@ -143,6 +143,10 @@ final class MediaWriter {
 		$album_id = (int) $created;
 		IdMap::set( $this->source, 'media_album', $source_id, $album_id );
 
+		// create() reads `created_at` once BuddyNext card 10459592358 ships;
+		// until then the album is dated here.
+		SourceDates::album( $album_id, (string) ( $album['date_created'] ?? '' ) );
+
 		// A BuddyBoss album with a group_id belongs to that group, not to the
 		// member who happened to create it. BuddyNext gained space-owned albums
 		// for exactly this, so the association is carried instead of dropped -
@@ -219,8 +223,8 @@ final class MediaWriter {
 		// and is reported rather than counted as written. A path is the same
 		// file when the source never registered an attachment (PeepSo).
 		$media_id = $attachment_id > 0
-			? $this->ingest->ingest( $attachment_id, $user_id )
-			: $this->ingest->ingest_path( (int) $media['source_id'], $path, $user_id, (string) ( $media['mime'] ?? '' ) );
+			? $this->ingest->ingest( $attachment_id, $user_id, array( 'created_at' => (string) ( $media['date_created'] ?? '' ) ) )
+			: $this->ingest->ingest_path( (int) $media['source_id'], $path, $user_id, (string) ( $media['mime'] ?? '' ), array( 'created_at' => (string) ( $media['date_created'] ?? '' ) ) );
 		if ( $media_id <= 0 ) {
 			return 'file_missing_or_upload_refused';
 		}
@@ -272,15 +276,15 @@ final class MediaWriter {
 		}
 
 		$media_id = $attachment_id > 0
-			? $this->ingest->ingest( $attachment_id, $user_id )
-			: $this->ingest->ingest_path( (int) $media['source_id'], $path, $user_id, (string) ( $media['mime'] ?? '' ) );
+			? $this->ingest->ingest( $attachment_id, $user_id, array( 'created_at' => (string) ( $media['date_created'] ?? '' ) ) )
+			: $this->ingest->ingest_path( (int) $media['source_id'], $path, $user_id, (string) ( $media['mime'] ?? '' ), array( 'created_at' => (string) ( $media['date_created'] ?? '' ) ) );
 		if ( $media_id <= 0 ) {
 			return 'file_missing_or_upload_refused';
 		}
 
 		IdMap::set( $this->source, 'album_media', $source_id, $media_id );
 
-		$this->place_in_album( (int) $media['album_id'], $media_id );
+		$this->place_in_album( (int) $media['album_id'], $media_id, (string) ( $media['date_created'] ?? '' ) );
 
 		return '';
 	}
@@ -334,10 +338,11 @@ final class MediaWriter {
 	/**
 	 * Add an imported media item to its imported album, when it had one.
 	 *
-	 * @param int $source_album_id Source album id (0 when the item is loose).
-	 * @param int $media_id        Target media id.
+	 * @param int    $source_album_id Source album id (0 when the item is loose).
+	 * @param int    $media_id        Target media id.
+	 * @param string $added_at        UTC source time the photo was added.
 	 */
-	private function place_in_album( int $source_album_id, int $media_id ): void {
+	private function place_in_album( int $source_album_id, int $media_id, string $added_at = '' ): void {
 		if ( $source_album_id <= 0 ) {
 			return;
 		}
@@ -353,6 +358,8 @@ final class MediaWriter {
 		}
 
 		ImportMode::run( fn() => $service->add_items( (int) $album_id, array( $media_id ) ) );
+		// add_items() takes `added_at` once BuddyNext card 10459592358 ships.
+		SourceDates::album_item( (int) $album_id, $media_id, $added_at );
 	}
 
 	/**

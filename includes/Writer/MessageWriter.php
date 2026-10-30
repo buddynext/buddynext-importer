@@ -289,7 +289,14 @@ final class MessageWriter {
 			// it from every library, explore, moderation and webhook query. Without
 			// it a migrated conversation photo is published as public media - the
 			// migration would leak private history into Explore Media.
-			$media_id = $this->media()->ingest( $candidate, $sender, array( 'privacy' => 'dm' ) );
+			$media_id = $this->media()->ingest(
+				$candidate,
+				$sender,
+				array(
+					'privacy'    => 'dm',
+					'created_at' => (string) ( $message['date_sent'] ?? '' ),
+				)
+			);
 			if ( $media_id > 0 ) {
 				break;
 			}
