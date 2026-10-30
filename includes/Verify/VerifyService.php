@@ -73,6 +73,13 @@ final class VerifyService {
 		// and nothing sampled must not read as "every sampled object correct".
 		$imported      = array_sum( array_map( 'intval', array_column( $domains, 'imported' ) ) );
 		$samples_state = ( $imported > 0 && ! $this->table_exists( $wpdb->prefix . 'bni_id_map' ) ) ? 'id_map_missing' : '';
+		// The spot checks read the source from BuddyPress's own tables. A source
+		// without them (PeepSo) is checked by the domain totals alone; walking it
+		// here compared every space with zero source members and called it ok.
+		$sampleable = $this->table_exists( $wpdb->prefix . 'bp_activity' );
+		if ( '' === $samples_state && ! $sampleable ) {
+			$samples_state = 'source_not_sampled';
+		}
 
 		return array(
 			'source'         => $source,
@@ -83,8 +90,8 @@ final class VerifyService {
 			'domains'        => $domains,
 			'media'          => $this->media_totals( $source, $adapter ),
 			'samples'        => array(
-				'spaces'     => $this->sample_spaces( $source, $samples ),
-				'activities' => $this->sample_activities( $source, $samples, $adapter ),
+				'spaces'     => $sampleable ? $this->sample_spaces( $source, $samples ) : array(),
+				'activities' => $sampleable ? $this->sample_activities( $source, $samples, $adapter ) : array(),
 			),
 			'samples_reason' => $samples_state,
 		);

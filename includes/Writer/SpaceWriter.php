@@ -231,9 +231,9 @@ final class SpaceWriter {
 		);
 
 		// A source group may hold SEVERAL types; a space has one category. The
-		// first in term order wins and the rest are reported as a skip rather
-		// than dropped silently - losing a group's classification without saying
-		// so is how a migrated directory quietly stops filtering.
+		// first in term order wins. The extras are declared before the run by
+		// the adapter's unsupported_content() ("Extra categories on a group"),
+		// so the operator sees the count rather than losing them silently.
 		$type_ids    = array_map( 'intval', (array) ( $group['type_ids'] ?? array() ) );
 		$category_id = $this->resolve_category( $type_ids );
 		if ( $category_id > 0 ) {
