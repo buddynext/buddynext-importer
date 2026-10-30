@@ -187,6 +187,12 @@ wp buddynext-import cleanup                # drop the mapping tables when you ar
 `cleanup` is final: afterwards there is no duplicate protection, so a later run
 re-creates everything. Do any top-up imports before it.
 
+Turn on BuddyNext email verification only after the final import run. BuddyNext
+treats everyone who registered before verification was switched on as an
+existing member, so migrated members are never asked to verify again. A member
+who joined the source after you switched it on would be asked. Onboarding needs
+no step: the importer marks every migrated member as onboarded.
+
 ## Requirements
 
 - BuddyNext active (declared via `Requires Plugins`, so WordPress enforces it)
