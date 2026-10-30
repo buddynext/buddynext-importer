@@ -147,7 +147,8 @@ field-for-field copy of PeepSo, BuddyBoss or BuddyPress. (Owner decision,
   has no way to hold a piece of source data, that data does not move.
 - **Never write around a BN API.** No direct `INSERT`/`UPDATE` on `bn_*` or
   MediaVerse tables to backdate, recount or force a value the service would not
-  set. Rule 4's `ImportMode` only uses filters BN already exposes.
+  set. Rule 4's `ImportMode` only uses filters BN already exposes. One interim
+  exception, below.
 - **Missing data is declared, not fixed.** Add it to the adapter's
   `unsupported_content()` (with a row count) or a reason code in `SkipReasons`, so
   the operator sees it before deleting the old site. Rule 3 still applies: a
@@ -159,6 +160,20 @@ field-for-field copy of PeepSo, BuddyBoss or BuddyPress. (Owner decision,
   BuddyNext and WPMediaVerse are extended for the importer: their existing
   `Core\Backdate::resolve()` seam (an optional UTC `created_at`, clamped to now)
   is added to any write API that lacks it, and nothing else (owner, 2026-10-30).
+  The writers already pass the source time to those APIs. **Until BN card
+  10459592358 ships, `Writer/SourceDates` writes the times itself** (owner,
+  2026-10-30): last activity, joins, bookmarks, shares, album, upload and
+  album-item dates. It is the only class allowed raw `bn_*` / MediaVerse
+  writes, touches only the row the service just wrote, and clears that row's
+  cache. When the BN card ships, delete `SourceDates` and its calls; add nothing
+  to it except another write API that still stamps "now".
+- **Read every source time in its real format.** A MySQL `TIMESTAMP` the
+  database filled is selected as `UNIX_TIMESTAMP(col)` (MySQL returns the raw
+  value in the connection's time zone, not UTC). A time the source wrote with
+  `current_time( 'mysql' )` is site-local and goes through
+  `get_gmt_from_date()`. WordPress `*_gmt` and BuddyPress/BuddyBoss
+  `bp_core_current_time()` columns are already UTC. Check the source's own
+  INSERT before trusting a column.
 - **Real importer bugs are still fixed in the importer**: a wrong join, a value
   that arrives corrupted ("Array"), major data dropped when a BN API could take it,
   a privacy setting mapped wider than the source.

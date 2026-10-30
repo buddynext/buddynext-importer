@@ -312,39 +312,49 @@ final class SpaceWriter {
 		// as imported, so a space whose members all failed reconciled as complete
 		// on the verify screen - the exact silent shortfall the operator checks
 		// that screen to rule out before deleting the source community.
-		return (bool) ImportMode::run(
-			function () use ( $bn_space_id, $owner_id, $user_id, $member ): bool {
-				// The source join time goes in as join()/request_join()'s optional
-				// third argument, the Backdate::resolve() seam BuddyNext card
-				// 10459592358 adds. Until a BN build has it PHP ignores the extra
-				// argument and joined_at is the import time.
-				$joined = (string) ( $member['date_created'] ?? '' );
-				$joined = '' !== $joined && '0000-00-00 00:00:00' !== $joined ? $joined : null;
+		$join = function () use ( $bn_space_id, $owner_id, $user_id, $member ): bool {
+			// The source join time goes in as join()/request_join()'s optional
+			// third argument, the Backdate::resolve() seam BuddyNext card
+			// 10459592358 adds. Until a BN build has it PHP ignores the extra
+			// argument and joined_at is the import time.
+			$joined = (string) ( $member['date_created'] ?? '' );
+			$joined = '' !== $joined && '0000-00-00 00:00:00' !== $joined ? $joined : null;
 
-				if ( 1 === (int) $member['is_banned'] ) {
-					return true === $this->members()->ban_from_space( $bn_space_id, $user_id, $owner_id, '' );
-				}
-
-				// Pending membership (request not yet confirmed).
-				if ( 0 === (int) $member['is_confirmed'] ) {
-					return true === $this->members()->request_join( $bn_space_id, $user_id, $joined );
-				}
-
-				// Confirmed: active member, promoted to moderator for group admins/mods.
-				if ( true !== $this->members()->join( $bn_space_id, $user_id, $joined ) ) {
-					return false;
-				}
-
-				// The member did land, so the row counts even if the promotion is
-				// refused; a moderator arriving as a plain member is a role to fix,
-				// not a missing person to hunt for in the deleted source.
-				if ( 1 === (int) $member['is_admin'] || 1 === (int) $member['is_mod'] ) {
-					$this->members()->change_role( $bn_space_id, $user_id, 'moderator', $owner_id );
-				}
-
-				return true;
+			if ( 1 === (int) $member['is_banned'] ) {
+				return true === $this->members()->ban_from_space( $bn_space_id, $user_id, $owner_id, '' );
 			}
-		);
+
+			// Pending membership (request not yet confirmed).
+			if ( 0 === (int) $member['is_confirmed'] ) {
+				return true === $this->members()->request_join( $bn_space_id, $user_id, $joined );
+			}
+
+			// Confirmed: active member, promoted to moderator for group admins/mods.
+			if ( true !== $this->members()->join( $bn_space_id, $user_id, $joined ) ) {
+				return false;
+			}
+
+			// The member did land, so the row counts even if the promotion is
+			// refused; a moderator arriving as a plain member is a role to fix,
+			// not a missing person to hunt for in the deleted source.
+			if ( 1 === (int) $member['is_admin'] || 1 === (int) $member['is_mod'] ) {
+				$this->members()->change_role( $bn_space_id, $user_id, 'moderator', $owner_id );
+			}
+
+			return true;
+		};
+
+		// A join can move the space's last activity; it is dated to the source.
+		$joined_at = (string) ( $member['date_created'] ?? '' );
+		$landed    = (bool) SourceDates::activity( 0, $bn_space_id, $joined_at, fn() => ImportMode::run( $join ) );
+
+		// joined_at itself: join() reads the time once BuddyNext card 10459592358
+		// ships; until then it is written here.
+		if ( $landed ) {
+			SourceDates::joined( $bn_space_id, $user_id, $joined_at );
+		}
+
+		return $landed;
 	}
 
 	/**

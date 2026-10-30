@@ -258,7 +258,7 @@ final class PeepSoAdapter implements SourceAdapter {
 	 */
 	public function last_active( int $user_id ): int {
 		$row  = $this->user_row( $user_id );
-		$time = null !== $row ? strtotime( (string) ( $row['usr_last_activity'] ?? '' ) . ' UTC' ) : false;
+		$time = null !== $row ? strtotime( self::utc_from_local( $row['usr_last_activity'] ?? '' ) . ' UTC' ) : false;
 
 		return false === $time ? 0 : max( 0, (int) $time );
 	}
@@ -476,7 +476,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT gm_id, gm_user_id, gm_user_status, gm_joined FROM `{$table}` WHERE gm_group_id = %d AND gm_id > %d AND gm_user_status <> 'member_owner' ORDER BY gm_id ASC LIMIT %d",
+				"SELECT gm_id, gm_user_id, gm_user_status, UNIX_TIMESTAMP(gm_joined) AS gm_joined FROM `{$table}` WHERE gm_group_id = %d AND gm_id > %d AND gm_user_status <> 'member_owner' ORDER BY gm_id ASC LIMIT %d",
 				$group_id,
 				$after,
 				$limit
@@ -494,7 +494,7 @@ final class PeepSoAdapter implements SourceAdapter {
 				'is_mod'       => in_array( $status, array( 'member_moderator', 'member_manager' ), true ) ? 1 : 0,
 				'is_confirmed' => in_array( $status, array( 'pending_user', 'pending_admin' ), true ) ? 0 : 1,
 				'is_banned'    => 'banned' === $status ? 1 : 0,
-				'date_created' => (string) $row['gm_joined'],
+				'date_created' => self::utc_from_unix( $row['gm_joined'] ),
 			);
 		}
 
@@ -515,7 +515,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT pm_id, pm_user_id, pm_user_status, pm_joined FROM `{$table}` WHERE pm_page_id = %d AND pm_id > %d AND pm_user_status <> 'member_owner' ORDER BY pm_id ASC LIMIT %d",
+				"SELECT pm_id, pm_user_id, pm_user_status, UNIX_TIMESTAMP(pm_joined) AS pm_joined FROM `{$table}` WHERE pm_page_id = %d AND pm_id > %d AND pm_user_status <> 'member_owner' ORDER BY pm_id ASC LIMIT %d",
 				$page_id,
 				$after,
 				$limit
@@ -533,7 +533,7 @@ final class PeepSoAdapter implements SourceAdapter {
 				'is_mod'       => in_array( $status, array( 'member_moderator', 'member_manager' ), true ) ? 1 : 0,
 				'is_confirmed' => in_array( $status, array( 'pending_user', 'pending_admin' ), true ) ? 0 : 1,
 				'is_banned'    => 'banned' === $status ? 1 : 0,
-				'date_created' => (string) $row['pm_joined'],
+				'date_created' => self::utc_from_unix( $row['pm_joined'] ),
 			);
 		}
 
@@ -793,6 +793,10 @@ final class PeepSoAdapter implements SourceAdapter {
 				'source_id'    => (int) $row['source_id'],
 				'user_id'      => (int) $row['user_id'],
 				'activity_id'  => (int) $row['activity_id'],
+				// A DATETIME, not a database-filled TIMESTAMP, and PeepSo's own save
+				// endpoint never sets it: on a real site it is NULL and the
+				// bookmark is dated at the run. A value put there by other code
+				// is taken as UTC, as PHP's date() runs under WordPress.
 				'date_created' => (string) $row['date_created'],
 			);
 		}
@@ -811,10 +815,10 @@ final class PeepSoAdapter implements SourceAdapter {
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM (
-					SELECT fnd_id AS source_id, fnd_user_id AS initiator_id, fnd_friend_id AS friend_id, 1 AS is_confirmed, fnd_created AS date_created
+					SELECT fnd_id AS source_id, fnd_user_id AS initiator_id, fnd_friend_id AS friend_id, 1 AS is_confirmed, UNIX_TIMESTAMP(fnd_created) AS created_unix, CAST(NULL AS CHAR) AS created_local
 					FROM `{$friends}`
 					UNION ALL
-					SELECT freq_id + 1000000000, freq_user_id, freq_friend_id, 0, freq_created
+					SELECT freq_id + 1000000000, freq_user_id, freq_friend_id, 0, NULL, CAST(freq_created AS CHAR)
 					FROM `{$requests}`
 				) pairs
 				WHERE source_id > %d
@@ -832,7 +836,9 @@ final class PeepSoAdapter implements SourceAdapter {
 				'initiator_id' => (int) $row['initiator_id'],
 				'friend_id'    => (int) $row['friend_id'],
 				'is_confirmed' => (int) $row['is_confirmed'],
-				'date_created' => (string) $row['date_created'],
+				// Accepted rows carry the database's own stamp; PeepSo writes a
+				// request's time itself, on the site clock.
+				'date_created' => (int) $row['created_unix'] > 0 ? self::utc_from_unix( $row['created_unix'] ) : self::utc_from_local( $row['created_local'] ),
 			);
 		}
 
@@ -914,7 +920,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT r.reaction_id, r.reaction_user_id, r.reaction_act_id, r.reaction_timestamp, p.post_name AS reaction_name
+				"SELECT r.reaction_id, r.reaction_user_id, r.reaction_act_id, UNIX_TIMESTAMP(r.reaction_timestamp) AS reaction_timestamp, p.post_name AS reaction_name
 				FROM `{$table}` r
 				LEFT JOIN {$wpdb->posts} p ON p.ID = r.reaction_type
 				WHERE r.reaction_id > %d ORDER BY r.reaction_id ASC LIMIT %d",
@@ -931,7 +937,7 @@ final class PeepSoAdapter implements SourceAdapter {
 				'source_id'    => (int) $row['reaction_id'],
 				'user_id'      => (int) $row['reaction_user_id'],
 				'activity_id'  => (int) $row['reaction_act_id'],
-				'date_created' => (string) $row['reaction_timestamp'],
+				'date_created' => self::utc_from_unix( $row['reaction_timestamp'] ),
 				'emoji'        => $this->reaction_emoji( (string) $row['reaction_name'] ),
 			);
 		}
@@ -1068,7 +1074,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT pho_album_id, pho_owner_id, pho_album_name, pho_album_desc, pho_album_acc, pho_created FROM `{$table}` WHERE pho_system_album = 0 AND pho_album_id > %d ORDER BY pho_album_id ASC LIMIT %d",
+				"SELECT pho_album_id, pho_owner_id, pho_album_name, pho_album_desc, pho_album_acc, UNIX_TIMESTAMP(pho_created) AS pho_created FROM `{$table}` WHERE pho_system_album = 0 AND pho_album_id > %d ORDER BY pho_album_id ASC LIMIT %d",
 				$after,
 				$limit
 			),
@@ -1085,7 +1091,7 @@ final class PeepSoAdapter implements SourceAdapter {
 				'description'  => (string) wp_unslash( (string) $row['pho_album_desc'] ),
 				// Same vocabulary as profile fields: 20 is site members.
 				'privacy'      => $this->access_level( (int) $row['pho_album_acc'] ),
-				'date_created' => (string) $row['pho_created'],
+				'date_created' => self::utc_from_unix( $row['pho_created'] ),
 			);
 		}
 
@@ -1333,7 +1339,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT ph.pho_id, ph.pho_album_id, ph.pho_owner_id, ph.pho_post_id, ph.pho_file_name, ph.pho_orig_name, ph.pho_acc, ph.pho_created
+				"SELECT ph.pho_id, ph.pho_album_id, ph.pho_owner_id, ph.pho_post_id, ph.pho_file_name, ph.pho_orig_name, ph.pho_acc, UNIX_TIMESTAMP(ph.pho_created) AS pho_created
 				FROM {$this->t( 'peepso_photos' )} ph
 				LEFT JOIN {$this->t( 'peepso_photos_album' )} al ON al.pho_album_id = ph.pho_album_id
 				WHERE {$album} AND ph.pho_id > %d
@@ -1360,7 +1366,7 @@ final class PeepSoAdapter implements SourceAdapter {
 				'group_id'      => 0,
 				'privacy'       => 10 === (int) $row['pho_acc'] ? 'public' : 'onlyme',
 				'type'          => 'photo',
-				'date_created'  => (string) $row['pho_created'],
+				'date_created'  => self::utc_from_unix( $row['pho_created'] ),
 				'path'          => $path,
 				'mime'          => (string) wp_check_filetype( $path )['type'],
 			);
@@ -1717,6 +1723,35 @@ final class PeepSoAdapter implements SourceAdapter {
 			static fn( array $match ): string => '{{mention_user_id_' . (int) $match[1] . '}}',
 			$content
 		);
+	}
+
+	/**
+	 * A PeepSo TIMESTAMP the database filled itself (DEFAULT CURRENT_TIMESTAMP),
+	 * selected as UNIX_TIMESTAMP(), as a UTC "Y-m-d H:i:s". MySQL returns a raw
+	 * TIMESTAMP in the connection's time zone, which is only UTC on a UTC server;
+	 * the epoch is exact on every server. Empty when the source has no time.
+	 *
+	 * @param mixed $unix Unix time from the query.
+	 */
+	private static function utc_from_unix( $unix ): string {
+		$unix = (int) $unix;
+
+		return $unix > 0 ? gmdate( 'Y-m-d H:i:s', $unix ) : '';
+	}
+
+	/**
+	 * A PeepSo time PeepSo wrote itself with current_time( 'mysql' ) - the site
+	 * clock, not UTC - as a UTC "Y-m-d H:i:s". Empty when the source has no time.
+	 *
+	 * @param mixed $value Site-local datetime from the query.
+	 */
+	private static function utc_from_local( $value ): string {
+		$value = (string) $value;
+		if ( '' === $value || 0 === strpos( $value, '0000-00-00' ) ) {
+			return '';
+		}
+
+		return get_gmt_from_date( $value );
 	}
 
 	/**
