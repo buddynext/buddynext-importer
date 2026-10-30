@@ -58,6 +58,31 @@ final class ImportMode {
 	}
 
 	/**
+	 * Background jobs that reach a person: notification and email fan-out,
+	 * push, webhooks. Not queued during an import, because they would run after
+	 * it, outside import mode, and tell members about history. Search indexing,
+	 * link previews and media processing are not on this list and still run.
+	 *
+	 * @var string[]
+	 */
+	private const OUTBOUND_JOBS = array(
+		'buddynext_send_notification_email',
+		'buddynext_retry_notification_email',
+		'buddynext_async_space_post_fanout',
+		'buddynext_async_space_post_emails',
+		'buddynext_async_announcement_fanout',
+		'buddynext_async_send_invite_email',
+		'bn_onboarding_nudge_24h',
+		'bn_onboarding_nudge_72h',
+		'buddynext_webhook_deliver',
+		'buddynext_webhook_deliver_one',
+		'buddynextpro_push_send',
+		'jetonomy_fanout_post_subscribers',
+		'jetonomy_fanout_reply_subscribers',
+		'mvs_deliver_webhook',
+	);
+
+	/**
 	 * Run a callback with import mode active, restoring the previous state after.
 	 *
 	 * @param callable $callback Work to run inside import mode.
@@ -100,12 +125,47 @@ final class ImportMode {
 	 * BuddyNext path is already killed by the veto above — emails and push
 	 * included, since both hang off buddynext_notification_created.
 	 *
-	 * Outbound webhooks are not gated here: dispatch() no-ops unless the site has
-	 * registered an endpoint, and even then it only schedules cron rather than
-	 * making synchronous HTTP. Sites with active outbound webhooks should disable
-	 * them for the duration of a large import.
+	 * - pre_wp_mail, plus the Action Scheduler and WP-Cron pre-schedule filters:
+	 *   email and the OUTBOUND_JOBS (fan-out, push, webhooks) are paused for the
+	 *   run, so a replay of history never emails or pings a member.
 	 */
 	public static function register(): void {
+		// Email is paused while an import runs: one WordPress filter, so no
+		// plugin's mail leaves the site, whatever triggered it. false, not true:
+		// the mail was not sent, and an email log should say so.
+		add_filter(
+			'pre_wp_mail',
+			static function ( $pre ) {
+				return self::$active ? false : $pre;
+			},
+			PHP_INT_MAX
+		);
+
+		// And the queued jobs that would reach a person later. Refusing the job
+		// is safe: BuddyNext drops it, and Jetonomy falls back to its inline
+		// fan-out, which the notification veto below already silences.
+		$refuse_job = static function ( $pre, $hook ) {
+			return self::$active && in_array( $hook, self::OUTBOUND_JOBS, true ) ? 0 : $pre;
+		};
+		add_filter( 'pre_as_enqueue_async_action', $refuse_job, PHP_INT_MAX, 2 );
+		add_filter(
+			'pre_as_schedule_single_action',
+			static function ( $pre, $timestamp, $hook ) use ( $refuse_job ) {
+				unset( $timestamp );
+				return $refuse_job( $pre, $hook );
+			},
+			PHP_INT_MAX,
+			3
+		);
+		add_filter(
+			'pre_schedule_event',
+			static function ( $pre, $event ) {
+				return self::$active && is_object( $event ) && in_array( $event->hook ?? '', self::OUTBOUND_JOBS, true ) ? false : $pre;
+			},
+			PHP_INT_MAX,
+			2
+		);
+
 		add_filter(
 			'buddynext_is_importing',
 			static function ( $importing ) {

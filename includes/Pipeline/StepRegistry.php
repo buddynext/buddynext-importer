@@ -399,6 +399,13 @@ final class StepRegistry {
 			'message_threads'
 		);
 
+		// The whole batch runs in import mode, not just the writes a writer
+		// remembered to wrap: everything a batch triggers is part of the replay.
+		foreach ( $steps as $i => $step ) {
+			$run                = $step['run'];
+			$steps[ $i ]['run'] = static fn ( int $cursor, int $batch ): array => ImportMode::run( static fn () => $run( $cursor, $batch ) );
+		}
+
 		return $steps;
 	}
 
