@@ -167,7 +167,7 @@
 		note.textContent = '';
 		rows.forEach( function ( row ) {
 			var line = document.createElement( 'div' );
-			line.textContent = row.rows + ' ' + row.reason + '.';
+			line.textContent = row.rows + ' ' + String( row.reason ).replace( /\.$/, '' ) + '.';
 			note.appendChild( line );
 		} );
 		note.hidden = false;

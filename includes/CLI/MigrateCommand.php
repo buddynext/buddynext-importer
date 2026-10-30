@@ -1571,7 +1571,7 @@ final class MigrateCommand {
 		}
 
 		foreach ( (array) $adapter->unsupported_content() as $row ) {
-			\WP_CLI::warning( sprintf( '%d %s.', (int) $row['rows'], (string) $row['reason'] ) );
+			\WP_CLI::warning( sprintf( '%d %s.', (int) $row['rows'], rtrim( (string) $row['reason'], '.' ) ) );
 		}
 	}
 
