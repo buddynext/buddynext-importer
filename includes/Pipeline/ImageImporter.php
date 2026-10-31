@@ -79,6 +79,15 @@ final class ImageImporter {
 	}
 
 	/**
+	 * A row carries an owner, not always a picture. An owner with no file moved nothing.
+	 *
+	 * @param array<string,mixed> $row Image row.
+	 */
+	private static function has_file( array $row ): bool {
+		return '' !== (string) ( $row['avatar'] ?? '' ) || '' !== (string) ( $row['cover'] ?? '' );
+	}
+
+	/**
 	 * Import one keyset batch of member avatars/covers.
 	 *
 	 * @param int $after Exclusive lower-bound user id.
@@ -96,7 +105,7 @@ final class ImageImporter {
 
 			$result = $this->writer->import_member_images( $row );
 
-			if ( empty( $result ) ) {
+			if ( empty( $result ) && self::has_file( $row ) ) {
 				++$members;
 			}
 
@@ -141,7 +150,7 @@ final class ImageImporter {
 
 			$result = $this->writer->import_space_images( (int) $space_id, $this->owner_of( (int) $space_id ), $row );
 
-			if ( empty( $result ) ) {
+			if ( empty( $result ) && self::has_file( $row ) ) {
 				++$spaces;
 			}
 

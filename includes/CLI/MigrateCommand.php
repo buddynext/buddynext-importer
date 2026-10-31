@@ -1551,7 +1551,7 @@ final class MigrateCommand {
 
 		\WP_CLI::success( 'Migration complete.' );
 		\WP_CLI::log( 'Verify the result, then drop the temporary mapping tables with:' );
-		\WP_CLI::log( sprintf( '  wp buddynext-import cleanup --source=%s', $source ) );
+		\WP_CLI::log( '  wp buddynext-import cleanup --yes' );
 		\WP_CLI::log( 'After that you can deactivate and delete this importer.' );
 	}
 

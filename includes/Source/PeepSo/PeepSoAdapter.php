@@ -105,8 +105,8 @@ final class PeepSoAdapter implements SourceAdapter {
 			'standalone_media'             => 0,
 			'member_types'                 => count( $this->held_vip_icons() ),
 			'member_type_users'            => $this->count_sql( "SELECT COUNT(*) FROM {$GLOBALS['wpdb']->usermeta} WHERE meta_key = 'peepso_vip_user_icon' AND meta_value NOT IN ( '', 'a:0:{}' )" ),
-			'member_images'                => $this->count_sql( "SELECT COUNT(*) FROM {$this->users()} WHERE usr_role NOT IN ('ban','register')" ),
-			'group_images'                 => $this->count_posts( 'peepso-group' ) + $this->count_posts( 'peepso-page' ),
+			'member_images'                => $this->image_owner_count( 'users' ),
+			'group_images'                 => $this->image_owner_count( 'groups' ),
 		);
 	}
 
@@ -1378,13 +1378,29 @@ final class PeepSoAdapter implements SourceAdapter {
 	/**
 	 * @return array<int,array{id:int,avatar:string,cover:string}>
 	 */
+	private function image_owner_count( string $kind ): int {
+		$count = 0;
+		$after = 0;
+		do {
+			$rows = $this->images( $kind, $after, 500 );
+			foreach ( $rows as $row ) {
+				$after = (int) $row['source_id'];
+				if ( '' !== $row['avatar'] || '' !== $row['cover'] ) {
+					++$count;
+				}
+			}
+		} while ( 500 === count( $rows ) );
+
+		return $count;
+	}
+
 	private function images( string $kind, int $after, int $limit ): array {
 		global $wpdb;
 
 		if ( 'users' === $kind ) {
 			$table = $this->users();
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT usr_id FROM `{$table}` WHERE usr_id > %d ORDER BY usr_id ASC LIMIT %d", $after, $limit ) );
+			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT usr_id FROM `{$table}` WHERE usr_id > %d AND usr_role NOT IN ('ban','register') ORDER BY usr_id ASC LIMIT %d", $after, $limit ) );
 		} else {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ( 'peepso-group', 'peepso-page' ) AND post_status = 'publish' AND ID > %d ORDER BY ID ASC LIMIT %d", $after, $limit ) );
