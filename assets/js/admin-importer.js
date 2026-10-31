@@ -235,10 +235,10 @@
 			setLabel( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.' );
 			showNotice( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.', 'success' );
 			loadSummary();
-		} ).catch( function () {
+		} ).catch( function ( err ) {
 			setRunning( false );
 			toggleButtons( true );
-			showNotice( ( cfg.i18n && cfg.i18n.runFailed ) || 'The import stopped on an error.', 'error' );
+			showNotice( ( err && err.message ) || ( cfg.i18n && cfg.i18n.runFailed ) || 'The import stopped on an error.', 'error' );
 		} );
 	}
 
@@ -351,9 +351,9 @@
 		} ).then( function ( res ) {
 			beginPolling();
 			renderBgStatus( res );
-		} ).catch( function () {
+		} ).catch( function ( err ) {
 			toggleButtons( true );
-			showNotice( ( cfg.i18n && cfg.i18n.runFailed ) || '', 'error' );
+			showNotice( ( err && err.message ) || ( cfg.i18n && cfg.i18n.runFailed ) || '', 'error' );
 		} );
 	}
 
