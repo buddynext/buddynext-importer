@@ -260,13 +260,7 @@ final class ActivityWriter {
 			$data['content_warning_type'] = 'nsfw';
 		}
 
-		$result = SourceDates::activity(
-			0,
-			$space_id,
-			$data['created_at'],
-			fn() => ImportMode::run( fn() => $this->posts()->create( $user_id, $data ) ),
-			true
-		);
+		$result = ImportMode::run( fn() => $this->posts()->create( $user_id, $data ) );
 
 		// PostService::create() returns (int) $wpdb->insert_id, which is 0 on a
 		// failed INSERT rather than a WP_Error, so a falsy id has to be refused
@@ -287,7 +281,7 @@ final class ActivityWriter {
 		// BuddyNext pins on the author's own profile only, so a space post's
 		// pin is declared by the source rather than written here.
 		if ( ! empty( $activity['pinned'] ) && $space_id <= 0 ) {
-			SourceDates::activity( $bn_id, 0, null, fn() => ImportMode::run( fn() => $this->posts()->pin( $bn_id, $user_id ) ) );
+			ImportMode::run( fn() => $this->posts()->pin( $bn_id, $user_id ) );
 		}
 
 		return array(
@@ -357,9 +351,7 @@ final class ActivityWriter {
 	 * Write a source repost through ShareService::share(), returning the share
 	 * card's post id, or 0 to fall back to a plain post: no original in the
 	 * map (it was not imported), shares switched off, or the share refused.
-	 * The source time goes in as share()'s optional fourth argument, the
-	 * Backdate::resolve() seam BuddyNext card 10459592358 adds; until then PHP
-	 * ignores it and the share is dated at the import time.
+	 * The source time goes in as share()'s optional fourth argument.
 	 *
 	 * @param array<string,mixed> $activity Source activity record.
 	 * @param int                 $user_id  Author.
@@ -378,17 +370,10 @@ final class ActivityWriter {
 		}
 
 		$created = $this->utc( (string) $activity['date_recorded'] );
-		$result  = SourceDates::activity(
-			SourceDates::share_root( $bn_original ),
-			0,
-			$created,
-			fn() => ImportMode::run( fn() => $shares->share( $user_id, $bn_original, $content, $created ) )
-		);
+		$result  = ImportMode::run( fn() => $shares->share( $user_id, $bn_original, $content, $created ) );
 		if ( is_wp_error( $result ) || (int) $result <= 0 ) {
 			return 0;
 		}
-
-		SourceDates::share( (int) $result, $created );
 
 		return (int) $result;
 	}
@@ -435,12 +420,6 @@ final class ActivityWriter {
 	/**
 	 * Write one article card, dated when the source announced it.
 	 *
-	 * IntegrationActivity::publish() takes no date, so the card is created
-	 * through PostService::create(), which does, with the same type, link and
-	 * link meta publish() would write. create() refuses an author whose email
-	 * is unverified unless the write is a system publish; that one case falls
-	 * back to publish(), and that card carries the run date.
-	 *
 	 * @param \WP_Post $post       Published WordPress post.
 	 * @param string   $created_at UTC "Y-m-d H:i:s".
 	 * @return int|\WP_Error Card id, 0 when the card already exists, or an error.
@@ -465,31 +444,7 @@ final class ActivityWriter {
 			\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,
 		);
 
-		$data = array(
-			'type'      => \BuddyNext\Feed\BlogPostListener::TYPE,
-			'content'   => '',
-			'privacy'   => 'public',
-			'link_url'  => $url,
-			'link_meta' => array_merge(
-				array(
-					'title'       => $title,
-					'description' => $excerpt,
-					'url'         => $url,
-					'thumbnail'   => $image,
-				),
-				$meta
-			),
-		);
-		if ( '' !== $created_at ) {
-			$data['created_at'] = $created_at;
-		}
-
-		$result = $this->posts()->create( $author, $data );
-		if ( is_wp_error( $result ) && 'email_unverified' === $result->get_error_code() ) {
-			$result = \BuddyNext\Feed\IntegrationActivity::publish( $author, '', $url, $title, \BuddyNext\Feed\BlogPostListener::TYPE, $excerpt, 0, $meta );
-		}
-
-		return $result;
+		return \BuddyNext\Feed\IntegrationActivity::publish( $author, '', $url, $title, \BuddyNext\Feed\BlogPostListener::TYPE, $excerpt, 0, $meta, $created_at );
 	}
 
 	/**
@@ -544,13 +499,7 @@ final class ActivityWriter {
 		// BuddyNext's own space guard applies: a reply by someone who is not an
 		// active member of the space is refused and reported as `forbidden`.
 		$created = $this->utc( (string) $comment['date_recorded'] );
-		$result  = SourceDates::activity(
-			$post_id,
-			0,
-			$created,
-			fn() => ImportMode::run( fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $created ) ),
-			true
-		);
+		$result  = ImportMode::run( fn() => $this->comments()->create( (int) $comment['user_id'], 'post', $post_id, $content, $parent_id, $created ) );
 
 		// CommentService::create() returns (int) $wpdb->insert_id - 0 on a failed
 		// INSERT, not a WP_Error - so a falsy id must be refused before mapping.
@@ -988,13 +937,7 @@ final class ActivityWriter {
 			}
 
 			$created = $this->utc( (string) $comment->comment_date_gmt );
-			$result  = SourceDates::activity(
-				$card_id,
-				0,
-				$created,
-				fn() => ImportMode::run( fn() => $service->create( $author, 'post', $card_id, $content, $parent_id, $created ) ),
-				true
-			);
+			$result  = ImportMode::run( fn() => $service->create( $author, 'post', $card_id, $content, $parent_id, $created ) );
 
 			if ( is_wp_error( $result ) || (int) $result <= 0 ) {
 				$reason             = is_wp_error( $result ) ? sanitize_key( (string) $result->get_error_code() ) : 'write_failed';
@@ -1049,7 +992,7 @@ final class ActivityWriter {
 			if ( $user_id <= 0 || $option_id <= 0 ) {
 				continue;
 			}
-			SourceDates::activity( $post_id, 0, null, fn() => ImportMode::run( fn() => $service->vote( $user_id, $post_id, $option_id ) ) );
+			ImportMode::run( fn() => $service->vote( $user_id, $post_id, $option_id ) );
 		}
 	}
 }

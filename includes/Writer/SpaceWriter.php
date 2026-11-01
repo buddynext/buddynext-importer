@@ -314,9 +314,7 @@ final class SpaceWriter {
 		// that screen to rule out before deleting the source community.
 		$join = function () use ( $bn_space_id, $owner_id, $user_id, $member ): bool {
 			// The source join time goes in as join()/request_join()'s optional
-			// third argument, the Backdate::resolve() seam BuddyNext card
-			// 10459592358 adds. Until a BN build has it PHP ignores the extra
-			// argument and joined_at is the import time.
+			// third argument.
 			$joined = (string) ( $member['date_created'] ?? '' );
 			$joined = '' !== $joined && '0000-00-00 00:00:00' !== $joined ? $joined : null;
 
@@ -344,17 +342,7 @@ final class SpaceWriter {
 			return true;
 		};
 
-		// A join can move the space's last activity; it is dated to the source.
-		$joined_at = (string) ( $member['date_created'] ?? '' );
-		$landed    = (bool) SourceDates::activity( 0, $bn_space_id, $joined_at, fn() => ImportMode::run( $join ) );
-
-		// joined_at itself: join() reads the time once BuddyNext card 10459592358
-		// ships; until then it is written here.
-		if ( $landed ) {
-			SourceDates::joined( $bn_space_id, $user_id, $joined_at );
-		}
-
-		return $landed;
+		return (bool) ImportMode::run( $join );
 	}
 
 	/**

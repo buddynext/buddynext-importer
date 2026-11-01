@@ -160,13 +160,9 @@ field-for-field copy of PeepSo, BuddyBoss or BuddyPress. (Owner decision,
   BuddyNext and WPMediaVerse are extended for the importer: their existing
   `Core\Backdate::resolve()` seam (an optional UTC `created_at`, clamped to now)
   is added to any write API that lacks it, and nothing else (owner, 2026-10-30).
-  The writers already pass the source time to those APIs. **Until BN card
-  10459592358 ships, `Writer/SourceDates` writes the times itself** (owner,
-  2026-10-30): last activity, joins, bookmarks, shares, album, upload and
-  album-item dates. It is the only class allowed raw `bn_*` / MediaVerse
-  writes, touches only the row the service just wrote, and clears that row's
-  cache. When the BN card ships, delete `SourceDates` and its calls; add nothing
-  to it except another write API that still stamps "now".
+  The writers pass the source time to those APIs, and the importer writes no
+  `bn_*` or MediaVerse table itself. It needs BuddyNext 1.2.8 and WPMediaVerse
+  2.6.3; `Plugin::import_blocked_reason()` refuses a run on older builds.
 - **Read every source time in its real format.** A MySQL `TIMESTAMP` the
   database filled is selected as `UNIX_TIMESTAMP(col)` (MySQL returns the raw
   value in the connection's time zone, not UTC). A time the source wrote with

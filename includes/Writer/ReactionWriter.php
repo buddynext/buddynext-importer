@@ -103,14 +103,15 @@ final class ReactionWriter {
 		if ( ! in_array( $emoji, $known, true ) ) {
 			$emoji = 'like';
 		}
-		$post_id = 'comment' === $object_type ? SourceDates::comment_post( (int) $object_id ) : (int) $object_id;
-		$result  = SourceDates::activity(
-			$post_id,
-			0,
-			$date,
-			// Fifth argument is ReactionService's backdate seam.
-			fn() => ImportMode::run( fn() => $this->service()->react( $user_id, $object_type, $object_id, $emoji, '' !== $date ? $date : null ) )
-		);
+		// BuddyPress favorites carry no time. A reaction on a post then takes the
+		// post's own date, so it does not move the post's last activity to the run.
+		if ( '' === $date && 'post' === $object_type ) {
+			$post = buddynext_service( 'post_service' )->get( (int) $object_id );
+			$date = (string) ( $post['created_at'] ?? '' );
+		}
+
+		// Fifth argument is ReactionService's backdate seam.
+		$result = ImportMode::run( fn() => $this->service()->react( $user_id, $object_type, $object_id, $emoji, $date ) );
 
 		if ( is_wp_error( $result ) ) {
 			return sanitize_key( (string) $result->get_error_code() );

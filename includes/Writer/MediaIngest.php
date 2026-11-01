@@ -398,13 +398,7 @@ final class MediaIngest {
 			return 0;
 		}
 
-		$media_id = self::extract_media_id( $result );
-
-		// `created_at` is the upload's source time. UploadService reads it once
-		// BuddyNext card 10459592358 ships; until then it is written here.
-		SourceDates::media( $media_id, (string) ( $args['created_at'] ?? '' ) );
-
-		return $media_id;
+		return self::extract_media_id( $result );
 	}
 
 	/**
