@@ -743,8 +743,8 @@
 		// The verdict, first thing the eye lands on after a run.
 		var verdict = problems === 0
 			? verifyLine( 'ok', 'source_not_sampled' === report.samples_reason
-				? t( 'verifyPassTotals', 'Every domain accounted for.' )
-				: t( 'verifyPass', 'Every domain accounted for and every sampled object correct.' ) )
+				? t( 'verifyPassTotals', 'Totals match in every domain. Dates, reposts, album details and field definitions are not compared.' )
+				: t( 'verifyPass', 'Totals match in every domain and every sampled space and post is correct. Dates, reposts, album details and field definitions are not compared.' ) )
 			: verifyLine( 'bad', problems + ' ' + t( 'verifyFindings', 'finding(s) to read. A shortfall is not automatically a fault - check it against the coverage note above.' ) );
 		verdict.className += ' bni-verify__verdict';
 		out.insertBefore( verdict, out.firstChild );

@@ -71,7 +71,8 @@ that does not matter yet.
    destroy and recreate is the right choice.
 2. **Migrate there**, with the domains you actually want.
 3. **Check it**, with `wp buddynext-import verify` or the "Check the migration"
-   button. Read the reasons under any shortfall rather than the totals alone.
+   button. It is a totals check, see [What verify checks](#what-verify-checks). Read
+   the reasons under any shortfall rather than the totals alone.
 4. **Look at the community as a member would.** Open a private space, a migrated
    discussion, a member's profile. Counts reconciling is not the same as the
    community feeling right.
@@ -180,9 +181,22 @@ Tools -> Import to BuddyNext, or:
 ```bash
 wp buddynext-import stats                  # read the source, write nothing
 wp buddynext-import migrate-all            # run it
-wp buddynext-import verify --samples=20    # coverage, per-domain totals, sampled objects
+wp buddynext-import verify --samples=20    # a totals check, see What verify checks below
 wp buddynext-import cleanup                # drop the mapping tables when you are done
 ```
+
+### What verify checks
+
+| Check | BuddyPress | BuddyBoss | PeepSo |
+|---|---|---|---|
+| What cannot migrate, and broken source links | Yes | Yes | Yes |
+| Each domain's total, counted again from the source, against what landed | Yes | Yes | Yes |
+| Photo totals across migrated posts | Yes | Yes | Yes |
+| Private or secret space content that is publicly searchable | Yes | Yes | Yes |
+| Random spot check: member and post counts for some spaces; space, comment count and photos for some posts | Yes | Yes | No |
+
+It does not compare dates, reposts, album details or field definitions. A wrong date
+or a lost repost link passes, so a pass is not proof every detail is right.
 
 `cleanup` is final: afterwards there is no duplicate protection, so a later run
 re-creates everything. Do any top-up imports before it.
