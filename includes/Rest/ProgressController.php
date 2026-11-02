@@ -628,6 +628,7 @@ final class ProgressController {
 			array(
 				'removed' => true,
 				'message' => __( 'Removed the importer working tables. You can deactivate and delete this plugin now.', 'buddynext-importer' ),
+				'blocked' => Plugin::import_blocked_reason(),
 			)
 		);
 	}

@@ -10,6 +10,7 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter\Admin;
 
+use BuddyNextImporter\Pipeline\IdMap;
 use BuddyNextImporter\Pipeline\StepRegistry;
 use BuddyNextImporter\Plugin;
 use BuddyNextImporter\Source\AdapterRegistry;
@@ -125,19 +126,18 @@ final class ImporterPage {
 			'buddynext-importer-admin',
 			'buddynextImporter',
 			array(
-				'restUrl'  => esc_url_raw( rest_url( 'buddynext-importer/v1' ) ),
-				'nonce'    => wp_create_nonce( 'wp_rest' ),
-				'bnActive' => Plugin::buddynext_active(),
-				'mvActive' => Plugin::mediaverse_active(),
+				'restUrl' => esc_url_raw( rest_url( 'buddynext-importer/v1' ) ),
+				'nonce'   => wp_create_nonce( 'wp_rest' ),
+				// Why a run would be refused (plugins missing, too old, or cleanup
+				// already ran). The buttons stay disabled while it is set.
+				'blocked' => Plugin::import_blocked_reason(),
 				// The run order comes from the shared registry, already filtered to
 				// what this site can actually import. The browser loop used to carry
 				// its own hardcoded list, which knew 5 of the 16 domains - so "Start
 				// import" reported success after migrating a third of the community.
-				'steps'    => null === $source ? array() : StepRegistry::client_steps( $source ),
-				'i18n'     => array(
+				'steps'   => null === $source ? array() : StepRegistry::client_steps( $source ),
+				'i18n'    => array(
 					'noSource'            => __( 'No BuddyPress or BuddyBoss data was found on this site.', 'buddynext-importer' ),
-					'bnInactive'          => __( 'BuddyNext is not active. Activate it before importing.', 'buddynext-importer' ),
-					'mvInactive'          => __( 'WPMediaVerse is not active. Install and activate the free plugin before importing.', 'buddynext-importer' ),
 					'loadFailed'          => __( 'Could not load source statistics.', 'buddynext-importer' ),
 					'importing'           => __( 'Importing', 'buddynext-importer' ),
 					'complete'            => __( 'Import complete. You can now deactivate and remove this importer.', 'buddynext-importer' ),
@@ -189,6 +189,8 @@ final class ImporterPage {
 	 * Render the page from the template.
 	 */
 	public function render(): void {
+		$blocked = Plugin::import_blocked_reason();
+		$dropped = IdMap::was_dropped();
 		require BUDDYNEXT_IMPORTER_DIR . 'templates/admin/importer-page.php';
 	}
 }
