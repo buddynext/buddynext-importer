@@ -21,6 +21,11 @@ final class IdMap {
 	use WorkingTable;
 
 	/**
+	 * Set by drop(). Plugin::import_blocked_reason() refuses a run while it is set.
+	 */
+	private const DROPPED_OPTION = 'buddynext_importer_cleaned_up';
+
+	/**
 	 * Unprefixed table name.
 	 */
 	private const TABLE = 'bni_id_map';
@@ -171,5 +176,13 @@ final class IdMap {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.NotPrepared
 		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
 		self::forget_exists();
+		update_option( self::DROPPED_OPTION, time(), false );
+	}
+
+	/**
+	 * Cleanup removed this map, so a run has nothing to tell it what it already wrote.
+	 */
+	public static function was_dropped(): bool {
+		return false !== get_option( self::DROPPED_OPTION );
 	}
 }

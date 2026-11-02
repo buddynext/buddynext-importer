@@ -61,10 +61,12 @@ discovered afterwards.
 
 ## Can I check the result?
 
-**Yes.** `wp buddynext-import verify` or the "Check the migration" button:
-coverage, per-domain totals against an independently counted source, randomly
-sampled objects walked end to end, and an exposure check confirming no private or
-secret space content became publicly searchable.
+**Yes, as a totals check.** `wp buddynext-import verify` or the "Check the migration"
+button. Every source: coverage, broken source links, per-domain totals against an
+independently counted source, photo totals, and an exposure check that no private or
+secret space content became publicly searchable. BuddyPress and BuddyBoss also get a
+random spot check of some spaces and posts; PeepSo does not. It does not compare
+dates, reposts, album details or field definitions.
 
 ## Is it safe to run twice?
 

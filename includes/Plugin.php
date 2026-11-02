@@ -9,6 +9,8 @@ declare( strict_types=1 );
 
 namespace BuddyNextImporter;
 
+use BuddyNextImporter\Pipeline\IdMap;
+
 use BuddyNextImporter\Admin\ImporterPage;
 use BuddyNextImporter\Background\BackgroundImport;
 use BuddyNextImporter\CLI\MigrateCommand;
@@ -73,6 +75,10 @@ final class Plugin {
 
 		if ( ! self::mediaverse_active() ) {
 			return __( 'WPMediaVerse must be active to import. Install and activate the free plugin. Photos, video, audio, and messages are stored there.', 'buddynext-importer' );
+		}
+
+		if ( IdMap::was_dropped() ) {
+			return __( 'Cleanup already ran on this site, so the importer no longer knows what it wrote. Another run would duplicate the whole community. Restore your backup first. To run anyway: wp option delete buddynext_importer_cleaned_up', 'buddynext-importer' );
 		}
 
 		return '';

@@ -109,8 +109,8 @@ final class ActivityWriter {
 		// PeepSo stores photos as files, not WP attachments. BuddyPress and
 		// BuddyBoss never set media_paths, so their path is unchanged. A PeepSo
 		// journal card carries its photos as files too; they are ingested here
-		// and handed to the article card below, which otherwise only has the
-		// WordPress post's featured image (PeepSo sets none).
+		// and the first becomes the WordPress post's featured image below, the
+		// only cover an article card reads (PeepSo sets none).
 		$paths         = array_filter( (array) ( $activity['media_paths'] ?? array() ), 'is_array' );
 		$posted_at     = $this->utc( (string) $activity['date_recorded'] );
 		$from_path     = $this->ingest_paths( $paths, $user_id, $posted_at );
@@ -326,7 +326,10 @@ final class ActivityWriter {
 
 		$created_at = $this->utc( (string) $activity['date_recorded'] );
 		$result     = ImportMode::run(
-			fn() => $this->publish_article( $post, $created_at, self::cover_url( $media_ids ) )
+			function () use ( $post, $created_at, $media_ids ) {
+				self::feature_first_photo( $post, $media_ids );
+				return $this->publish_article( $post, $created_at );
+			}
 		);
 
 		// publish() returns 0 when this post already has a card. That card is
@@ -391,26 +394,42 @@ final class ActivityWriter {
 	}
 
 	/**
-	 * The stored (unsigned) URL of the first ingested photo, for an article
-	 * card's cover. A signed URL would expire inside the card's link meta.
+	 * Make the first ingested photo the blog post's featured image.
 	 *
+	 * PeepSo sets none, and BuddyNext reads an article card's cover from the post's
+	 * featured image on every read, so a cover stored only on the card never shows.
+	 *
+	 * @param \WP_Post       $post      Published WordPress post.
 	 * @param array<int,int> $media_ids Ingested media ids.
 	 */
-	private static function cover_url( array $media_ids ): string {
+	private static function feature_first_photo( \WP_Post $post, array $media_ids ): void {
 		$repo = class_exists( \BuddyNext\Media\MediaClient::class ) ? \BuddyNext\Media\MediaClient::repo() : null;
-		if ( ! $repo || ! is_callable( array( $repo, 'get_raw' ) ) ) {
-			return '';
+		if ( has_post_thumbnail( $post ) || ! $repo || ! is_callable( array( $repo, 'get_raw' ) ) ) {
+			return;
 		}
 		foreach ( $media_ids as $media_id ) {
-			foreach ( array( 'thumb_large', 'file_url' ) as $key ) {
-				$url = (string) $repo->get_raw( (int) $media_id, $key );
-				if ( '' !== $url ) {
-					return $url;
-				}
+			$uploads = wp_upload_dir();
+			$file    = str_replace( $uploads['baseurl'], $uploads['basedir'], (string) $repo->get_raw( (int) $media_id, 'file_url' ) );
+			$type    = (string) wp_check_filetype( $file )['type'];
+			if ( ! is_file( $file ) || 0 !== strpos( $type, 'image/' ) ) {
+				continue;
 			}
+			$attachment = wp_insert_attachment(
+				array(
+					'post_mime_type' => $type,
+					'post_title'     => $post->post_title,
+					'post_status'    => 'inherit',
+				),
+				$file,
+				$post->ID
+			);
+			if ( $attachment > 0 ) {
+				require_once ABSPATH . 'wp-admin/includes/image.php';
+				wp_update_attachment_metadata( $attachment, wp_generate_attachment_metadata( $attachment, $file ) );
+				set_post_thumbnail( $post, $attachment );
+			}
+			return;
 		}
-
-		return '';
 	}
 
 	/**
@@ -424,10 +443,9 @@ final class ActivityWriter {
 	 *
 	 * @param \WP_Post $post       Published WordPress post.
 	 * @param string   $created_at UTC "Y-m-d H:i:s".
-	 * @param string   $cover      Fallback cover when the post has no featured image.
 	 * @return int|\WP_Error Card id, 0 when the card already exists, or an error.
 	 */
-	private function publish_article( \WP_Post $post, string $created_at, string $cover = '' ) {
+	private function publish_article( \WP_Post $post, string $created_at ) {
 		$existing = \BuddyNext\Feed\BlogPostListener::card_id_for_post( (int) $post->ID );
 		if ( $existing > 0 ) {
 			return $existing;
@@ -442,9 +460,6 @@ final class ActivityWriter {
 		$url    = \BuddyNext\Feed\IntegrationActivity::published_permalink( $post );
 		$title  = wp_strip_all_tags( get_the_title( $post ) );
 		$image  = (string) get_the_post_thumbnail_url( $post, 'large' );
-		if ( '' === $image ) {
-			$image = $cover;
-		}
 		$meta = array(
 			'image'                                        => $image,
 			\BuddyNext\Feed\BlogPostListener::META_POST_ID => (int) $post->ID,

@@ -1551,7 +1551,7 @@ final class MigrateCommand {
 
 		\WP_CLI::success( 'Migration complete.' );
 		\WP_CLI::log( 'Verify the result, then drop the temporary mapping tables with:' );
-		\WP_CLI::log( sprintf( '  wp buddynext-import cleanup --source=%s', $source ) );
+		\WP_CLI::log( '  wp buddynext-import cleanup --yes' );
 		\WP_CLI::log( 'After that you can deactivate and delete this importer.' );
 	}
 
@@ -1675,16 +1675,18 @@ final class MigrateCommand {
 	}
 
 	/**
-	 * Verify a migration: coverage, per-domain totals, and spot-checks.
+	 * Verify a migration with a totals check.
 	 *
-	 * The importer can only report what it wrote, and that number says nothing
-	 * about what it declined to write or whether a row landed in the right
-	 * place. This counts the source independently, compares it with what landed,
-	 * and then walks randomly sampled objects end to end - the space a post
-	 * belongs to, the comments and reactions hanging off it, a space's members.
+	 * Every source: what cannot migrate, broken source links, each domain's total
+	 * counted again from the source and compared with what landed, photo totals, and
+	 * whether private or secret space content is publicly searchable.
 	 *
-	 * Sampling is random deliberately: a fixed sample only proves the rows it
-	 * names, and the failures worth catching have all been in the tail.
+	 * BuddyPress and BuddyBoss also get a random spot check: member and post counts
+	 * for some spaces, and the space, comment count and photos for some posts.
+	 * PeepSo gets no spot check.
+	 *
+	 * It does not compare dates, reposts, album details or field definitions, so a
+	 * pass is not proof every detail is right.
 	 *
 	 * ## OPTIONS
 	 *
@@ -1692,7 +1694,7 @@ final class MigrateCommand {
 	 * : Source platform. Defaults to the detected active source.
 	 *
 	 * [--samples=<samples>]
-	 * : How many objects of each kind to spot-check. Default 5.
+	 * : How many spaces and posts to spot-check, on BuddyPress and BuddyBoss. Default 5.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -1900,7 +1902,7 @@ final class MigrateCommand {
 
 		\WP_CLI::log( '' );
 		if ( 0 === $problems ) {
-			\WP_CLI::success( $not_sampled ? 'Verified: every domain accounted for.' : 'Verified: every domain accounted for and every sampled object correct.' );
+			\WP_CLI::success( $not_sampled ? 'Totals match in every domain. Dates, reposts, album details and field definitions are not compared.' : 'Totals match in every domain and every sampled space and post is correct. Dates, reposts, album details and field definitions are not compared.' );
 			return;
 		}
 
@@ -1908,7 +1910,7 @@ final class MigrateCommand {
 		// unmigratable - so this is a finding to read, not a failed build.
 		\WP_CLI::log(
 			sprintf(
-				'WARNING: %d finding(s). A shortfall is not automatically a fault: check it against the Coverage section above before treating it as one.',
+				'WARNING: %d finding(s). A shortfall is not automatically a fault: check it against the Coverage section above before treating it as one. Dates, reposts, album details and field definitions are not compared.',
 				$problems
 			)
 		);

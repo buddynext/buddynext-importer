@@ -43,10 +43,12 @@ the missing domains rather than duplicating what already arrived, and a domain l
 out on purpose is reported as skipped by choice rather than as a shortfall.
 
 Before a run it names what it cannot carry, so nothing is discovered afterwards.
-After a run, "wp buddynext-import verify" and the Check the migration button walk
-the result end to end: coverage, per-domain totals against an independent count,
-randomly sampled objects, and a check that no private or secret space content
-became publicly searchable.
+After a run, "wp buddynext-import verify" and the Check the migration button run a
+totals check. Every source gets: what cannot migrate, broken source links, per-domain
+totals against an independent count, photo totals, and a check that no private or
+secret space content became publicly searchable. BuddyPress and BuddyBoss also get a
+random spot check of some spaces and posts; PeepSo does not. It does not compare dates,
+reposts, album details or field definitions, so a pass is not proof every detail is right.
 
 The migration is resumable and safe to re-run. Every write is keyed, so a second
 full run writes nothing and duplicates nothing.

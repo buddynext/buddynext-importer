@@ -259,7 +259,7 @@ defined( 'ABSPATH' ) || exit;
 		</div>
 
 		<p class="bni-muted" id="bni-verify-intro">
-			<?php esc_html_e( 'Counts your source community again, independently, and walks a random sample of migrated spaces and posts end to end - checking that each one landed in the right place and is visible to the right people. Worth running before you delete anything.', 'buddynext-importer' ); ?>
+			<?php esc_html_e( 'A totals check. Every source: counts your source community again and compares each total with what landed, counts photos, reports broken source links, and checks that no private or secret space content is publicly searchable. BuddyPress and BuddyBoss also get a random spot check: member and post counts for some spaces, and the space, comment count and photos for some posts. PeepSo gets no spot check. It does not compare dates, reposts, album details or field definitions, so a pass is not proof every detail is right: look through the community as a member too before you delete anything.', 'buddynext-importer' ); ?>
 		</p>
 
 		<div id="bni-verify-out" hidden></div>
