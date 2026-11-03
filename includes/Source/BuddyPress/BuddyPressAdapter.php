@@ -2301,14 +2301,13 @@ class BuddyPressAdapter implements SourceAdapter {
 		$keys         = $this->bookmark_meta_keys();
 		$placeholders = implode( ', ', array_fill( 0, count( $keys ), '%s' ) );
 
-		$params = $keys;
+		$params   = $keys;
 		$params[] = $after;
 		$params[] = $limit;
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Only the prefixed table name and a run of %s placeholders sized from the key list are interpolated; every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- placeholders built from a fixed count above.
 				"SELECT id, activity_id, meta_value FROM `{$table}`
 				  WHERE meta_key IN ( {$placeholders} )
 				    AND meta_value IS NOT NULL
@@ -2320,6 +2319,7 @@ class BuddyPressAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 
@@ -2359,10 +2359,9 @@ class BuddyPressAdapter implements SourceAdapter {
 		$keys         = $this->bookmark_meta_keys();
 		$placeholders = implode( ', ', array_fill( 0, count( $keys ), '%s' ) );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Only the prefixed table name and a run of %s placeholders sized from the key list are interpolated; every value is bound.
 		$values = $wpdb->get_col(
 			$wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- placeholders built from a fixed count above.
 				"SELECT meta_value FROM `{$table}`
 				  WHERE meta_key IN ( {$placeholders} )
 				    AND meta_value IS NOT NULL
@@ -2370,6 +2369,7 @@ class BuddyPressAdapter implements SourceAdapter {
 				...$keys
 			)
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$total = 0;
 		foreach ( (array) $values as $value ) {

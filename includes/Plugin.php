@@ -77,6 +77,12 @@ final class Plugin {
 			return __( 'WPMediaVerse must be active to import. Install and activate the free plugin. Photos, video, audio, and messages are stored there.', 'buddynext-importer' );
 		}
 
+		// Older builds ignore the source-time arguments, so every date would
+		// silently become the run date.
+		if ( ! method_exists( '\\BuddyNext\\Spaces\\SpaceService', 'touch_activity' ) || ! defined( '\\WPMediaVerse\\Services\\AlbumService::TAKES_SOURCE_TIME' ) ) {
+			return __( 'This importer needs BuddyNext 1.2.8 and WPMediaVerse 2.6.3 or newer, which keep each record\'s original date. Update both, then run the import.', 'buddynext-importer' );
+		}
+
 		if ( IdMap::was_dropped() ) {
 			return __( 'Cleanup already ran on this site, so the importer no longer knows what it wrote. Another run would duplicate the whole community. Restore your backup first. To run anyway: wp option delete buddynext_importer_cleaned_up', 'buddynext-importer' );
 		}

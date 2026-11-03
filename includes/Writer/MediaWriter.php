@@ -126,8 +126,6 @@ final class MediaWriter {
 					'title'       => $title,
 					'description' => (string) ( $album['description'] ?? '' ),
 					'privacy'     => $this->privacy( (string) ( $album['privacy'] ?? 'public' ) ),
-					// Read once WPMediaVerse takes a backdate (BuddyNext card
-					// 10459592358); ignored until then.
 					'created_at'  => (string) ( $album['date_created'] ?? '' ),
 				)
 			)
@@ -142,10 +140,6 @@ final class MediaWriter {
 
 		$album_id = (int) $created;
 		IdMap::set( $this->source, 'media_album', $source_id, $album_id );
-
-		// create() reads `created_at` once BuddyNext card 10459592358 ships;
-		// until then the album is dated here.
-		SourceDates::album( $album_id, (string) ( $album['date_created'] ?? '' ) );
 
 		// A BuddyBoss album with a group_id belongs to that group, not to the
 		// member who happened to create it. BuddyNext gained space-owned albums
@@ -357,9 +351,16 @@ final class MediaWriter {
 			return;
 		}
 
-		ImportMode::run( fn() => $service->add_items( (int) $album_id, array( $media_id ) ) );
-		// add_items() takes `added_at` once BuddyNext card 10459592358 ships.
-		SourceDates::album_item( (int) $album_id, $media_id, $added_at );
+		ImportMode::run(
+			fn() => $service->add_items(
+				(int) $album_id,
+				array( $media_id ),
+				array(
+					'announce' => false,
+					'added_at' => $added_at,
+				)
+			)
+		);
 	}
 
 	/**

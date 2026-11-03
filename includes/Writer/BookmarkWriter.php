@@ -93,19 +93,14 @@ final class BookmarkWriter {
 			return 'already_imported';
 		}
 
-		// The source date goes in as bookmark()'s optional third argument, the
-		// Backdate::resolve() seam BuddyNext card 10459592358 adds. Until a BN
-		// build has it PHP ignores the extra argument and created_at is the
-		// import time. BuddyPress stores bookmarks as activity meta, which has no
+		// The source date goes in as bookmark()'s optional third argument.
+		// BuddyPress stores bookmarks as activity meta, which has no
 		// timestamp, so its rows pass null; PeepSo's saved_posts row has one.
-		$created = (string) ( $bookmark['date_created'] ?? '' );
-		$this->service()->bookmark( $user_id, (int) $post_id, '' !== $created ? $created : null );
+		$this->service()->bookmark( $user_id, (int) $post_id, (string) ( $bookmark['date_created'] ?? '' ) );
 
 		if ( ! $this->service()->is_bookmarked( $user_id, (int) $post_id ) ) {
 			return 'bookmark_refused';
 		}
-
-		SourceDates::bookmark( $user_id, (int) $post_id, $created );
 
 		return '';
 	}

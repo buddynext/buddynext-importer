@@ -125,10 +125,38 @@
 		renderUnsupported( data.unsupported );
 
 		toggleButtons( true );
-		if ( ! cfg.bnActive ) {
-			showNotice( ( cfg.i18n && cfg.i18n.bnInactive ) || '', 'warning' );
-		} else if ( ! cfg.mvActive ) {
-			showNotice( ( cfg.i18n && cfg.i18n.mvInactive ) || '', 'warning' );
+	}
+
+	// A run the server refuses (plugins missing or too old, cleanup already ran)
+	// stays refused, so say why beside the buttons and keep them off.
+	function showBlocked( message ) {
+		cfg.blocked = message;
+		var text = el( 'bni-blocked-text' );
+		if ( text ) {
+			text.textContent = message;
+			el( 'bni-blocked' ).hidden = false;
+		}
+		var hint = el( 'bni-domains-hint' );
+		if ( hint ) {
+			hint.hidden = true;
+		}
+		toggleButtons( false );
+	}
+
+	var idleLabel = el( 'bni-progress-label' ) ? el( 'bni-progress-label' ).textContent : '';
+
+	// A failed run: put the reason where the Progress label was, not only in the
+	// notice at the top of the page, which is out of view by then.
+	function runRefused( err ) {
+		var message = ( err && err.message ) || ( cfg.i18n && cfg.i18n.runFailed ) || '';
+		setRunning( false );
+		if ( err && err.code === 'buddynext_importer_no_target' ) {
+			setLabel( idleLabel );
+			showBlocked( message );
+		} else {
+			setLabel( message );
+			toggleButtons( true );
+			showNotice( message, 'error' );
 		}
 	}
 
@@ -235,11 +263,7 @@
 			setLabel( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.' );
 			showNotice( ( cfg.i18n && cfg.i18n.complete ) || 'Import complete.', 'success' );
 			loadSummary();
-		} ).catch( function ( err ) {
-			setRunning( false );
-			toggleButtons( true );
-			showNotice( ( err && err.message ) || ( cfg.i18n && cfg.i18n.runFailed ) || 'The import stopped on an error.', 'error' );
-		} );
+		} ).catch( runRefused );
 	}
 
 	// --- Background (server-side, Action Scheduler) import -------------------
@@ -253,10 +277,10 @@
 		var startBtn = el( 'bni-start' );
 		var startBg = el( 'bni-start-bg' );
 		if ( startBtn ) {
-			startBtn.disabled = ! ( enabled && cfg.bnActive && cfg.mvActive );
+			startBtn.disabled = ! enabled || !! cfg.blocked;
 		}
 		if ( startBg ) {
-			startBg.disabled = ! ( enabled && cfg.bnActive && cfg.mvActive );
+			startBg.disabled = ! enabled || !! cfg.blocked;
 		}
 	}
 
@@ -351,10 +375,7 @@
 		} ).then( function ( res ) {
 			beginPolling();
 			renderBgStatus( res );
-		} ).catch( function ( err ) {
-			toggleButtons( true );
-			showNotice( ( err && err.message ) || ( cfg.i18n && cfg.i18n.runFailed ) || '', 'error' );
-		} );
+		} ).catch( runRefused );
 	}
 
 	/**
@@ -402,6 +423,9 @@
 				teardown.hidden = true;
 			}
 			showNotice( ( res && res.message ) || '', 'success' );
+			if ( res && res.blocked ) {
+				showBlocked( res.blocked );
+			}
 		} ).catch( function ( err ) {
 			if ( yes ) {
 				yes.disabled = false;

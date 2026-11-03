@@ -130,7 +130,7 @@ defined( 'ABSPATH' ) || exit;
 		 * community trying to add them back.
 		 */
 		?>
-		<p class="bni-hint" id="bni-domains-hint">
+		<p class="bni-hint" id="bni-domains-hint"<?php echo $dropped ? ' hidden' : ''; ?>>
 			<span>
 				<?php esc_html_e( 'You can run the import again later with more selected - anything already imported is recognised and never duplicated. That protection lives in the importer\'s own mapping tables, so add whatever you skipped BEFORE you use "Remove import data" below.', 'buddynext-importer' ); ?>
 			</span>
@@ -158,6 +158,10 @@ defined( 'ABSPATH' ) || exit;
 			<button type="button" class="button-link bni-cancel" id="bni-cancel-bg" hidden>
 				<?php esc_html_e( 'Cancel', 'buddynext-importer' ); ?>
 			</button>
+		</p>
+		<?php /* Next to the buttons it disables, where the owner is looking - not in the notice at the top. */ ?>
+		<p class="bni-hint bni-hint--danger" id="bni-blocked" role="status"<?php echo '' === $blocked ? ' hidden' : ''; ?>>
+			<span id="bni-blocked-text"><?php echo esc_html( $blocked ); ?></span>
 		</p>
 		<p class="bni-hint" id="bni-bg-hint" hidden>
 			<?php esc_html_e( 'The import is running on the server. You can leave this page - it will keep going, and reopening this screen will show its progress.', 'buddynext-importer' ); ?>
