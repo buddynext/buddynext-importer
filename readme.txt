@@ -1,16 +1,16 @@
 === BuddyNext Importer ===
 Contributors: wbcomdesigns
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
 Stable tag: 1.2.0
 License: GPLv2 or later
 
-Move an existing BuddyPress or BuddyBoss community into BuddyNext, then remove this plugin.
+Move an existing BuddyPress, BuddyBoss or PeepSo community into BuddyNext, then remove this plugin.
 
 == Description ==
 
-A one-time migration tool. It reads a BuddyPress or BuddyBoss community directly
+A one-time migration tool. It reads a BuddyPress, BuddyBoss or PeepSo community directly
 from the database and writes it into BuddyNext through BuddyNext's own services,
 then gets deactivated and deleted.
 
@@ -53,24 +53,37 @@ reposts, album details or field definitions, so a pass is not proof every detail
 The migration is resumable and safe to re-run. Every write is keyed, so a second
 full run writes nothing and duplicates nothing.
 
-Requires BuddyNext. Forums need Jetonomy; media and private messages need
-WPMediaVerse. A domain whose engine is absent is skipped and said so, never
+Requires BuddyNext 1.2.8 and WPMediaVerse 2.6.3 or newer. Forums need Jetonomy. A domain whose engine is absent is skipped and said so, never
 skipped silently.
 
 == Changelog ==
 
-= 1.2.0 - August 2026 =
+= 1.2.0 - November 2026 =
 
-More of a BuddyBoss or rtMedia community survives the move.
+Bring a PeepSo community across, with every original date kept and no email sent during the run.
 
-* New      - Photos sent in BuddyBoss private messages migrate with the conversation. They stay scoped to that conversation and never appear in anyone's media library.
-* New      - rtMedia albums migrate with their contents, and a group album becomes a space-owned album rather than one member's personal one.
-* New      - rtMedia photos and videos that were never posted to activity now migrate instead of being left behind in the library.
-* Improve  - BuddyBoss documents are named on the source panel as content this importer does not carry, so an owner reads it before the run rather than after.
-* Fix      - A migrated video keeps the preview image the member already had, so a missing preview no longer depends on the destination server having ffmpeg installed.
-* Fix      - Avatars and cover images migrate on hosts using Imagick, which previously refused the copy because it arrived without a file extension.
-* Fix      - Photo posts from rtMedia no longer arrive with a run of blank lines and the file name sitting in the body text.
-* Dev      - The disposable test community generates media for both BuddyBoss and rtMedia, covering album, group, never-posted and message attachments.
+* New      - PeepSo is a supported source: members, profile fields, groups and pages, posts, comments, reactions, polls, articles, albums, photos, videos, bookmarks, shares and private messages.
+* New      - Every record keeps its original date, including posts, comments, reactions, space joins, bookmarks, shares, albums, photos and last activity.
+* New      - Activity bookmarks migrate, with a filter for sites whose bookmark add-on uses a different meta key.
+* New      - Photos sent in BuddyBoss private messages migrate with the conversation and stay scoped to it.
+* New      - rtMedia albums migrate with their contents, and a group album becomes a space-owned album.
+* New      - rtMedia photos and videos that were never posted to activity now migrate.
+* New      - BuddyPress activity photos added through WPMediaVerse now migrate, not only rtMedia ones.
+* Improve  - No email, notification, push or webhook goes out while an import runs, so members are not pinged about years of history.
+* Improve  - Imported members skip the BuddyNext welcome wizard.
+* Improve  - Profile fields shown on the BuddyPress signup form also show on the BuddyNext register form.
+* Improve  - The migration check totals every WPMediaVerse photo across all migrated posts, says when a check could not run, and counts an over-count as a finding.
+* Improve  - Before a run the importer lists, with row counts, the source content it cannot carry.
+* Improve  - BuddyBoss documents are named on the source panel as content this importer does not carry.
+* Fix      - A run after cleanup is refused on the admin screen, the command line and the REST API, with the reason shown beside the buttons, because it would duplicate the whole community.
+* Fix      - Recent posts in a final catch-up run were refused by the posting limit and then skipped for good; they now import.
+* Fix      - Uploaded media no longer creates extra photo posts dated the import day.
+* Fix      - BuddyPress biography and text fields synced with WordPress are no longer imported as empty custom fields.
+* Fix      - A migrated video keeps the preview image the member already had.
+* Fix      - Avatars and cover images migrate on hosts using Imagick.
+* Fix      - Photo posts from rtMedia no longer arrive with blank lines and the file name in the body.
+* Security - Member profile values are decoded without building PHP objects.
+* Compat   - Requires BuddyNext 1.2.8 and WPMediaVerse 2.6.3 or newer, which keep each record's original date. Install those updates first.
 
 = 1.1.0 - August 2026 =
 

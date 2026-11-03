@@ -33,7 +33,7 @@ use BuddyNextImporter\Source\AdapterRegistry;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Migrate a BuddyPress or BuddyBoss community into BuddyNext.
+ * Migrate a BuddyPress, BuddyBoss or PeepSo community into BuddyNext.
  */
 final class MigrateCommand {
 
@@ -606,7 +606,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss or PeepSo data found on this site.' );
 		}
 
 		$importer = BookmarkImporter::for_source( $source );
@@ -1368,19 +1368,6 @@ final class MigrateCommand {
 		$this->report_existing( $existing, $label );
 		$this->report_folds( $merged, $label );
 		$this->report_skips( $skipped, $seen, $written, $label );
-	}
-
-	/**
-	 * Note a domain the operator deliberately left out of this run.
-	 *
-	 * Worded as a decision, never as a failure. The whole point of the flag is
-	 * that this is not a loss, and the run's own output has to say so or the
-	 * operator ends up auditing their own choice.
-	 *
-	 * @param string $label Human domain name.
-	 */
-	private function skipped_by_choice( string $label ): void {
-		\WP_CLI::log( sprintf( 'Skipping %s (not selected for this run).', $label ) );
 	}
 
 	/**

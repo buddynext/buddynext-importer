@@ -230,16 +230,6 @@ final class DomainSelection {
 	}
 
 	/**
-	 * Is this phase part of the current migration?
-	 *
-	 * @param string $phase  Phase key.
-	 * @param string $source Source key.
-	 */
-	public static function is_selected( string $phase, string $source ): bool {
-		return in_array( $phase, self::get( $source ), true );
-	}
-
-	/**
 	 * The registry steps this migration will actually run.
 	 *
 	 * @param string        $source    Source key.
