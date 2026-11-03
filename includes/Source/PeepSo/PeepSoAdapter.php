@@ -49,6 +49,13 @@ final class PeepSoAdapter implements SourceAdapter {
 	private ?array $by_external = null;
 
 	/**
+	 * Map of act_id to module id, built with the activity index.
+	 *
+	 * @var array<int,int>
+	 */
+	private array $module_by_act = array();
+
+	/**
 	 * Map of file basename to absolute path, thumbs excluded.
 	 *
 	 * @var array<string,string>|null
@@ -2044,12 +2051,9 @@ final class PeepSoAdapter implements SourceAdapter {
 	 * @return bool True when the activity is an importable post.
 	 */
 	private function root_is_imported( int $act_id ): bool {
-		foreach ( $this->activity_index() as $row ) {
-			if ( $row['act_id'] === $act_id ) {
-				return in_array( $row['module_id'], self::POST_MODULES, true );
-			}
-		}
-		return false;
+		$this->activity_index();
+		return isset( $this->module_by_act[ $act_id ] )
+			&& in_array( $this->module_by_act[ $act_id ], self::POST_MODULES, true );
 	}
 
 	/**
@@ -2075,6 +2079,10 @@ final class PeepSoAdapter implements SourceAdapter {
 				'comment_object_id' => (int) $row['act_comment_object_id'],
 				'module_id'         => (int) $row['act_module_id'],
 			);
+		}
+		// Keyed from the de-duplicated index, so it answers exactly as a scan of it would.
+		foreach ( $this->by_external as $activity ) {
+			$this->module_by_act[ $activity['act_id'] ] = $activity['module_id'];
 		}
 
 		return $this->by_external;

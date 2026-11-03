@@ -1371,19 +1371,6 @@ final class MigrateCommand {
 	}
 
 	/**
-	 * Note a domain the operator deliberately left out of this run.
-	 *
-	 * Worded as a decision, never as a failure. The whole point of the flag is
-	 * that this is not a loss, and the run's own output has to say so or the
-	 * operator ends up auditing their own choice.
-	 *
-	 * @param string $label Human domain name.
-	 */
-	private function skipped_by_choice( string $label ): void {
-		\WP_CLI::log( sprintf( 'Skipping %s (not selected for this run).', $label ) );
-	}
-
-	/**
 	 * Resolve which domains this invocation should carry.
 	 *
 	 * --only replaces the stored selection; --skip subtracts from whatever is
