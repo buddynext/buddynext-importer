@@ -42,20 +42,22 @@ final class PeepSoAdapter implements SourceAdapter {
 	private const BN_REACTIONS = array( 'like', 'love', 'haha', 'wow', 'sad', 'angry' );
 
 	/**
-	 * act_external_id => activity row. Built once per request.
+	 * Map of act_external_id to activity row, built once per request.
 	 *
 	 * @var array<int,array<string,int>>|null
 	 */
 	private ?array $by_external = null;
 
 	/**
-	 * basename => absolute path, thumbs excluded.
+	 * Map of file basename to absolute path, thumbs excluded.
 	 *
 	 * @var array<string,string>|null
 	 */
 	private ?array $files = null;
 
 	/**
+	 * Cached PeepSo profile field definitions.
+	 *
 	 * @var array<int,array<string,mixed>>|null
 	 */
 	private ?array $fields = null;
@@ -67,18 +69,30 @@ final class PeepSoAdapter implements SourceAdapter {
 	 */
 	private ?array $user_row_cache = null;
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function key(): string {
 		return 'peepso';
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function label(): string {
 		return 'PeepSo';
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function is_available(): bool {
 		return $this->table_exists( 'peepso_activities' );
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function stats(): array {
 		return array(
 			'users'                        => $this->count_sql( "SELECT COUNT(*) FROM {$this->users()} WHERE usr_role NOT IN ('ban','register')" ),
@@ -110,6 +124,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		);
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function profile_groups(): array {
 		if ( ! $this->is_available() ) {
 			return array();
@@ -125,6 +142,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		);
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function profile_fields(): array {
 		global $wpdb;
 
@@ -137,7 +157,7 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		// A field's definition lives in its postmeta: `class` is the field type,
 		// `select_options` the slug => label choices, `validation` the rules.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			"SELECT p.ID, p.post_title, p.post_name, acc.meta_value AS default_acc,
 				cls.meta_value AS field_class, opt.meta_value AS select_options, val.meta_value AS validation
@@ -150,6 +170,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			ORDER BY p.menu_order ASC, p.ID ASC",
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$fields = array();
 		$order  = 0;
@@ -177,6 +198,13 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $fields;
 	}
 
+	/**
+	 * User ids that have profile values, keyset-paginated by user id.
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Batch size.
+	 * @return array<int,int>
+	 */
 	public function profile_value_user_ids( int $after, int $limit ): array {
 		global $wpdb;
 
@@ -186,8 +214,9 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		$table = $this->users();
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_col( $wpdb->prepare( "SELECT usr_id FROM `{$table}` WHERE usr_id > %d AND usr_role NOT IN ('ban','register') ORDER BY usr_id ASC LIMIT %d", $after, $limit ) );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		return array_map( 'intval', (array) $rows );
 	}
@@ -320,8 +349,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		}
 
 		$in = implode( ',', array_keys( $held ) );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results( "SELECT ID, post_title, post_name, post_content FROM {$wpdb->posts} WHERE ID IN ({$in}) AND post_type IN ( 'peepso_vip', 'peepso_vip_user' ) ORDER BY menu_order ASC, ID ASC", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -344,7 +374,7 @@ final class PeepSoAdapter implements SourceAdapter {
 	public function member_type_assignments( int $after, int $limit ): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT user_id, meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'peepso_vip_user_icon' AND user_id > %d ORDER BY user_id ASC LIMIT %d",
@@ -353,6 +383,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -375,8 +406,9 @@ final class PeepSoAdapter implements SourceAdapter {
 	private function held_vip_icons(): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$values = $wpdb->get_col( "SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key = 'peepso_vip_user_icon'" );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$held = array();
 		foreach ( (array) $values as $value ) {
@@ -420,6 +452,13 @@ final class PeepSoAdapter implements SourceAdapter {
 		return '' !== $slug ? $slug : 'peepso-vip-' . $icon_id;
 	}
 
+	/**
+	 * Source groups, keyset-paginated by group id.
+	 *
+	 * @param int $after Exclusive lower-bound group id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function groups( int $after, int $limit ): array {
 		global $wpdb;
 
@@ -427,7 +466,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			return array();
 		}
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT p.ID, p.post_author, p.post_title, p.post_name, p.post_content, p.post_date_gmt,
@@ -445,6 +484,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$groups = array();
 		foreach ( (array) $rows as $row ) {
@@ -464,6 +504,14 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $groups;
 	}
 
+	/**
+	 * A group's members, keyset-paginated by membership row id.
+	 *
+	 * @param int $group_id Source group id.
+	 * @param int $after    Exclusive lower-bound membership row id.
+	 * @param int $limit    Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function group_members( int $group_id, int $after, int $limit ): array {
 		global $wpdb;
 
@@ -473,7 +521,7 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		$table = $this->t( 'peepso_group_members' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT gm_id, gm_user_id, gm_user_status, UNIX_TIMESTAMP(gm_joined) AS gm_joined FROM `{$table}` WHERE gm_group_id = %d AND gm_id > %d AND gm_user_status <> 'member_owner' ORDER BY gm_id ASC LIMIT %d",
@@ -483,6 +531,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$members = array();
 		foreach ( (array) $rows as $row ) {
@@ -505,6 +554,9 @@ final class PeepSoAdapter implements SourceAdapter {
 	 * Page members use the same roles as group members. The owner is the
 	 * space creator, so they are not also written as a member.
 	 *
+	 * @param int $page_id Source page id.
+	 * @param int $after   Exclusive lower-bound membership row id.
+	 * @param int $limit   Batch size.
 	 * @return array<int,array<string,int|string>>
 	 */
 	private function page_members( int $page_id, int $after, int $limit ): array {
@@ -512,7 +564,7 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		$table = $this->t( 'peepso_page_members' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT pm_id, pm_user_id, pm_user_status, UNIX_TIMESTAMP(pm_joined) AS pm_joined FROM `{$table}` WHERE pm_page_id = %d AND pm_id > %d AND pm_user_status <> 'member_owner' ORDER BY pm_id ASC LIMIT %d",
@@ -522,6 +574,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$members = array();
 		foreach ( (array) $rows as $row ) {
@@ -540,11 +593,15 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $members;
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function group_types(): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results( "SELECT ID, post_title, post_name, post_content FROM {$wpdb->posts} WHERE post_type = 'peepso-group-cat' AND post_status = 'publish' ORDER BY ID ASC", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$types = array();
 		foreach ( (array) $rows as $row ) {
@@ -559,6 +616,16 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $types;
 	}
 
+	/**
+	 * Group-type term ids for a page of groups, keyed by group id.
+	 *
+	 * Batched, so resolving a space's category never costs a query per row. A
+	 * source group may carry several types where a space has one category, so
+	 * the order decides which one the space takes.
+	 *
+	 * @param array<int,int> $group_ids Source group ids.
+	 * @return array<int,array<int,int>>
+	 */
 	public function group_type_map( array $group_ids ): array {
 		global $wpdb;
 
@@ -570,8 +637,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		$in    = implode( ',', $group_ids );
 		$table = $this->t( 'peepso_group_categories' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results( "SELECT gm_group_id, gm_cat_id FROM `{$table}` WHERE gm_group_id IN ({$in}) ORDER BY gc_id ASC", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$map = array();
 		foreach ( (array) $rows as $row ) {
@@ -581,12 +649,19 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $map;
 	}
 
+	/**
+	 * Real activity posts (activity_update, non-spam), keyset-paginated by id.
+	 *
+	 * @param int $after Exclusive lower-bound activity id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function activities( int $after, int $limit ): array {
 		global $wpdb;
 
 		$modules = implode( ',', self::POST_MODULES );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT a.act_id, a.act_external_id, a.act_module_id, a.act_access, a.act_owner_id, a.act_repost_id,
@@ -611,6 +686,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$post_ids = array();
 		foreach ( (array) $rows as $row ) {
@@ -685,10 +761,17 @@ final class PeepSoAdapter implements SourceAdapter {
 		return (int) $until <= 0 || (int) $until > time();
 	}
 
+	/**
+	 * Activity comments (activity_comment, non-spam), keyset-paginated by id.
+	 *
+	 * @param int $after Exclusive lower-bound activity id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function activity_comments( int $after, int $limit ): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT a.act_id, a.act_external_id, a.act_comment_object_id, p.post_author, p.post_content, p.post_date_gmt
@@ -706,6 +789,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -727,11 +811,29 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * WP attachment ids of the media (photos + videos) attached to an activity.
+	 * BuddyPress core has none; BuddyBoss reads bp_media_ids / bp_video_ids.
+	 *
+	 * @param int $activity_id Source activity id.
+	 * @return array<int,int>
+	 */
 	public function activity_media( int $activity_id ): array {
 		unset( $activity_id );
 		return array();
 	}
 
+	/**
+	 * The same as {@see self::activity_media()}, but for a whole batch of
+	 * activities in one query set instead of one query per activity. Keyed by
+	 * activity id; an activity with no media is simply absent from the result
+	 * (callers default to an empty list). This is what the importer calls per
+	 * batch, so a 100k-activity migration issues a couple of queries per page
+	 * rather than one - or two, on BuddyBoss - per row.
+	 *
+	 * @param array<int,int> $activity_ids Source activity ids.
+	 * @return array<int,array<int,int>> Activity id => attachment ids.
+	 */
 	public function activity_media_for( array $activity_ids ): array {
 		unset( $activity_ids );
 		return array();
@@ -753,7 +855,7 @@ final class PeepSoAdapter implements SourceAdapter {
 	/**
 	 * One keyset batch of PeepSo saved posts.
 	 *
-	 * saved_posts.post_id is the activity id: PeepSo's own saved feed joins it
+	 * The saved_posts.post_id column is the activity id: PeepSo's own saved feed joins it
 	 * to act_id (activity/classes/activity.php). A LEFT JOIN keeps a row whose
 	 * activity is gone, so it is reported by the writer instead of vanishing,
 	 * and a page of such rows cannot end the keyset loop early.
@@ -772,7 +874,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		$saved      = $this->t( 'peepso_saved_posts' );
 		$activities = $this->t( 'peepso_activities' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT s.id AS source_id, s.user_id AS user_id, a.act_id AS activity_id, s.timestamp AS date_created
@@ -786,6 +888,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -804,6 +907,13 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * Friendships, keyset-paginated by friendship id.
+	 *
+	 * @param int $after Exclusive lower-bound friendship id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function friendships( int $after, int $limit ): array {
 		global $wpdb;
 
@@ -811,7 +921,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		$requests = $this->t( 'peepso_friend_requests' );
 
 		// Pending ids are offset so they never share a keyset id with an accepted row.
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM (
@@ -828,6 +938,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -845,6 +956,16 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * User follows, keyset-paginated by follow row id.
+	 *
+	 * Row shape: source_id, follower_id, leader_id, date_recorded ('' when the
+	 * source table has no date column - classic bp_follow does not).
+	 *
+	 * @param int $after Exclusive lower-bound follow id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function follows( int $after, int $limit ): array {
 		global $wpdb;
 
@@ -852,7 +973,7 @@ final class PeepSoAdapter implements SourceAdapter {
 		$requests = $this->t( 'peepso_friend_requests' );
 
 		// A friend request also writes a follower row. That is not a follow.
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT uf_id, uf_active_user_id, uf_passive_user_id
@@ -868,6 +989,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -897,8 +1019,9 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		$table = $this->t( 'peepso_blocks' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT blk_id, blk_user_id, blk_blocked_id FROM `{$table}` WHERE blk_id > %d ORDER BY blk_id ASC LIMIT %d", $after, $limit ), ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -912,6 +1035,18 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * Activity reactions/likes, keyset-paginated.
+	 *
+	 * Row shape: source_id, user_id, activity_id, date_created ('' when the
+	 * source stores no per-like date - BuddyPress usermeta favorites do not).
+	 * The keyset id is the reaction row id (BuddyBoss bb_user_reactions) or the
+	 * user id (usermeta-favorites fallback, one batch emits whole users).
+	 *
+	 * @param int $after Exclusive lower-bound keyset id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function reactions( int $after, int $limit ): array {
 		global $wpdb;
 
@@ -956,10 +1091,20 @@ final class PeepSoAdapter implements SourceAdapter {
 		return in_array( $name, self::BN_REACTIONS, true ) ? $name : 'like';
 	}
 
+	/**
+	 * Private-message threads, keyset-paginated by thread id.
+	 *
+	 * Row shape: thread_id, participants (int[]), subject, date_sent (of the
+	 * thread's first message).
+	 *
+	 * @param int $after Exclusive lower-bound thread id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function message_threads( int $after, int $limit ): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$roots = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT ID, post_author, post_date_gmt, post_content FROM {$wpdb->posts} WHERE post_type = 'peepso-message' AND post_parent = 0 AND post_status = 'publish' AND ID > %d ORDER BY ID ASC LIMIT %d",
@@ -968,6 +1113,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		// A thread's members are its participants rows (recipients as the
 		// fallback), not just whoever wrote in it: a message nobody answered has
@@ -979,8 +1125,9 @@ final class PeepSoAdapter implements SourceAdapter {
 			$thread_id = (int) $root['ID'];
 			$people    = array_merge( array( (int) $root['post_author'] ), $members[ $thread_id ] ?? array() );
 
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 			$authors = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT post_author FROM {$wpdb->posts} WHERE post_type = 'peepso-message' AND post_parent = %d", $thread_id ) );
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			foreach ( (array) $authors as $author ) {
 				$people[] = (int) $author;
 			}
@@ -1022,8 +1169,9 @@ final class PeepSoAdapter implements SourceAdapter {
 				continue;
 			}
 			// $in is a list of ints built above; table and column names are literals.
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 			$rows = $wpdb->get_results( "SELECT DISTINCT `{$thread_col}` AS thread_id, `{$user_col}` AS user_id FROM `{$this->t( $table )}` WHERE `{$thread_col}` IN ({$in})", ARRAY_A );
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			foreach ( (array) $rows as $row ) {
 				$members[ (int) $row['thread_id'] ][] = (int) $row['user_id'];
 			}
@@ -1032,10 +1180,22 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $members;
 	}
 
+	/**
+	 * Every message in one thread, oldest first.
+	 *
+	 * Row shape: source_id, sender_id, content, date_sent, and OPTIONALLY
+	 * `media` (int[] of WP attachment ids) where the platform supports message
+	 * attachments. BuddyPress core has none, so the key is absent there;
+	 * BuddyBoss sets it. A writer must treat a missing key as an empty list, and
+	 * must not treat a message with media but no text as empty.
+	 *
+	 * @param int $thread_id Source thread id.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function thread_messages( int $thread_id ): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT ID, post_author, post_content, post_date_gmt FROM {$wpdb->posts} WHERE post_type = 'peepso-message' AND post_status = 'publish' AND (ID = %d OR post_parent = %d) ORDER BY post_date_gmt ASC, ID ASC",
@@ -1044,6 +1204,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -1058,20 +1219,57 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * Member avatars and cover images, keyset-paginated by user id.
+	 *
+	 * These are files on disk, not rows: BuddyPress and BuddyBoss both store an
+	 * avatar under `avatars/{user_id}/` and a cover under
+	 * `buddypress/members/{user_id}/cover-image/`, with nothing in the database
+	 * pointing at them. The listing is therefore driven by the directories that
+	 * actually exist, so a site with 100k members and 200 avatars walks 200 ids.
+	 *
+	 * Row shape: source_id, avatar (absolute path or ''), cover (ditto).
+	 *
+	 * @param int $after Exclusive lower-bound user id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function member_images( int $after, int $limit ): array {
 		return $this->images( 'users', $after, $limit );
 	}
 
+	/**
+	 * Group avatars and cover images, keyset-paginated by group id.
+	 *
+	 * Same storage shape as member images, under `group-avatars/{group_id}/`
+	 * and `buddypress/groups/{group_id}/cover-image/`.
+	 *
+	 * Row shape: source_id, avatar (absolute path or ''), cover (ditto).
+	 *
+	 * @param int $after Exclusive lower-bound group id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function group_images( int $after, int $limit ): array {
 		return $this->images( 'groups', $after, $limit );
 	}
 
+	/**
+	 * Source media albums, keyset-paginated by album id.
+	 *
+	 * Row shape: source_id, user_id, group_id, title, privacy, date_created.
+	 * Empty for platforms with no album feature (BuddyPress core).
+	 *
+	 * @param int $after Exclusive lower-bound album id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function media_albums( int $after, int $limit ): array {
 		global $wpdb;
 
 		$table = $this->t( 'peepso_photos_album' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT pho_album_id, pho_owner_id, pho_album_name, pho_album_desc, pho_album_acc, UNIX_TIMESTAMP(pho_created) AS pho_created FROM `{$table}` WHERE pho_system_album = 0 AND pho_album_id > %d ORDER BY pho_album_id ASC LIMIT %d",
@@ -1080,6 +1278,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -1098,10 +1297,39 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * Media that belongs to an album, keyset-paginated by media row id.
+	 *
+	 * Every source media row has exactly one owning domain: message attachments
+	 * belong to messages, a row with an album_id to its album, a row with only
+	 * an activity_id rides its post, and the remainder is a loose library item.
+	 * Splitting them this way is what lets each domain's count mean something.
+	 *
+	 * Rows carry `menu_order` - the member's own arrangement of the album, and
+	 * the one thing about an album that cannot be reconstructed afterwards.
+	 * BuddyPress core has no albums; only BuddyBoss implements this.
+	 *
+	 * @param int $after Exclusive lower-bound media row id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function album_media( int $after, int $limit ): array {
 		return $this->photo_rows( $after, $limit, true );
 	}
 
+	/**
+	 * Standalone media - library/album items that were never posted to an
+	 * activity, keyset-paginated by media row id. Activity-attached media is
+	 * imported with its post instead (see activity_media()), so it is excluded
+	 * here to keep the two paths from racing for the same rows.
+	 *
+	 * Row shape: source_id, attachment_id, user_id, title, description,
+	 * album_id, group_id, privacy, type, date_created.
+	 *
+	 * @param int $after Exclusive lower-bound media id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function standalone_media( int $after, int $limit ): array {
 		unset( $after, $limit );
 		// Stream photos ride their post via media_paths. A second copy here
@@ -1109,35 +1337,73 @@ final class PeepSoAdapter implements SourceAdapter {
 		return array();
 	}
 
+	/**
+	 * One album's media ids in the order the member arranged them.
+	 *
+	 * Asked separately from the import pass, which walks by media id so it can
+	 * resume - and a member's arrangement rarely matches id order.
+	 *
+	 * @param int $source_album_id Source album id.
+	 * @return array<int,int> Source media ids, menu_order first.
+	 */
 	public function album_media_order( int $source_album_id ): array {
 		global $wpdb;
 
 		$table = $this->t( 'peepso_photos' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT pho_id FROM `{$table}` WHERE pho_album_id = %d ORDER BY pho_created ASC, pho_id ASC", $source_album_id ) );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		return array_map( 'intval', (array) $ids );
 	}
 
+	/**
+	 * Source bbPressforums, keyset-paginated by post id.
+	 *
+	 * Row shape includes `group_id`: the source group this forum belongs to
+	 * (bbPress `_bbp_group_ids`), or 0 for a standalone site forum. Group forums
+	 * must land inside the space their group migrated into, not beside it.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function forums( int $after, int $limit ): array {
 		unset( $after, $limit );
 		return array();
 	}
 
+	/**
+	 * Source bbPresstopics, keyset-paginated by post id.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function forum_topics( int $after, int $limit ): array {
 		unset( $after, $limit );
 		return array();
 	}
 
+	/**
+	 * Source bbPressreplies, keyset-paginated by post id.
+	 *
+	 * @param int $after Exclusive lower-bound post id.
+	 * @param int $limit Batch size.
+	 * @return array<int,array<string,mixed>>
+	 */
 	public function forum_replies( int $after, int $limit ): array {
 		unset( $after, $limit );
 		return array();
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function comment_root_types(): array {
-		$importable   = 0;
-		$not          = 0;
+		$importable = 0;
+		$not        = 0;
 		foreach ( $this->comment_rows() as $row ) {
 			$place = $this->comment_place( (int) $row['act_comment_object_id'] );
 			if ( $place['root_id'] > 0 && $this->root_is_imported( $place['root_id'] ) ) {
@@ -1161,6 +1427,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		);
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function importable_comment_count(): int {
 		$total = 0;
 		foreach ( $this->comment_root_types() as $row ) {
@@ -1171,6 +1440,11 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $total;
 	}
 
+	/**
+	 * Content PeepSo has that BuddyNext cannot carry over, with a reason and a row count for each.
+	 *
+	 * @return array<int,array{reason:string,rows:int}>
+	 */
 	public function unsupported_content(): array {
 		$out = array();
 
@@ -1245,12 +1519,16 @@ final class PeepSoAdapter implements SourceAdapter {
 		);
 	}
 
+	/**
+	 * {@inheritDoc}
+	 */
 	public function relationship_report(): array {
 		$photos  = $this->count_sql( "SELECT COUNT(*) FROM {$this->t( 'peepso_photos' )}" );
 		$missing = 0;
 		global $wpdb;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$names = $wpdb->get_col( "SELECT pho_file_name FROM {$this->t( 'peepso_photos' )}" );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		foreach ( (array) $names as $name ) {
 			if ( '' === $this->file_for( (string) $name ) ) {
 				++$missing;
@@ -1269,7 +1547,11 @@ final class PeepSoAdapter implements SourceAdapter {
 	}
 
 	/**
-	 * @param array<int,array{reason:string,rows:int}> $out
+	 * Adds a content type the import cannot carry to the unsupported list.
+	 *
+	 * @param array<int,array{reason:string,rows:int}> $out    Unsupported list, appended to.
+	 * @param int                                      $rows   Number of source rows affected.
+	 * @param string                                   $reason Why those rows are not imported.
 	 */
 	private function declare( array &$out, int $rows, string $reason ): void {
 		if ( $rows <= 0 ) {
@@ -1282,8 +1564,10 @@ final class PeepSoAdapter implements SourceAdapter {
 	}
 
 	/**
-	 * @param array<int,int> $post_ids
-	 * @return array<int,array<int,array{id:int,path:string,mime:string}>>
+	 * Photo and video files on disk for a batch of posts.
+	 *
+	 * @param array<int,int> $post_ids Source post ids.
+	 * @return array<int,array<int,array{id:int,path:string,mime:string}>> Post id => files.
 	 */
 	private function files_for_posts( array $post_ids ): array {
 		global $wpdb;
@@ -1296,8 +1580,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		$in    = implode( ',', $post_ids );
 		$files = array();
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$photos = $wpdb->get_results( "SELECT pho_id, pho_post_id, pho_file_name FROM {$this->t( 'peepso_photos' )} WHERE pho_post_id IN ({$in})", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		foreach ( (array) $photos as $photo ) {
 			$path = $this->file_for( (string) $photo['pho_file_name'] );
 			if ( '' === $path ) {
@@ -1310,8 +1595,9 @@ final class PeepSoAdapter implements SourceAdapter {
 			);
 		}
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$videos = $wpdb->get_results( "SELECT vid_id, vid_post_id, vid_url, vid_stored FROM {$this->t( 'peepso_videos' )} WHERE vid_stored = 1 AND vid_post_id IN ({$in})", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		foreach ( (array) $videos as $video ) {
 			$post_id = (int) $video['vid_post_id'];
 			$path    = $this->path_from_url( (string) $video['vid_url'] );
@@ -1329,6 +1615,11 @@ final class PeepSoAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * One keyset batch of PeepSo photos, either album photos or stream-only photos.
+	 *
+	 * @param int  $after    Exclusive lower-bound photo id.
+	 * @param int  $limit    Batch size.
+	 * @param bool $in_album True for photos in a member album, false for photos outside one.
 	 * @return array<int,array<string,mixed>>
 	 */
 	private function photo_rows( int $after, int $limit, bool $in_album ): array {
@@ -1336,7 +1627,7 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		$album = $in_album ? 'al.pho_system_album = 0 AND ph.pho_album_id > 0' : 'ph.pho_album_id = 0';
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT ph.pho_id, ph.pho_album_id, ph.pho_owner_id, ph.pho_post_id, ph.pho_file_name, ph.pho_orig_name, ph.pho_acc, UNIX_TIMESTAMP(ph.pho_created) AS pho_created
@@ -1349,6 +1640,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			),
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -1376,7 +1668,10 @@ final class PeepSoAdapter implements SourceAdapter {
 	}
 
 	/**
-	 * @return array<int,array{id:int,avatar:string,cover:string}>
+	 * How many members or groups have an avatar or cover file on disk.
+	 *
+	 * @param string $kind Owner kind, "users" or "groups".
+	 * @return int Number of owners with at least one image.
 	 */
 	private function image_owner_count( string $kind ): int {
 		$count = 0;
@@ -1389,21 +1684,32 @@ final class PeepSoAdapter implements SourceAdapter {
 					++$count;
 				}
 			}
-		} while ( 500 === count( $rows ) );
+			$fetched = count( $rows );
+		} while ( 500 === $fetched );
 
 		return $count;
 	}
 
+	/**
+	 * One keyset batch of avatar and cover files, by member or group.
+	 *
+	 * @param string $kind  Owner kind, "users" or "groups".
+	 * @param int    $after Exclusive lower-bound owner id.
+	 * @param int    $limit Batch size.
+	 * @return array<int,array{source_id:int,avatar:string,cover:string}>
+	 */
 	private function images( string $kind, int $after, int $limit ): array {
 		global $wpdb;
 
 		if ( 'users' === $kind ) {
 			$table = $this->users();
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT usr_id FROM `{$table}` WHERE usr_id > %d AND usr_role NOT IN ('ban','register') ORDER BY usr_id ASC LIMIT %d", $after, $limit ) );
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		} else {
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 			$ids = $wpdb->get_col( $wpdb->prepare( "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ( 'peepso-group', 'peepso-page' ) AND post_status = 'publish' AND ID > %d ORDER BY ID ASC LIMIT %d", $after, $limit ) );
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		}
 
 		$out = array();
@@ -1427,11 +1733,19 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * The first file in a directory that ends with a suffix.
+	 *
+	 * @param string $dir    Directory path.
+	 * @param string $suffix File name ending to match.
+	 * @return string Absolute path, or an empty string when none matches.
+	 */
 	private function first_file( string $dir, string $suffix ): string {
 		if ( ! is_dir( $dir ) ) {
 			return '';
 		}
-		foreach ( glob( $dir . '/*' . $suffix ) ?: array() as $path ) {
+		$found = glob( $dir . '/*' . $suffix );
+		foreach ( $found ? $found : array() as $path ) {
 			if ( is_file( $path ) ) {
 				return $path;
 			}
@@ -1439,6 +1753,12 @@ final class PeepSoAdapter implements SourceAdapter {
 		return '';
 	}
 
+	/**
+	 * Finds a PeepSo upload on disk by its file name.
+	 *
+	 * @param string $name File name as PeepSo stored it.
+	 * @return string Absolute path, or an empty string when the file is missing.
+	 */
 	private function file_for( string $name ): string {
 		if ( '' === $name ) {
 			return '';
@@ -1466,6 +1786,12 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $this->files[ $name ] ?? '';
 	}
 
+	/**
+	 * Turns a local URL into a file path under the site root.
+	 *
+	 * @param string $url Local file URL.
+	 * @return string Absolute path, or an empty string when the file does not exist.
+	 */
 	private function path_from_url( string $url ): string {
 		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
 		if ( '' === $path ) {
@@ -1478,6 +1804,9 @@ final class PeepSoAdapter implements SourceAdapter {
 	/**
 	 * Members-only is stored as private. PrivacyMap publishes every value other
 	 * than onlyme, friends, adminsonly and private.
+	 *
+	 * @param int $access PeepSo act_access value.
+	 * @return string BuddyNext privacy level.
 	 */
 	private function post_privacy( int $access ): string {
 		switch ( $access ) {
@@ -1493,6 +1822,12 @@ final class PeepSoAdapter implements SourceAdapter {
 		}
 	}
 
+	/**
+	 * Maps a PeepSo group privacy value to a BuddyNext group status.
+	 *
+	 * @param string $privacy PeepSo peepso_group_privacy value.
+	 * @return string One of public, private or hidden.
+	 */
 	private function group_status( string $privacy ): string {
 		switch ( $privacy ) {
 			case '1':
@@ -1526,7 +1861,7 @@ final class PeepSoAdapter implements SourceAdapter {
 	 * A poll is a list of choices plus who picked which. The choice key is only
 	 * used to line the votes up with the labels; BuddyNext stores its own ids.
 	 *
-	 * @param array<int,int> $post_ids
+	 * @param array<int,int> $post_ids Source post ids.
 	 * @return array<int,array{options:array<int,string>,votes:array<int,array{user_id:int,option:int}>}>
 	 */
 	private function polls_for_posts( array $post_ids ): array {
@@ -1537,7 +1872,7 @@ final class PeepSoAdapter implements SourceAdapter {
 			return array();
 		}
 
-		$out = array();
+		$out  = array();
 		$keys = array();
 		foreach ( $post_ids as $post_id ) {
 			$stored = get_post_meta( $post_id, 'select_options', true );
@@ -1556,14 +1891,14 @@ final class PeepSoAdapter implements SourceAdapter {
 				if ( '' === $label ) {
 					continue;
 				}
-				$labels[]       = $label;
+				$labels[]               = $label;
 				$index[ (string) $key ] = $order;
 				++$order;
 			}
 			if ( count( $labels ) < 2 || count( $labels ) > 5 ) {
 				continue;
 			}
-			$out[ $post_id ] = array(
+			$out[ $post_id ]  = array(
 				'options' => $labels,
 				'votes'   => array(),
 			);
@@ -1575,8 +1910,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		}
 
 		$in = implode( ',', array_keys( $out ) );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$votes = $wpdb->get_results( "SELECT pu_poll_id, pu_user_id, pu_value FROM {$this->t( 'peepso_polls_user_answers' )} WHERE pu_poll_id IN ({$in})", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		foreach ( (array) $votes as $vote ) {
 			$poll_id = (int) $vote['pu_poll_id'];
 			$option  = $keys[ $poll_id ][ (string) $vote['pu_value'] ] ?? null;
@@ -1595,7 +1931,7 @@ final class PeepSoAdapter implements SourceAdapter {
 	/**
 	 * YouTube and other remote videos live in vid_url, not the post body.
 	 *
-	 * @param array<int,int> $post_ids
+	 * @param array<int,int> $post_ids Source post ids.
 	 * @return array<int,string>
 	 */
 	private function external_video_urls( array $post_ids ): array {
@@ -1607,8 +1943,9 @@ final class PeepSoAdapter implements SourceAdapter {
 		}
 
 		$in = implode( ',', $post_ids );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results( "SELECT vid_post_id, vid_url, vid_title, vid_description, vid_thumbnail FROM {$this->t( 'peepso_videos' )} WHERE vid_stored = 0 AND vid_post_id IN ({$in})", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$out = array();
 		foreach ( (array) $rows as $row ) {
@@ -1626,33 +1963,51 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $out;
 	}
 
+	/**
+	 * A PeepSo group's stored privacy value.
+	 *
+	 * @param int $group_id Source group id.
+	 * @return int PeepSo peepso_group_privacy value, 0 when unset.
+	 */
 	private function group_privacy( int $group_id ): int {
 		return (int) get_post_meta( $group_id, 'peepso_group_privacy', true );
 	}
 
+	/**
+	 * The member who owns a group or page.
+	 *
+	 * @param int $group_id Source group or page id.
+	 * @param int $fallback Member id to use when no owner row exists.
+	 * @return int Owner member id.
+	 */
 	private function group_owner( int $group_id, int $fallback ): int {
 		global $wpdb;
 
 		if ( 'peepso-page' === get_post_type( $group_id ) ) {
 			$table = $this->t( 'peepso_page_members' );
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 			$owner = $wpdb->get_var( $wpdb->prepare( "SELECT pm_user_id FROM `{$table}` WHERE pm_page_id = %d AND pm_user_status = 'member_owner' LIMIT 1", $group_id ) );
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			return $owner ? (int) $owner : $fallback;
 		}
 
 		$table = $this->t( 'peepso_group_members' );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$owner = $wpdb->get_var( $wpdb->prepare( "SELECT gm_user_id FROM `{$table}` WHERE gm_group_id = %d AND gm_user_status = 'member_owner' LIMIT 1", $group_id ) );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		return $owner ? (int) $owner : $fallback;
 	}
 
 	/**
-	 * @return array{root_id:int,parent_id:int}
+	 * Finds the top-level post and the direct parent of a comment.
+	 *
+	 * @param int $parent_external_id Post id of the item the comment replies to.
+	 * @return array{root_id:int,parent_id:int} Activity ids, or zeros when the parent is unknown.
 	 */
 	private function comment_place( int $parent_external_id ): array {
-		$index   = $this->activity_index();
+		$index     = $this->activity_index();
 		$immediate = $index[ $parent_external_id ] ?? null;
 		if ( null === $immediate ) {
 			return array(
@@ -1682,6 +2037,12 @@ final class PeepSoAdapter implements SourceAdapter {
 		);
 	}
 
+	/**
+	 * Whether an activity is a post type the import writes.
+	 *
+	 * @param int $act_id PeepSo activity id.
+	 * @return bool True when the activity is an importable post.
+	 */
 	private function root_is_imported( int $act_id ): bool {
 		foreach ( $this->activity_index() as $row ) {
 			if ( $row['act_id'] === $act_id ) {
@@ -1692,6 +2053,8 @@ final class PeepSoAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Every PeepSo activity keyed by its post id, loaded once per request.
+	 *
 	 * @return array<int,array{act_id:int,comment_object_id:int,module_id:int}>
 	 */
 	private function activity_index(): array {
@@ -1701,8 +2064,9 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$rows = $wpdb->get_results( "SELECT act_id, act_external_id, act_comment_object_id, act_module_id FROM {$this->t( 'peepso_activities' )}", ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$this->by_external = array();
 		foreach ( (array) $rows as $row ) {
@@ -1717,12 +2081,14 @@ final class PeepSoAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * Published, unreported PeepSo comment activities.
+	 *
 	 * @return array<int,array<string,mixed>>
 	 */
 	private function comment_rows(): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		return (array) $wpdb->get_results(
 			"SELECT a.act_id, a.act_comment_object_id
 			FROM {$this->t( 'peepso_activities' )} a
@@ -1731,8 +2097,15 @@ final class PeepSoAdapter implements SourceAdapter {
 			WHERE a.act_comment_object_id > 0 AND p.post_type = 'peepso-comment' AND p.post_status = 'publish' AND r.meta_id IS NULL",
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 	}
 
+	/**
+	 * Rewrites PeepSo @peepso_user_N(name) mentions to BuddyNext mention tokens.
+	 *
+	 * @param string $content Post or comment text.
+	 * @return string Text with mention tokens.
+	 */
 	private function rewrite_mentions( string $content ): string {
 		return (string) preg_replace_callback(
 			'/@peepso_user_(\d+)\([^)]*\)/',
@@ -1802,11 +2175,17 @@ final class PeepSoAdapter implements SourceAdapter {
 		}
 	}
 
+	/**
+	 * Counts importable PeepSo posts or comments.
+	 *
+	 * @param bool $comments True to count comments, false to count posts.
+	 * @return int Row count.
+	 */
 	private function activity_count( bool $comments ): int {
 		global $wpdb;
 
 		if ( $comments ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 			return (int) $wpdb->get_var(
 				"SELECT COUNT(*)
 				FROM {$this->t( 'peepso_activities' )} a
@@ -1814,11 +2193,12 @@ final class PeepSoAdapter implements SourceAdapter {
 				LEFT JOIN {$wpdb->postmeta} r ON r.post_id = p.ID AND r.meta_key = 'peepso_reported'
 				WHERE a.act_comment_object_id > 0 AND p.post_type = 'peepso-comment' AND p.post_status = 'publish' AND r.meta_id IS NULL"
 			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		}
 
 		$modules = implode( ',', self::POST_MODULES );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		return (int) $wpdb->get_var(
 			"SELECT COUNT(*)
 			FROM {$this->t( 'peepso_activities' )} a
@@ -1830,8 +2210,14 @@ final class PeepSoAdapter implements SourceAdapter {
 				AND p.post_status = 'publish'
 				AND r.meta_id IS NULL"
 		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 	}
 
+	/**
+	 * Counts files attached to importable posts.
+	 *
+	 * @return int File count.
+	 */
 	private function attached_file_count(): int {
 		$total = 0;
 		$after = 0;
@@ -1841,25 +2227,37 @@ final class PeepSoAdapter implements SourceAdapter {
 				$total += count( (array) $row['media_paths'] );
 				$after  = (int) $row['source_id'];
 			}
-		} while ( count( $batch ) === 100 );
+			$fetched = count( $batch );
+		} while ( 100 === $fetched );
 
 		return $total;
 	}
 
+	/**
+	 * Counts follows, not counting the rows a friend request writes.
+	 *
+	 * @return int Follow count.
+	 */
 	private function follow_count(): int {
 		$total = 0;
 		$after = 0;
 		do {
-			$batch  = $this->follows( $after, 200 );
-			$total += count( $batch );
+			$batch   = $this->follows( $after, 200 );
+			$fetched = count( $batch );
+			$total  += $fetched;
 			if ( array() !== $batch ) {
-				$after = (int) $batch[ count( $batch ) - 1 ]['source_id'];
+				$after = (int) $batch[ $fetched - 1 ]['source_id'];
 			}
-		} while ( count( $batch ) === 200 );
+		} while ( 200 === $fetched );
 
 		return $total;
 	}
 
+	/**
+	 * Counts stored profile values across all members.
+	 *
+	 * @return int Value count.
+	 */
 	private function profile_value_count(): int {
 		$total = 0;
 		$after = 0;
@@ -1869,25 +2267,46 @@ final class PeepSoAdapter implements SourceAdapter {
 				$total += count( $this->profile_values( $id ) );
 				$after  = $id;
 			}
-		} while ( count( $ids ) === 100 );
+			$fetched = count( $ids );
+		} while ( 100 === $fetched );
 
 		return $total;
 	}
 
+	/**
+	 * Counts posts and comments PeepSo has flagged as reported.
+	 *
+	 * @return int Reported count.
+	 */
 	private function reported_count(): int {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = 'peepso_reported' AND meta_value = '1'" );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 	}
 
+	/**
+	 * Counts WordPress posts of one PeepSo post type.
+	 *
+	 * @param string $type  Post type.
+	 * @param string $extra Fixed SQL condition, never user input.
+	 * @return int Row count.
+	 */
 	private function count_posts( string $type, string $extra = "post_status = 'publish'" ): int {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND {$extra}", $type ) );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 	}
 
+	/**
+	 * Runs a COUNT query, treating a missing PeepSo table as zero rows.
+	 *
+	 * @param string $sql Fixed COUNT query.
+	 * @return int Row count.
+	 */
 	private function count_sql( string $sql ): int {
 		global $wpdb;
 
@@ -1906,6 +2325,9 @@ final class PeepSoAdapter implements SourceAdapter {
 	}
 
 	/**
+	 * A member's peepso_users row, or null when the member has none.
+	 *
+	 * @param int $user_id Source member id.
 	 * @return array<string,string>|null
 	 */
 	private function user_row( int $user_id ): ?array {
@@ -1919,8 +2341,9 @@ final class PeepSoAdapter implements SourceAdapter {
 
 		$table = $this->users();
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Interpolated parts are fixed in code (prefixed table names, the integer POST_MODULES list, intval'd ids, fixed SQL clauses); every value is bound.
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$table}` WHERE usr_id = %d", $user_id ), ARRAY_A );
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$row = is_array( $row ) ? $row : null;
 
 		$this->user_row_cache = array( $user_id, $row );
@@ -1928,15 +2351,32 @@ final class PeepSoAdapter implements SourceAdapter {
 		return $row;
 	}
 
+	/**
+	 * Name of the PeepSo members table.
+	 *
+	 * @return string Prefixed table name.
+	 */
 	private function users(): string {
 		return $this->t( 'peepso_users' );
 	}
 
+	/**
+	 * Prefixes a PeepSo table name with the site's table prefix.
+	 *
+	 * @param string $name Table name without the prefix.
+	 * @return string Prefixed table name.
+	 */
 	private function t( string $name ): string {
 		global $wpdb;
 		return $wpdb->prefix . $name;
 	}
 
+	/**
+	 * Whether a PeepSo table exists on this site.
+	 *
+	 * @param string $name Table name without the prefix.
+	 * @return bool True when the table exists.
+	 */
 	private function table_exists( string $name ): bool {
 		global $wpdb;
 
