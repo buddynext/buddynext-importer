@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       BuddyNext Importer
  * Plugin URI:        https://github.com/buddynext/buddynext-importer
- * Description:       Migrate a BuddyPress or BuddyBoss community into BuddyNext - members, profile fields, groups/spaces and activity - through the BuddyNext service layer.
+ * Description:       Migrate a BuddyPress, BuddyBoss or PeepSo community into BuddyNext - members, profile fields, groups/spaces and activity - through the BuddyNext service layer.
  * Version:           1.2.0
  * Requires at least: 6.9
  * Requires PHP:      8.1

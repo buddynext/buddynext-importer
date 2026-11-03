@@ -137,7 +137,7 @@ final class ImporterPage {
 				// import" reported success after migrating a third of the community.
 				'steps'   => null === $source ? array() : StepRegistry::client_steps( $source ),
 				'i18n'    => array(
-					'noSource'            => __( 'No BuddyPress or BuddyBoss data was found on this site.', 'buddynext-importer' ),
+					'noSource'            => __( 'No BuddyPress, BuddyBoss or PeepSo data was found on this site.', 'buddynext-importer' ),
 					'loadFailed'          => __( 'Could not load source statistics.', 'buddynext-importer' ),
 					'importing'           => __( 'Importing', 'buddynext-importer' ),
 					'complete'            => __( 'Import complete. You can now deactivate and remove this importer.', 'buddynext-importer' ),

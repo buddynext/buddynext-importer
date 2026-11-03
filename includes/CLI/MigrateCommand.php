@@ -33,7 +33,7 @@ use BuddyNextImporter\Source\AdapterRegistry;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Migrate a BuddyPress or BuddyBoss community into BuddyNext.
+ * Migrate a BuddyPress, BuddyBoss or PeepSo community into BuddyNext.
  */
 final class MigrateCommand {
 
@@ -606,7 +606,7 @@ final class MigrateCommand {
 			: AdapterRegistry::detect_active_key();
 
 		if ( null === $source ) {
-			\WP_CLI::error( 'No BuddyPress or BuddyBoss data found on this site.' );
+			\WP_CLI::error( 'No BuddyPress, BuddyBoss or PeepSo data found on this site.' );
 		}
 
 		$importer = BookmarkImporter::for_source( $source );

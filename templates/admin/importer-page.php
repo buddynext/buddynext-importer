@@ -73,7 +73,7 @@ defined( 'ABSPATH' ) || exit;
 		<div>
 			<h2 class="bni-hero__title"><?php esc_html_e( 'Import to BuddyNext', 'buddynext-importer' ); ?></h2>
 			<p class="bni-hero__sub">
-				<?php esc_html_e( 'Migrate an existing BuddyPress or BuddyBoss community into BuddyNext. This is a one-time tool: review what will be imported, run the migration, then deactivate and remove this plugin.', 'buddynext-importer' ); ?>
+				<?php esc_html_e( 'Migrate an existing BuddyPress, BuddyBoss or PeepSo community into BuddyNext. This is a one-time tool: review what will be imported, run the migration, then deactivate and remove this plugin.', 'buddynext-importer' ); ?>
 			</p>
 		</div>
 	</div>
